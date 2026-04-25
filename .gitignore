@@ -1,0 +1,25 @@
+# macOS
+.DS_Store
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Claude Code
+.claude/settings.local.json
+.claude/skills/
+
+# Node
+node_modules/
+dist/
+
+# Runtime data
+data/
+
+# Env
+.env
+.env.local
+
+# Build output
+client/dist/
