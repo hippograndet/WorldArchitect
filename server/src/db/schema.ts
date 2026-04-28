@@ -1,5 +1,32 @@
 import type Database from 'better-sqlite3';
 
+function tryAlter(db: Database.Database, sql: string): void {
+  try {
+    db.exec(sql);
+  } catch (err) {
+    const msg = (err as Error).message ?? '';
+    // SQLite reports "duplicate column name: X" when column already exists
+    if (!msg.includes('already exists') && !msg.includes('duplicate column name')) throw err;
+  }
+}
+
+export function runMigrations(db: Database.Database): void {
+  // M1: add link_type to article_links
+  tryAlter(db, `ALTER TABLE article_links ADD COLUMN link_type TEXT NOT NULL DEFAULT 'references'`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_article_links_target ON article_links(target_article_id, link_type)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_article_links_source ON article_links(source_article_id, link_type)`);
+
+  // M2: extend pending_drafts for multi-step pipeline
+  tryAlter(db, `ALTER TABLE pending_drafts ADD COLUMN context_package TEXT`);
+  tryAlter(db, `ALTER TABLE pending_drafts ADD COLUMN concepts TEXT`);
+  tryAlter(db, `ALTER TABLE pending_drafts ADD COLUMN pipeline_type TEXT NOT NULL DEFAULT 'expand_description'`);
+  tryAlter(db, `ALTER TABLE pending_drafts ADD COLUMN auto_select INTEGER NOT NULL DEFAULT 0`);
+  tryAlter(db, `ALTER TABLE pending_drafts ADD COLUMN parent_update TEXT`);
+
+  // M3: articles.depth for graph hierarchy (SkeletonAgent stubs = 2, create_child = parent+1)
+  tryAlter(db, `ALTER TABLE articles ADD COLUMN depth INTEGER NOT NULL DEFAULT 1`);
+}
+
 export function applySchema(db: Database.Database): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS worlds (

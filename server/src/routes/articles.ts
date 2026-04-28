@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { nanoid } from 'nanoid';
 import { z } from 'zod';
 import { getDb } from '../db/index.js';
+import { splitSections, mergeSections } from '../services/sections.js';
+import { upsertEntry } from '../services/worldBible.js';
 
 const router = Router({ mergeParams: true });
 
@@ -13,7 +15,7 @@ const CreateArticleSchema = z.object({
   categoryId: z.string().min(1),
   title: z.string().min(1).max(500),
   templateType: z
-    .enum(['general', 'character', 'location', 'faction', 'historical_event'])
+    .enum(['general', 'character', 'location', 'faction'])
     .optional()
     .default('general'),
   body: z.string().optional().default(''),
@@ -33,41 +35,61 @@ const ManualEditSchema = z.object({
   isFixedPoint: z.boolean().optional(),
 });
 
+const CoherenceWarningSchema = z.object({
+  sourceArticleId: z.string().nullable().optional(),
+  severity: z.enum(['warning', 'conflict']),
+  description: z.string(),
+});
+
+const SuggestedLinkSchema = z.object({
+  targetArticleTitle: z.string(),
+  targetArticleId: z.string().nullable().optional(),
+});
+
+const TemporalAnchorSchema = z
+  .object({ start: z.string(), end: z.string().optional() })
+  .nullable()
+  .optional();
+
 const SaveDraftSchema = z.object({
-  selectedProposal: z.object({
-    title: z.string(),
-    summary: z.string(),
-  }),
-  expansionParams: z.record(z.unknown()),
-  phase: z.enum(['proposal_selected', 'draft_ready']),
+  // selectedProposal: stores the Phase 1 proposal chosen by user { title, direction }
+  selectedProposal: z.record(z.unknown()).optional(),
+  pipelineType: z
+    .enum(['expand_description', 'expand_chronology', 'create_root', 'create_child', 'reorganize'])
+    .optional()
+    .default('expand_description'),
+  autoSelect: z.boolean().optional().default(false),
+  expansionParams: z.record(z.unknown()).optional().default({}),
+  phase: z.enum([
+    'draft_ready',
+    'coherence_checked',
+    'retention_checked',
+    'chronology_ready',
+  ]),
+  contextPackage: z.record(z.unknown()).optional(),
+  concepts: z.array(z.record(z.unknown())).optional(),
+  parentUpdate: z
+    .object({ articleId: z.string(), appendText: z.string() })
+    .optional(),
+  // draftContent: flexible JSON blob stored by the Director; shape depends on pipelineType
   draftContent: z
     .object({
-      body: z.string(),
-      summary: z.string(),
-      coherenceWarnings: z
-        .array(
-          z.object({
-            sourceArticleId: z.string().nullable().optional(),
-            sourceArticleTitle: z.string().nullable().optional(),
-            severity: z.enum(['warning', 'conflict']),
-            description: z.string(),
-          }),
-        )
+      // expand_description / create_root / reorganize
+      description: z.string().optional(),
+      introduction: z.string().optional(),
+      // expand_chronology
+      chronologySection: z.string().optional(),
+      // create_child
+      childDescription: z.string().optional(),
+      parentAppend: z.string().optional(),
+      // shared
+      coherenceWarnings: z.array(CoherenceWarningSchema).optional().default([]),
+      suggestedLinks: z.array(SuggestedLinkSchema).optional().default([]),
+      temporalAnchor: TemporalAnchorSchema,
+      retentionIssues: z
+        .array(z.object({ description: z.string(), severity: z.enum(['warning', 'critical']) }))
         .optional()
         .default([]),
-      suggestedLinks: z
-        .array(
-          z.object({
-            targetArticleTitle: z.string(),
-            targetArticleId: z.string().nullable().optional(),
-          }),
-        )
-        .optional()
-        .default([]),
-      temporalAnchor: z
-        .object({ start: z.string(), end: z.string().optional() })
-        .nullable()
-        .optional(),
     })
     .optional(),
 });
@@ -125,12 +147,25 @@ function parseDraft(row: DbRow) {
   return {
     id: row.id,
     articleId: row.article_id,
-    selectedProposal: JSON.parse(row.selected_proposal as string),
+    selectedProposal: row.selected_proposal
+      ? JSON.parse(row.selected_proposal as string)
+      : null,
+    pipelineType: (row.pipeline_type as string) ?? 'expand_description',
+    autoSelect: row.auto_select === 1,
+    expansionParams: row.expansion_params
+      ? JSON.parse(row.expansion_params as string)
+      : {},
+    phase: row.phase,
+    contextPackage: row.context_package
+      ? JSON.parse(row.context_package as string)
+      : null,
+    concepts: row.concepts ? JSON.parse(row.concepts as string) : null,
+    parentUpdate: row.parent_update
+      ? JSON.parse(row.parent_update as string)
+      : null,
     draftContent: row.draft_content
       ? JSON.parse(row.draft_content as string)
       : null,
-    expansionParams: JSON.parse(row.expansion_params as string),
-    phase: row.phase,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -167,7 +202,7 @@ router.get('/', (req, res) => {
   const { category, status, q } = req.query as Record<string, string | undefined>;
 
   let sql = 'SELECT * FROM articles WHERE world_id = ?';
-  const params: unknown[] = [req.params.wid];
+  const params: unknown[] = [(req.params as Record<string, string>).wid];
 
   if (category) { sql += ' AND category_id = ?';  params.push(category); }
   if (status)   { sql += ' AND status = ?';        params.push(status); }
@@ -190,12 +225,12 @@ router.post('/', (req, res) => {
   const db = getDb();
 
   // Verify world + category exist
-  const worldExists = db.prepare('SELECT id FROM worlds WHERE id = ?').get(req.params.wid);
+  const worldExists = db.prepare('SELECT id FROM worlds WHERE id = ?').get((req.params as Record<string, string>).wid);
   if (!worldExists) { res.status(404).json({ error: 'World not found' }); return; }
 
   const categoryExists = db
     .prepare('SELECT id FROM categories WHERE id = ? AND world_id = ?')
-    .get(parse.data.categoryId, req.params.wid);
+    .get(parse.data.categoryId, (req.params as Record<string, string>).wid);
   if (!categoryExists) { res.status(404).json({ error: 'Category not found' }); return; }
 
   const {
@@ -216,7 +251,7 @@ router.post('/', (req, res) => {
          current_version_id, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
-      articleId, req.params.wid, categoryId, title, status, templateType,
+      articleId, (req.params as Record<string, string>).wid, categoryId, title, status, templateType,
       temporalAnchorStart ?? null, temporalAnchorEnd ?? null, isFixedPoint ? 1 : 0,
       versionId, now, now,
     );
@@ -236,7 +271,7 @@ router.post('/', (req, res) => {
 
 // GET /api/worlds/:wid/articles/:aid — article + current version body
 router.get('/:aid', (req, res) => {
-  const article = requireArticle(req.params.wid, req.params.aid);
+  const article = requireArticle((req.params as Record<string, string>).wid, req.params.aid);
   if (!article) { res.status(404).json({ error: 'Article not found' }); return; }
 
   const db = getDb();
@@ -274,7 +309,7 @@ router.patch('/:aid', (req, res) => {
     return;
   }
 
-  const article = requireArticle(req.params.wid, req.params.aid);
+  const article = requireArticle((req.params as Record<string, string>).wid, req.params.aid);
   if (!article) { res.status(404).json({ error: 'Article not found' }); return; }
 
   const db = getDb();
@@ -315,7 +350,7 @@ router.patch('/:aid', (req, res) => {
 
 // DELETE /api/worlds/:wid/articles/:aid
 router.delete('/:aid', (req, res) => {
-  const article = requireArticle(req.params.wid, req.params.aid);
+  const article = requireArticle((req.params as Record<string, string>).wid, req.params.aid);
   if (!article) { res.status(404).json({ error: 'Article not found' }); return; }
 
   getDb().prepare('DELETE FROM articles WHERE id = ?').run(req.params.aid);
@@ -328,7 +363,7 @@ router.delete('/:aid', (req, res) => {
 
 // GET /api/worlds/:wid/articles/:aid/versions
 router.get('/:aid/versions', (req, res) => {
-  const article = requireArticle(req.params.wid, req.params.aid);
+  const article = requireArticle((req.params as Record<string, string>).wid, req.params.aid);
   if (!article) { res.status(404).json({ error: 'Article not found' }); return; }
 
   const rows = getDb()
@@ -340,7 +375,7 @@ router.get('/:aid/versions', (req, res) => {
 
 // GET /api/worlds/:wid/articles/:aid/versions/:vid — preview one version
 router.get('/:aid/versions/:vid', (req, res) => {
-  const article = requireArticle(req.params.wid, req.params.aid);
+  const article = requireArticle((req.params as Record<string, string>).wid, req.params.aid);
   if (!article) { res.status(404).json({ error: 'Article not found' }); return; }
 
   const row = getDb()
@@ -354,7 +389,7 @@ router.get('/:aid/versions/:vid', (req, res) => {
 
 // POST /api/worlds/:wid/articles/:aid/revert/:vid — revert to version (non-destructive)
 router.post('/:aid/revert/:vid', (req, res) => {
-  const article = requireArticle(req.params.wid, req.params.aid);
+  const article = requireArticle((req.params as Record<string, string>).wid, req.params.aid);
   if (!article) { res.status(404).json({ error: 'Article not found' }); return; }
 
   const db = getDb();
@@ -397,7 +432,7 @@ router.post('/:aid/revert/:vid', (req, res) => {
 
 // GET /api/worlds/:wid/articles/:aid/draft — crash recovery
 router.get('/:aid/draft', (req, res) => {
-  const article = requireArticle(req.params.wid, req.params.aid);
+  const article = requireArticle((req.params as Record<string, string>).wid, req.params.aid);
   if (!article) { res.status(404).json({ error: 'Article not found' }); return; }
 
   const row = getDb()
@@ -417,12 +452,17 @@ router.post('/:aid/draft', (req, res) => {
     return;
   }
 
-  const article = requireArticle(req.params.wid, req.params.aid);
+  const article = requireArticle((req.params as Record<string, string>).wid, req.params.aid);
   if (!article) { res.status(404).json({ error: 'Article not found' }); return; }
 
   const db = getDb();
   const now = Date.now();
-  const { selectedProposal, expansionParams, phase, draftContent } = parse.data;
+  const {
+    selectedProposal, pipelineType, autoSelect, expansionParams,
+    phase, contextPackage, concepts, parentUpdate, draftContent,
+  } = parse.data;
+
+  const selectedProposalJson = selectedProposal ? JSON.stringify(selectedProposal) : '{}';
 
   const existing = db
     .prepare('SELECT id FROM pending_drafts WHERE article_id = ?')
@@ -431,27 +471,37 @@ router.post('/:aid/draft', (req, res) => {
   if (existing) {
     db.prepare(`
       UPDATE pending_drafts
-      SET selected_proposal = ?, draft_content = ?, expansion_params = ?, phase = ?, updated_at = ?
+      SET selected_proposal = ?, draft_content = ?, expansion_params = ?,
+          phase = ?, pipeline_type = ?, auto_select = ?,
+          context_package = ?, concepts = ?, parent_update = ?, updated_at = ?
       WHERE article_id = ?
     `).run(
-      JSON.stringify(selectedProposal),
+      selectedProposalJson,
       draftContent ? JSON.stringify(draftContent) : null,
       JSON.stringify(expansionParams),
-      phase,
+      phase, pipelineType, autoSelect ? 1 : 0,
+      contextPackage ? JSON.stringify(contextPackage) : null,
+      concepts ? JSON.stringify(concepts) : null,
+      parentUpdate ? JSON.stringify(parentUpdate) : null,
       now,
       req.params.aid,
     );
   } else {
     db.prepare(`
       INSERT INTO pending_drafts
-        (id, article_id, selected_proposal, draft_content, expansion_params, phase, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        (id, article_id, selected_proposal, draft_content, expansion_params,
+         phase, pipeline_type, auto_select, context_package, concepts, parent_update,
+         created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       nanoid(), req.params.aid,
-      JSON.stringify(selectedProposal),
+      selectedProposalJson,
       draftContent ? JSON.stringify(draftContent) : null,
       JSON.stringify(expansionParams),
-      phase,
+      phase, pipelineType, autoSelect ? 1 : 0,
+      contextPackage ? JSON.stringify(contextPackage) : null,
+      concepts ? JSON.stringify(concepts) : null,
+      parentUpdate ? JSON.stringify(parentUpdate) : null,
       now, now,
     );
   }
@@ -465,7 +515,7 @@ router.post('/:aid/draft', (req, res) => {
 
 // DELETE /api/worlds/:wid/articles/:aid/draft — discard draft
 router.delete('/:aid/draft', (req, res) => {
-  const article = requireArticle(req.params.wid, req.params.aid);
+  const article = requireArticle((req.params as Record<string, string>).wid, req.params.aid);
   if (!article) { res.status(404).json({ error: 'Article not found' }); return; }
 
   getDb().prepare('DELETE FROM pending_drafts WHERE article_id = ?').run(req.params.aid);
@@ -480,7 +530,8 @@ router.post('/:aid/accept', (req, res) => {
     return;
   }
 
-  const article = requireArticle(req.params.wid, req.params.aid);
+  const wid = (req.params as Record<string, string>).wid;
+  const article = requireArticle(wid, req.params.aid);
   if (!article) { res.status(404).json({ error: 'Article not found' }); return; }
 
   const db = getDb();
@@ -492,19 +543,15 @@ router.post('/:aid/accept', (req, res) => {
 
   const draftContent = draft.draft_content
     ? (JSON.parse(draft.draft_content as string) as {
-        body: string;
-        summary: string;
-        coherenceWarnings?: Array<{
-          sourceArticleId?: string | null;
-          sourceArticleTitle?: string | null;
-          severity: 'warning' | 'conflict';
-          description: string;
-        }>;
-        suggestedLinks?: Array<{
-          targetArticleTitle: string;
-          targetArticleId?: string | null;
-        }>;
+        description?: string;
+        introduction?: string;
+        chronologySection?: string;
+        childDescription?: string;
+        parentAppend?: string;
+        coherenceWarnings?: Array<{ sourceArticleId?: string | null; severity: 'warning' | 'conflict'; description: string }>;
+        suggestedLinks?: Array<{ targetArticleTitle: string; targetArticleId?: string | null }>;
         temporalAnchor?: { start: string; end?: string } | null;
+        retentionIssues?: Array<{ description: string; severity: 'warning' | 'critical' }>;
       })
     : null;
 
@@ -513,9 +560,7 @@ router.post('/:aid/accept', (req, res) => {
     return;
   }
 
-  // Inline edits override agent content
-  const body = parse.data.bodyOverride ?? draftContent.body;
-  const summary = parse.data.summaryOverride ?? draftContent.summary;
+  const pipelineType = (draft.pipeline_type as string) ?? 'expand_description';
   const coherenceWarnings = draftContent.coherenceWarnings ?? [];
   const suggestedLinks = draftContent.suggestedLinks ?? [];
   const temporalAnchor = draftContent.temporalAnchor ?? null;
@@ -524,36 +569,124 @@ router.post('/:aid/accept', (req, res) => {
   const versionId = nanoid();
   const versionNumber = getNextVersionNumber(req.params.aid);
 
+  // Fetch current body to merge sections correctly
+  const currentVersion = article.current_version_id
+    ? (db.prepare('SELECT body FROM article_versions WHERE id = ?').get(article.current_version_id) as DbRow | undefined)
+    : undefined;
+  const currentBody = (currentVersion?.body as string) ?? '';
+  const { description: currentDesc, chronology: currentChron } = splitSections(currentBody);
+
+  // Derive the new body and introduction based on pipeline type
+  let newBody: string;
+  let newIntroduction: string | null = null;
+  let childArticleId: string | null = null;
+
+  if (pipelineType === 'expand_chronology') {
+    const chronologySection = parse.data.bodyOverride ?? draftContent.chronologySection ?? '';
+    newBody = mergeSections(currentDesc, chronologySection);
+  } else if (pipelineType === 'create_child') {
+    const childDesc = parse.data.bodyOverride ?? draftContent.childDescription ?? '';
+    newBody = mergeSections(childDesc, '');
+    newIntroduction = parse.data.summaryOverride ?? draftContent.introduction ?? null;
+  } else {
+    // expand_description | create_root | reorganize
+    const description = parse.data.bodyOverride ?? draftContent.description ?? '';
+    newBody = mergeSections(description, currentChron);
+    newIntroduction = parse.data.summaryOverride ?? draftContent.introduction ?? null;
+  }
+
   db.transaction(() => {
-    // 1. Create new version
-    db.prepare(`
-      INSERT INTO article_versions
-        (id, article_id, version_number, body, summary,
-         expansion_params, proposal_used, word_count, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      versionId, req.params.aid, versionNumber,
-      body, summary,
-      draft.expansion_params,
-      draft.selected_proposal,
-      countWords(body),
-      now,
-    );
+    if (pipelineType === 'create_child') {
+      // Two-write transaction: new child article + parent append
+      const parentUpdate = draft.parent_update
+        ? (JSON.parse(draft.parent_update as string) as { articleId: string; appendText: string })
+        : null;
 
-    // 2. Update article
-    const articleUpdates: unknown[] = [versionId, 'draft', now];
-    let sql = 'UPDATE articles SET current_version_id = ?, status = ?, updated_at = ?';
+      const parentDepth = (article.depth as number) ?? 1;
+      const childId = nanoid();
+      const childVersionId = nanoid();
 
-    if (temporalAnchor) {
-      sql += ', temporal_anchor_start = ?, temporal_anchor_end = ?';
-      articleUpdates.push(temporalAnchor.start, temporalAnchor.end ?? null);
+      db.prepare(`
+        INSERT INTO articles
+          (id, world_id, category_id, title, status, template_type,
+           depth, current_version_id, created_at, updated_at)
+        SELECT ?, world_id, category_id, title, 'draft', template_type,
+               ?, ?, ?, ?
+        FROM articles WHERE id = ?
+      `).run(childId, parentDepth + 1, childVersionId, now, now, req.params.aid);
+
+      db.prepare(`
+        INSERT INTO article_versions
+          (id, article_id, version_number, body, summary, word_count, created_at)
+        VALUES (?, ?, 1, ?, ?, ?, ?)
+      `).run(childVersionId, childId, newBody, newIntroduction ?? '', countWords(newBody), now);
+
+      db.prepare(`
+        INSERT OR IGNORE INTO article_links (source_article_id, target_article_id, link_type)
+        VALUES (?, ?, 'hierarchical')
+      `).run(req.params.aid, childId);
+
+      if (newIntroduction) {
+        upsertEntry(wid, childId, newIntroduction);
+      }
+
+      if (parentUpdate?.appendText) {
+        const parentVersionId = nanoid();
+        const parentVersionNumber = getNextVersionNumber(req.params.aid);
+        const newParentDesc = currentDesc
+          ? `${currentDesc}\n\n${parentUpdate.appendText}`
+          : parentUpdate.appendText;
+        const newParentBody = mergeSections(newParentDesc, currentChron);
+
+        db.prepare(`
+          INSERT INTO article_versions
+            (id, article_id, version_number, body, summary, word_count, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `).run(parentVersionId, req.params.aid, parentVersionNumber, newParentBody,
+               (article.current_version_id
+                 ? (db.prepare('SELECT summary FROM article_versions WHERE id = ?').get(article.current_version_id) as DbRow | undefined)?.summary ?? ''
+                 : ''),
+               countWords(newParentBody), now);
+
+        db.prepare('UPDATE articles SET current_version_id = ?, updated_at = ? WHERE id = ?')
+          .run(parentVersionId, now, req.params.aid);
+      }
+
+      childArticleId = childId;
+    } else {
+      // Single article write
+      db.prepare(`
+        INSERT INTO article_versions
+          (id, article_id, version_number, body, summary,
+           expansion_params, proposal_used, word_count, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        versionId, req.params.aid, versionNumber,
+        newBody, newIntroduction ?? '',
+        draft.expansion_params,
+        draft.selected_proposal,
+        countWords(newBody),
+        now,
+      );
+
+      const articleUpdates: unknown[] = [versionId, 'draft', now];
+      let sql = 'UPDATE articles SET current_version_id = ?, status = ?, updated_at = ?';
+
+      if (temporalAnchor) {
+        sql += ', temporal_anchor_start = ?, temporal_anchor_end = ?';
+        articleUpdates.push(temporalAnchor.start, temporalAnchor.end ?? null);
+      }
+
+      sql += ' WHERE id = ?';
+      articleUpdates.push(req.params.aid);
+      db.prepare(sql).run(...articleUpdates);
+
+      if (newIntroduction) {
+        upsertEntry(wid, req.params.aid, newIntroduction);
+      }
     }
 
-    sql += ' WHERE id = ?';
-    articleUpdates.push(req.params.aid);
-    db.prepare(sql).run(...articleUpdates);
-
-    // 3. Insert coherence warnings
+    // Insert coherence warnings
     for (const w of coherenceWarnings) {
       db.prepare(`
         INSERT INTO coherence_warnings
@@ -562,22 +695,32 @@ router.post('/:aid/accept', (req, res) => {
       `).run(nanoid(), req.params.aid, w.sourceArticleId ?? null, w.severity, w.description, now);
     }
 
-    // 4. Upsert article links (only for links with a known target ID)
+    // Upsert article links (only for links with known target IDs)
     for (const link of suggestedLinks) {
       if (!link.targetArticleId) continue;
       db.prepare(`
-        INSERT OR IGNORE INTO article_links (source_article_id, target_article_id)
-        VALUES (?, ?)
+        INSERT OR IGNORE INTO article_links (source_article_id, target_article_id, link_type)
+        VALUES (?, ?, 'references')
       `).run(req.params.aid, link.targetArticleId);
     }
 
-    // 5. Remove the pending draft
     db.prepare('DELETE FROM pending_drafts WHERE article_id = ?').run(req.params.aid);
   })();
 
   const updatedArticle = db
     .prepare('SELECT * FROM articles WHERE id = ?')
     .get(req.params.aid) as DbRow;
+
+  if (pipelineType === 'create_child' && childArticleId) {
+    const childArticle = db.prepare('SELECT * FROM articles WHERE id = ?').get(childArticleId) as DbRow;
+    const childVersion = db.prepare('SELECT * FROM article_versions WHERE article_id = ? ORDER BY version_number DESC LIMIT 1').get(childArticleId) as DbRow;
+    return res.status(201).json({
+      article: parseArticle(updatedArticle),
+      childArticle: parseArticle(childArticle),
+      childVersion: parseVersion(childVersion),
+    });
+  }
+
   const newVersion = db
     .prepare('SELECT * FROM article_versions WHERE id = ?')
     .get(versionId) as DbRow;
@@ -586,6 +729,79 @@ router.post('/:aid/accept', (req, res) => {
     article: parseArticle(updatedArticle),
     version: parseVersion(newVersion),
   });
+});
+
+// ---------------------------------------------------------------------------
+// Batch stub creation — POST /api/worlds/:wid/articles/batch
+// Creates N child stubs from ChildProposer-selected proposals. DB-only, no agent.
+// ---------------------------------------------------------------------------
+
+const BatchCreateSchema = z.object({
+  parentArticleId: z.string().min(1),
+  children: z.array(
+    z.object({
+      title: z.string().min(1).max(500),
+      introduction: z.string().min(1),
+      templateType: z.enum(['general', 'character', 'location', 'faction']),
+    }),
+  ).min(1).max(20),
+});
+
+router.post('/batch', (req, res) => {
+  const parse = BatchCreateSchema.safeParse(req.body);
+  if (!parse.success) {
+    res.status(400).json({ error: parse.error.flatten().fieldErrors });
+    return;
+  }
+
+  const wid = (req.params as Record<string, string>).wid;
+  const db = getDb();
+
+  const parent = db
+    .prepare('SELECT id, category_id, depth FROM articles WHERE id = ? AND world_id = ?')
+    .get(parse.data.parentArticleId, wid) as DbRow | undefined;
+
+  if (!parent) { res.status(404).json({ error: 'Parent article not found' }); return; }
+
+  const now = Date.now();
+  const parentDepth = (parent.depth as number) ?? 1;
+  const created: Array<{ id: string; title: string }> = [];
+
+  db.transaction(() => {
+    for (const child of parse.data.children) {
+      const articleId = nanoid();
+      const versionId = nanoid();
+      const body = mergeSections('', '');
+
+      db.prepare(`
+        INSERT INTO articles
+          (id, world_id, category_id, title, status, template_type,
+           depth, current_version_id, created_at, updated_at)
+        VALUES (?, ?, ?, ?, 'stub', ?, ?, ?, ?, ?)
+      `).run(
+        articleId, wid, parent.category_id as string,
+        child.title, child.templateType,
+        parentDepth + 1, versionId, now, now,
+      );
+
+      db.prepare(`
+        INSERT INTO article_versions
+          (id, article_id, version_number, body, summary, word_count, created_at)
+        VALUES (?, ?, 1, ?, ?, 0, ?)
+      `).run(versionId, articleId, body, child.introduction, now);
+
+      db.prepare(`
+        INSERT OR IGNORE INTO article_links (source_article_id, target_article_id, link_type)
+        VALUES (?, ?, 'hierarchical')
+      `).run(parse.data.parentArticleId, articleId);
+
+      upsertEntry(wid, articleId, child.introduction);
+
+      created.push({ id: articleId, title: child.title });
+    }
+  })();
+
+  res.status(201).json({ created });
 });
 
 export default router;

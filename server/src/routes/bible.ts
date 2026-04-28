@@ -21,13 +21,13 @@ function requireWorld(worldId: string): boolean {
 // GET /api/worlds/:wid/bible
 // Returns all per-article entries (for the Bible editor UI) + token metadata.
 router.get('/', (req, res) => {
-  if (!requireWorld(req.params.wid)) {
+  if (!requireWorld((req.params as Record<string, string>).wid)) {
     res.status(404).json({ error: 'World not found' });
     return;
   }
 
-  const entries = getEntries(req.params.wid);
-  const meta = getBibleMeta(req.params.wid);
+  const entries = getEntries((req.params as Record<string, string>).wid);
+  const meta = getBibleMeta((req.params as Record<string, string>).wid);
 
   res.json({ entries, ...meta });
 });
@@ -36,13 +36,13 @@ router.get('/', (req, res) => {
 // Returns the full rendered markdown string (what agents receive as context).
 // Must be declared before /:aid to avoid 'render' being treated as an article ID.
 router.get('/render', (req, res) => {
-  if (!requireWorld(req.params.wid)) {
+  if (!requireWorld((req.params as Record<string, string>).wid)) {
     res.status(404).json({ error: 'World not found' });
     return;
   }
 
-  const markdown = renderBible(req.params.wid);
-  const meta = getBibleMeta(req.params.wid);
+  const markdown = renderBible((req.params as Record<string, string>).wid);
+  const meta = getBibleMeta((req.params as Record<string, string>).wid);
 
   res.json({ markdown, ...meta });
 });
@@ -56,7 +56,7 @@ router.patch('/:aid', (req, res) => {
     return;
   }
 
-  if (!requireWorld(req.params.wid)) {
+  if (!requireWorld((req.params as Record<string, string>).wid)) {
     res.status(404).json({ error: 'World not found' });
     return;
   }
@@ -64,18 +64,18 @@ router.patch('/:aid', (req, res) => {
   const db = getDb();
   const article = db
     .prepare('SELECT id FROM articles WHERE id = ? AND world_id = ?')
-    .get(req.params.aid, req.params.wid);
+    .get(req.params.aid, (req.params as Record<string, string>).wid);
 
   if (!article) {
     res.status(404).json({ error: 'Article not found' });
     return;
   }
 
-  upsertEntry(req.params.wid, req.params.aid, parse.data.summary);
+  upsertEntry((req.params as Record<string, string>).wid, req.params.aid, parse.data.summary);
 
-  const entries = getEntries(req.params.wid);
+  const entries = getEntries((req.params as Record<string, string>).wid);
   const updated = entries.find((e) => e.articleId === req.params.aid);
-  const meta = getBibleMeta(req.params.wid);
+  const meta = getBibleMeta((req.params as Record<string, string>).wid);
 
   res.json({ entry: updated ?? null, ...meta });
 });

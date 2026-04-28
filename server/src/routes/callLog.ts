@@ -8,7 +8,7 @@ const router = Router({ mergeParams: true });
 router.get('/', (req, res) => {
   const worldExists = getDb()
     .prepare('SELECT id FROM worlds WHERE id = ?')
-    .get(req.params.wid);
+    .get((req.params as Record<string, string>).wid);
 
   if (!worldExists) {
     res.status(404).json({ error: 'World not found' });
@@ -26,15 +26,15 @@ router.get('/', (req, res) => {
       ORDER BY created_at DESC
       LIMIT ? OFFSET ?
     `)
-    .all(req.params.wid, limit, offset) as Record<string, unknown>[];
+    .all((req.params as Record<string, string>).wid, limit, offset) as Record<string, unknown>[];
 
   const total = (
     getDb()
       .prepare('SELECT COUNT(*) AS count FROM call_log WHERE world_id = ?')
-      .get(req.params.wid) as { count: number }
+      .get((req.params as Record<string, string>).wid) as { count: number }
   ).count;
 
-  const dailyCount = getDailyCallCount(req.params.wid);
+  const dailyCount = getDailyCallCount((req.params as Record<string, string>).wid);
 
   res.json({
     calls: rows.map((r) => ({

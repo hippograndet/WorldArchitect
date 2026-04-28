@@ -133,7 +133,7 @@ export const worldSettingsRouter = Router({ mergeParams: true });
 worldSettingsRouter.get('/', (req, res) => {
   const settings = getDb()
     .prepare('SELECT * FROM cost_settings WHERE world_id = ?')
-    .get(req.params.wid) as { daily_cap: number | null; bible_threshold: number } | undefined;
+    .get((req.params as Record<string, string>).wid) as { daily_cap: number | null; bible_threshold: number } | undefined;
 
   if (!settings) {
     res.status(404).json({ error: 'World not found' });
@@ -155,7 +155,7 @@ worldSettingsRouter.patch('/', (req, res) => {
 
   const existing = getDb()
     .prepare('SELECT * FROM cost_settings WHERE world_id = ?')
-    .get(req.params.wid) as { daily_cap: number | null; bible_threshold: number } | undefined;
+    .get((req.params as Record<string, string>).wid) as { daily_cap: number | null; bible_threshold: number } | undefined;
 
   if (!existing) {
     res.status(404).json({ error: 'World not found' });
@@ -170,7 +170,7 @@ worldSettingsRouter.patch('/', (req, res) => {
   if (bibleThreshold !== undefined) { fields.push('bible_threshold = ?'); values.push(bibleThreshold); }
 
   if (fields.length > 0) {
-    values.push(req.params.wid);
+    values.push((req.params as Record<string, string>).wid);
     getDb()
       .prepare(`UPDATE cost_settings SET ${fields.join(', ')} WHERE world_id = ?`)
       .run(...values);
@@ -178,7 +178,7 @@ worldSettingsRouter.patch('/', (req, res) => {
 
   const updated = getDb()
     .prepare('SELECT * FROM cost_settings WHERE world_id = ?')
-    .get(req.params.wid) as { daily_cap: number | null; bible_threshold: number };
+    .get((req.params as Record<string, string>).wid) as { daily_cap: number | null; bible_threshold: number };
 
   res.json({ dailyCap: updated.daily_cap, bibleThreshold: updated.bible_threshold });
 });

@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { nanoid } from 'nanoid';
 import { z } from 'zod';
 import { getDb } from '../db/index.js';
+import { isLLMConfigured } from '../providers/index.js';
+import { PipelineCoordinator } from '../agents/director.js';
 
 const router = Router();
 
@@ -57,7 +59,7 @@ function parseCategory(row: Record<string, unknown>) {
 }
 
 // POST /api/worlds — create world + 8 default categories
-router.post('/', (req, res) => {
+router.post('/', async (req, res) => {
   const parse = CreateWorldSchema.safeParse(req.body);
   if (!parse.success) {
     res.status(400).json({ error: parse.error.flatten().fieldErrors });
@@ -103,6 +105,18 @@ router.post('/', (req, res) => {
   const categories = (
     db.prepare('SELECT * FROM categories WHERE world_id = ? ORDER BY sort_order').all(worldId) as Record<string, unknown>[]
   ).map(parseCategory);
+
+  // Auto-run SkeletonAgent if an LLM is configured
+  if (isLLMConfigured()) {
+    try {
+      const seedText = [description, originPoint].filter(Boolean).join('\n\n');
+      const director = new PipelineCoordinator();
+      const skeletonResult = await director.createWorld(worldId, seedText);
+      return res.status(201).json({ world: parseWorld(world), categories, stubs: skeletonResult.stubs });
+    } catch {
+      // SkeletonAgent failure must not block world creation
+    }
+  }
 
   res.status(201).json({ world: parseWorld(world), categories });
 });

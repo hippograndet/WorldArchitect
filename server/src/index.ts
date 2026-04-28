@@ -6,6 +6,9 @@ import articleRoutes from './routes/articles.js';
 import bibleRoutes from './routes/bible.js';
 import settingsRoutes, { worldSettingsRouter } from './routes/settings.js';
 import callLogRoutes from './routes/callLog.js';
+import agentRoutes from './routes/agents.js';
+import snapshotRoutes from './routes/snapshots.js';
+import exportRoutes from './routes/export.js';
 
 const app = express();
 const PORT = 3001;
@@ -42,6 +45,9 @@ app.use('/api/worlds/:wid/articles', articleRoutes);
 app.use('/api/worlds/:wid/bible', bibleRoutes);
 app.use('/api/worlds/:wid/settings', worldSettingsRouter);
 app.use('/api/worlds/:wid/call-log', callLogRoutes);
+app.use('/api/worlds/:wid/agents', agentRoutes);
+app.use('/api/worlds/:wid/snapshots', snapshotRoutes);
+app.use('/api/worlds/:wid/export', exportRoutes);
 app.use('/api/settings', settingsRoutes);
 
 getDb();

@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import { existsSync, mkdirSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { applySchema } from './schema.js';
+import { applySchema, runMigrations } from './schema.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = resolve(__dirname, '../../../data');
@@ -22,6 +22,7 @@ export function getDb(): Database.Database {
   instance.pragma('foreign_keys = ON');
 
   applySchema(instance);
+  runMigrations(instance);
 
   return instance;
 }

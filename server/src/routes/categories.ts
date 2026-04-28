@@ -34,7 +34,7 @@ function requireWorld(worldId: string): boolean {
 
 // GET /api/worlds/:wid/categories
 router.get('/', (req, res) => {
-  if (!requireWorld(req.params.wid)) {
+  if (!requireWorld((req.params as Record<string, string>).wid)) {
     res.status(404).json({ error: 'World not found' });
     return;
   }
@@ -42,14 +42,14 @@ router.get('/', (req, res) => {
   const db = getDb();
   const rows = db
     .prepare('SELECT * FROM categories WHERE world_id = ? ORDER BY sort_order, created_at')
-    .all(req.params.wid) as Record<string, unknown>[];
+    .all((req.params as Record<string, string>).wid) as Record<string, unknown>[];
 
   res.json(rows.map(parseCategory));
 });
 
 // POST /api/worlds/:wid/categories
 router.post('/', (req, res) => {
-  if (!requireWorld(req.params.wid)) {
+  if (!requireWorld((req.params as Record<string, string>).wid)) {
     res.status(404).json({ error: 'World not found' });
     return;
   }
@@ -66,14 +66,14 @@ router.post('/', (req, res) => {
   // Place new category after the last existing one
   const lastOrder = db
     .prepare('SELECT MAX(sort_order) as max_order FROM categories WHERE world_id = ?')
-    .get(req.params.wid) as { max_order: number | null };
+    .get((req.params as Record<string, string>).wid) as { max_order: number | null };
   const sortOrder = (lastOrder.max_order ?? -1) + 1;
 
   const id = nanoid();
   db.prepare(`
     INSERT INTO categories (id, world_id, name, sort_order, hidden, created_at)
     VALUES (?, ?, ?, ?, 0, ?)
-  `).run(id, req.params.wid, parse.data.name, sortOrder, now);
+  `).run(id, (req.params as Record<string, string>).wid, parse.data.name, sortOrder, now);
 
   const row = db
     .prepare('SELECT * FROM categories WHERE id = ?')
@@ -93,7 +93,7 @@ router.patch('/:cid', (req, res) => {
   const db = getDb();
   const existing = db
     .prepare('SELECT * FROM categories WHERE id = ? AND world_id = ?')
-    .get(req.params.cid, req.params.wid) as Record<string, unknown> | undefined;
+    .get(req.params.cid, (req.params as Record<string, string>).wid) as Record<string, unknown> | undefined;
 
   if (!existing) {
     res.status(404).json({ error: 'Category not found' });
@@ -128,7 +128,7 @@ router.delete('/:cid', (req, res) => {
   const db = getDb();
   const existing = db
     .prepare('SELECT id FROM categories WHERE id = ? AND world_id = ?')
-    .get(req.params.cid, req.params.wid);
+    .get(req.params.cid, (req.params as Record<string, string>).wid);
 
   if (!existing) {
     res.status(404).json({ error: 'Category not found' });

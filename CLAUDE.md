@@ -26,11 +26,11 @@ Key docs:
 | 3 | Server | Article CRUD + versioning + drafts | ✅ Done |
 | 4 | Server | World Bible service + routes | ✅ Done |
 | 5 | Server | Provider abstraction + call logger + settings | ✅ Done |
-| 6 | Server | BaseAgent (tool-use loop) + SkeletonAgent | 🔲 Next |
-| 7 | Server | ProposalAgent + ExpansionAgent | 🔲 Pending |
-| 8 | Server | CoherenceAgent + HistoryAgent + CompressionAgent | 🔲 Pending |
-| 9 | Server | Snapshots + ZIP export | 🔲 Pending |
-| 10–16 | Client | Full React frontend | 🔲 Pending |
+| 6 | Server | BaseAgent (tool-use loop) + SkeletonAgent | ✅ Done |
+| 7 | Server | Full expansion pipeline (ProposalAgent, ExpanderAgent, SummarizerAgent, ChildProposerAgent, CoherenceAgent, RetentionAgent) | ✅ Done |
+| 8 | Server | ChroniclerAgent + BibleCompressorAgent | ✅ Done |
+| 9 | Server | Snapshots + ZIP export | ✅ Done |
+| 10–16 | Client | Full React frontend | 🔲 Next |
 
 ---
 
