@@ -1,7 +1,6 @@
 import express from 'express';
 import { getDb, DB_PATH } from './db/index.js';
 import worldRoutes from './routes/worlds.js';
-import categoryRoutes from './routes/categories.js';
 import articleRoutes from './routes/articles.js';
 import bibleRoutes from './routes/bible.js';
 import settingsRoutes, { worldSettingsRouter } from './routes/settings.js';
@@ -40,7 +39,6 @@ app.get('/health', (_req, res) => {
 });
 
 app.use('/api/worlds', worldRoutes);
-app.use('/api/worlds/:wid/categories', categoryRoutes);
 app.use('/api/worlds/:wid/articles', articleRoutes);
 app.use('/api/worlds/:wid/bible', bibleRoutes);
 app.use('/api/worlds/:wid/settings', worldSettingsRouter);

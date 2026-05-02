@@ -7,58 +7,37 @@ import { PipelineCoordinator } from '../agents/director.js';
 
 const router = Router();
 
-const DEFAULT_CATEGORIES = [
-  'Religion',
-  'Technology',
-  'Politics',
-  'Economy',
-  'Culture',
-  'Geography',
-  'History',
-  'Notable Figures',
-];
-
 const CreateWorldSchema = z.object({
-  name: z.string().min(1).max(200),
-  description: z.string().min(20),
-  tags: z.array(z.string()).optional().default([]),
-  tone: z.enum(['narrative', 'academic', 'terse', 'custom']).optional().default('narrative'),
-  originPoint: z.string().optional(),
+  name:          z.string().min(1).max(200),
+  description:   z.string().min(20),
+  tags:          z.array(z.string()).optional().default([]),
+  tone:          z.enum(['narrative', 'academic', 'terse', 'custom']).optional().default('narrative'),
+  originPoint:   z.string().optional(),
+  generateStubs: z.boolean().optional().default(false),
 });
 
 const UpdateWorldSchema = z.object({
-  name: z.string().min(1).max(200).optional(),
+  name:        z.string().min(1).max(200).optional(),
   description: z.string().min(20).optional(),
-  tags: z.array(z.string()).optional(),
-  tone: z.enum(['narrative', 'academic', 'terse', 'custom']).optional(),
+  tags:        z.array(z.string()).optional(),
+  tone:        z.enum(['narrative', 'academic', 'terse', 'custom']).optional(),
   originPoint: z.string().nullable().optional(),
 });
 
 function parseWorld(row: Record<string, unknown>) {
   return {
-    id: row.id,
-    name: row.name,
+    id:          row.id,
+    name:        row.name,
     description: row.description,
-    tags: JSON.parse(row.tags as string),
-    tone: row.tone,
+    tags:        JSON.parse(row.tags as string),
+    tone:        row.tone,
     originPoint: row.origin_point ?? null,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
+    createdAt:   row.created_at,
+    updatedAt:   row.updated_at,
   };
 }
 
-function parseCategory(row: Record<string, unknown>) {
-  return {
-    id: row.id,
-    worldId: row.world_id,
-    name: row.name,
-    sortOrder: row.sort_order,
-    hidden: row.hidden === 1,
-    createdAt: row.created_at,
-  };
-}
-
-// POST /api/worlds — create world + 8 default categories
+// POST /api/worlds — create world
 router.post('/', async (req, res) => {
   const parse = CreateWorldSchema.safeParse(req.body);
   if (!parse.success) {
@@ -66,59 +45,63 @@ router.post('/', async (req, res) => {
     return;
   }
 
-  const { name, description, tags, tone, originPoint } = parse.data;
+  const { name, description, tags, tone, originPoint, generateStubs } = parse.data;
   const db = getDb();
   const now = Date.now();
   const worldId = nanoid();
-
-  const insertWorld = db.prepare(`
-    INSERT INTO worlds (id, name, description, tags, tone, origin_point, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `);
-  const insertCategory = db.prepare(`
-    INSERT INTO categories (id, world_id, name, sort_order, hidden, created_at)
-    VALUES (?, ?, ?, ?, 0, ?)
-  `);
-  const insertSettings = db.prepare(`
-    INSERT INTO cost_settings (world_id, daily_cap, bible_threshold)
-    VALUES (?, NULL, 80000)
-  `);
-  const insertBibleMeta = db.prepare(`
-    INSERT INTO world_bible_meta (world_id, token_count, updated_at)
-    VALUES (?, 0, ?)
-  `);
+  const articleId = nanoid();
+  const versionId = nanoid();
+  const articleBody = `## Description\n\n${description}`;
+  const wordCount = articleBody.split(/\s+/).filter(Boolean).length;
 
   db.transaction(() => {
-    insertWorld.run(
-      worldId, name, description,
-      JSON.stringify(tags), tone, originPoint ?? null,
-      now, now,
-    );
-    DEFAULT_CATEGORIES.forEach((catName, i) => {
-      insertCategory.run(nanoid(), worldId, catName, i, now);
-    });
-    insertSettings.run(worldId);
-    insertBibleMeta.run(worldId, now);
+    db.prepare(`
+      INSERT INTO worlds (id, name, description, tags, tone, origin_point, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(worldId, name, description, JSON.stringify(tags), tone, originPoint ?? null, now, now);
+
+    db.prepare(`
+      INSERT INTO cost_settings (world_id, daily_cap, bible_threshold)
+      VALUES (?, NULL, 80000)
+    `).run(worldId);
+
+    db.prepare(`
+      INSERT INTO world_bible_meta (world_id, token_count, updated_at)
+      VALUES (?, 0, ?)
+    `).run(worldId, now);
+
+    db.prepare(`
+      INSERT INTO articles (id, world_id, title, status, template_type, depth, created_at, updated_at)
+      VALUES (?, ?, ?, 'draft', 'general', 1, ?, ?)
+    `).run(articleId, worldId, name, now, now);
+
+    db.prepare(`
+      INSERT INTO article_versions (id, article_id, version_number, body, summary, word_count, created_at)
+      VALUES (?, ?, 1, ?, ?, ?, ?)
+    `).run(versionId, articleId, articleBody, description, wordCount, now);
+
+    db.prepare(`UPDATE articles SET current_version_id = ? WHERE id = ?`).run(versionId, articleId);
+
+    db.prepare(`
+      INSERT INTO world_bible_entries (id, world_id, article_id, summary, updated_at)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(nanoid(), worldId, articleId, description, now);
   })();
 
   const world = db.prepare('SELECT * FROM worlds WHERE id = ?').get(worldId) as Record<string, unknown>;
-  const categories = (
-    db.prepare('SELECT * FROM categories WHERE world_id = ? ORDER BY sort_order').all(worldId) as Record<string, unknown>[]
-  ).map(parseCategory);
 
-  // Auto-run SkeletonAgent if an LLM is configured
-  if (isLLMConfigured()) {
+  if (generateStubs && isLLMConfigured()) {
     try {
       const seedText = [description, originPoint].filter(Boolean).join('\n\n');
       const director = new PipelineCoordinator();
       const skeletonResult = await director.createWorld(worldId, seedText);
-      return res.status(201).json({ world: parseWorld(world), categories, stubs: skeletonResult.stubs });
+      return res.status(201).json({ world: parseWorld(world), rootArticleId: articleId, stubs: skeletonResult.stubs });
     } catch {
       // SkeletonAgent failure must not block world creation
     }
   }
 
-  res.status(201).json({ world: parseWorld(world), categories });
+  res.status(201).json({ world: parseWorld(world), rootArticleId: articleId });
 });
 
 // GET /api/worlds — list all worlds
@@ -127,7 +110,6 @@ router.get('/', (_req, res) => {
   const rows = db
     .prepare('SELECT * FROM worlds ORDER BY updated_at DESC')
     .all() as Record<string, unknown>[];
-
   res.json(rows.map(parseWorld));
 });
 
@@ -192,18 +174,14 @@ router.patch('/:wid', (req, res) => {
   res.json(parseWorld(updated));
 });
 
-// DELETE /api/worlds/:wid — delete world (cascades to all child tables)
+// DELETE /api/worlds/:wid
 router.delete('/:wid', (req, res) => {
   const db = getDb();
-  const existing = db
-    .prepare('SELECT id FROM worlds WHERE id = ?')
-    .get(req.params.wid);
-
+  const existing = db.prepare('SELECT id FROM worlds WHERE id = ?').get(req.params.wid);
   if (!existing) {
     res.status(404).json({ error: 'World not found' });
     return;
   }
-
   db.prepare('DELETE FROM worlds WHERE id = ?').run(req.params.wid);
   res.status(204).send();
 });

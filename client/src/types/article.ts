@@ -1,0 +1,83 @@
+export type ArticleStatus = 'stub' | 'draft' | 'reviewed';
+export type TemplateType = 'general' | 'character' | 'location' | 'faction' | 'historical_event';
+
+export interface Article {
+  id: string;
+  worldId: string;
+  title: string;
+  status: ArticleStatus;
+  templateType: TemplateType;
+  depth: number;
+  temporalAnchorStart: string | null;
+  temporalAnchorEnd: string | null;
+  isFixedPoint: boolean;
+  currentVersionId: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ArticleVersion {
+  id: string;
+  articleId: string;
+  versionNumber: number;
+  body: string;
+  summary: string;
+  expansionParams: Record<string, unknown> | null;
+  proposalUsed: Record<string, unknown> | null;
+  wordCount: number;
+  isRevert: boolean;
+  revertedFromVersionId: string | null;
+  createdAt: number;
+}
+
+export interface ArticleLink {
+  id: string;
+  title: string;
+  introduction?: string;
+}
+
+export interface CoherenceWarning {
+  id: string;
+  articleId: string;
+  sourceArticleId: string | null;
+  severity: 'warning' | 'conflict';
+  description: string;
+  status: 'open' | 'accepted' | 'resolved';
+  createdAt: number;
+}
+
+export interface ArticleDetail {
+  article: Article;
+  version: ArticleVersion | null;
+  introduction: string;
+  links: ArticleLink[];
+  openWarnings: CoherenceWarning[];
+}
+
+export interface PendingDraft {
+  id: string;
+  articleId: string;
+  selectedProposal: Record<string, unknown> | null;
+  pipelineType: string;
+  autoSelect: boolean;
+  expansionParams: Record<string, unknown>;
+  phase: string;
+  contextPackage: Record<string, unknown> | null;
+  concepts: unknown[] | null;
+  parentUpdate: { articleId: string; appendText: string } | null;
+  draftContent: DraftContent | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface DraftContent {
+  description?: string;
+  introduction?: string;
+  chronologySection?: string;
+  childDescription?: string;
+  parentAppend?: string;
+  coherenceWarnings?: CoherenceWarning[];
+  suggestedLinks?: { targetArticleTitle: string; targetArticleId: string | null }[];
+  temporalAnchor?: { start: string; end?: string } | null;
+  retentionIssues?: { description: string; severity: 'warning' | 'critical' }[];
+}

@@ -12,10 +12,9 @@ const router = Router({ mergeParams: true });
 // ---------------------------------------------------------------------------
 
 const CreateArticleSchema = z.object({
-  categoryId: z.string().min(1),
   title: z.string().min(1).max(500),
   templateType: z
-    .enum(['general', 'character', 'location', 'faction'])
+    .enum(['general', 'character', 'location', 'faction', 'historical_event'])
     .optional()
     .default('general'),
   body: z.string().optional().default(''),
@@ -110,10 +109,10 @@ function parseArticle(row: DbRow) {
   return {
     id: row.id,
     worldId: row.world_id,
-    categoryId: row.category_id,
     title: row.title,
     status: row.status,
     templateType: row.template_type,
+    depth: row.depth ?? 1,
     temporalAnchorStart: row.temporal_anchor_start ?? null,
     temporalAnchorEnd: row.temporal_anchor_end ?? null,
     isFixedPoint: row.is_fixed_point === 1,
@@ -196,17 +195,41 @@ function requireArticle(worldId: string, articleId: string): DbRow | null {
 // Article CRUD
 // ---------------------------------------------------------------------------
 
-// GET /api/worlds/:wid/articles?category=:cid&status=:s&q=:query
+// GET /api/worlds/:wid/articles/tree — flat list with parentId for tree building
+// Must be declared before /:aid to avoid 'tree' being matched as an article ID.
+router.get('/tree', (req, res) => {
+  const db = getDb();
+  const wid = (req.params as Record<string, string>).wid;
+
+  const rows = db.prepare(`
+    SELECT a.id, a.title, a.status, a.depth, a.updated_at,
+           al.source_article_id AS parent_id
+    FROM articles a
+    LEFT JOIN article_links al
+      ON al.target_article_id = a.id AND al.link_type = 'hierarchical'
+    WHERE a.world_id = ?
+    ORDER BY a.depth ASC, a.updated_at ASC
+  `).all(wid) as { id: string; title: string; status: string; depth: number; updated_at: number; parent_id: string | null }[];
+
+  res.json(rows.map((r) => ({
+    id:       r.id,
+    title:    r.title,
+    status:   r.status,
+    depth:    r.depth,
+    parentId: r.parent_id ?? null,
+  })));
+});
+
+// GET /api/worlds/:wid/articles?status=:s&q=:query
 router.get('/', (req, res) => {
   const db = getDb();
-  const { category, status, q } = req.query as Record<string, string | undefined>;
+  const { status, q } = req.query as Record<string, string | undefined>;
 
   let sql = 'SELECT * FROM articles WHERE world_id = ?';
   const params: unknown[] = [(req.params as Record<string, string>).wid];
 
-  if (category) { sql += ' AND category_id = ?';  params.push(category); }
-  if (status)   { sql += ' AND status = ?';        params.push(status); }
-  if (q)        { sql += ' AND title LIKE ?';      params.push(`%${q}%`); }
+  if (status) { sql += ' AND status = ?';   params.push(status); }
+  if (q)      { sql += ' AND title LIKE ?'; params.push(`%${q}%`); }
 
   sql += ' ORDER BY updated_at DESC';
 
@@ -224,17 +247,11 @@ router.post('/', (req, res) => {
 
   const db = getDb();
 
-  // Verify world + category exist
   const worldExists = db.prepare('SELECT id FROM worlds WHERE id = ?').get((req.params as Record<string, string>).wid);
   if (!worldExists) { res.status(404).json({ error: 'World not found' }); return; }
 
-  const categoryExists = db
-    .prepare('SELECT id FROM categories WHERE id = ? AND world_id = ?')
-    .get(parse.data.categoryId, (req.params as Record<string, string>).wid);
-  if (!categoryExists) { res.status(404).json({ error: 'Category not found' }); return; }
-
   const {
-    categoryId, title, templateType, body, summary,
+    title, templateType, body, summary,
     temporalAnchorStart, temporalAnchorEnd, isFixedPoint,
   } = parse.data;
 
@@ -246,12 +263,12 @@ router.post('/', (req, res) => {
   db.transaction(() => {
     db.prepare(`
       INSERT INTO articles
-        (id, world_id, category_id, title, status, template_type,
+        (id, world_id, title, status, template_type,
          temporal_anchor_start, temporal_anchor_end, is_fixed_point,
          current_version_id, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
-      articleId, (req.params as Record<string, string>).wid, categoryId, title, status, templateType,
+      articleId, (req.params as Record<string, string>).wid, title, status, templateType,
       temporalAnchorStart ?? null, temporalAnchorEnd ?? null, isFixedPoint ? 1 : 0,
       versionId, now, now,
     );
@@ -281,10 +298,16 @@ router.get('/:aid', (req, res) => {
         .get(article.current_version_id) as DbRow | undefined)
     : undefined;
 
+  const bibleEntry = db
+    .prepare('SELECT summary FROM world_bible_entries WHERE article_id = ?')
+    .get(req.params.aid) as { summary: string } | undefined;
+
   const links = db
     .prepare(`
-      SELECT a.id, a.title FROM article_links al
+      SELECT a.id, a.title, wbe.summary AS introduction
+      FROM article_links al
       JOIN articles a ON a.id = al.target_article_id
+      LEFT JOIN world_bible_entries wbe ON wbe.article_id = a.id
       WHERE al.source_article_id = ?
     `)
     .all(req.params.aid) as DbRow[];
@@ -296,6 +319,7 @@ router.get('/:aid', (req, res) => {
   res.json({
     article: parseArticle(article),
     version: version ? parseVersion(version) : null,
+    introduction: bibleEntry?.summary ?? '',
     links,
     openWarnings: warnings,
   });
@@ -608,9 +632,9 @@ router.post('/:aid/accept', (req, res) => {
 
       db.prepare(`
         INSERT INTO articles
-          (id, world_id, category_id, title, status, template_type,
+          (id, world_id, title, status, template_type,
            depth, current_version_id, created_at, updated_at)
-        SELECT ?, world_id, category_id, title, 'draft', template_type,
+        SELECT ?, world_id, title, 'draft', template_type,
                ?, ?, ?, ?
         FROM articles WHERE id = ?
       `).run(childId, parentDepth + 1, childVersionId, now, now, req.params.aid);
@@ -741,8 +765,8 @@ const BatchCreateSchema = z.object({
   children: z.array(
     z.object({
       title: z.string().min(1).max(500),
-      introduction: z.string().min(1),
-      templateType: z.enum(['general', 'character', 'location', 'faction']),
+      introduction: z.string().optional().default(''),
+      templateType: z.enum(['general', 'character', 'location', 'faction', 'historical_event']),
     }),
   ).min(1).max(20),
 });
@@ -758,7 +782,7 @@ router.post('/batch', (req, res) => {
   const db = getDb();
 
   const parent = db
-    .prepare('SELECT id, category_id, depth FROM articles WHERE id = ? AND world_id = ?')
+    .prepare('SELECT id, depth FROM articles WHERE id = ? AND world_id = ?')
     .get(parse.data.parentArticleId, wid) as DbRow | undefined;
 
   if (!parent) { res.status(404).json({ error: 'Parent article not found' }); return; }
@@ -775,11 +799,11 @@ router.post('/batch', (req, res) => {
 
       db.prepare(`
         INSERT INTO articles
-          (id, world_id, category_id, title, status, template_type,
+          (id, world_id, title, status, template_type,
            depth, current_version_id, created_at, updated_at)
-        VALUES (?, ?, ?, ?, 'stub', ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, 'stub', ?, ?, ?, ?, ?)
       `).run(
-        articleId, wid, parent.category_id as string,
+        articleId, wid,
         child.title, child.templateType,
         parentDepth + 1, versionId, now, now,
       );

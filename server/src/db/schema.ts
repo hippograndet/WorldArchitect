@@ -5,7 +5,6 @@ function tryAlter(db: Database.Database, sql: string): void {
     db.exec(sql);
   } catch (err) {
     const msg = (err as Error).message ?? '';
-    // SQLite reports "duplicate column name: X" when column already exists
     if (!msg.includes('already exists') && !msg.includes('duplicate column name')) throw err;
   }
 }
@@ -23,7 +22,7 @@ export function runMigrations(db: Database.Database): void {
   tryAlter(db, `ALTER TABLE pending_drafts ADD COLUMN auto_select INTEGER NOT NULL DEFAULT 0`);
   tryAlter(db, `ALTER TABLE pending_drafts ADD COLUMN parent_update TEXT`);
 
-  // M3: articles.depth for graph hierarchy (SkeletonAgent stubs = 2, create_child = parent+1)
+  // M3: articles.depth for graph hierarchy
   tryAlter(db, `ALTER TABLE articles ADD COLUMN depth INTEGER NOT NULL DEFAULT 1`);
 }
 
@@ -40,19 +39,9 @@ export function applySchema(db: Database.Database): void {
       updated_at   INTEGER NOT NULL
     );
 
-    CREATE TABLE IF NOT EXISTS categories (
-      id         TEXT PRIMARY KEY,
-      world_id   TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
-      name       TEXT NOT NULL,
-      sort_order INTEGER NOT NULL DEFAULT 0,
-      hidden     INTEGER NOT NULL DEFAULT 0,
-      created_at INTEGER NOT NULL
-    );
-
     CREATE TABLE IF NOT EXISTS articles (
       id                    TEXT PRIMARY KEY,
       world_id              TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
-      category_id           TEXT NOT NULL REFERENCES categories(id),
       title                 TEXT NOT NULL,
       status                TEXT NOT NULL DEFAULT 'stub',
       template_type         TEXT NOT NULL DEFAULT 'general',
@@ -60,6 +49,7 @@ export function applySchema(db: Database.Database): void {
       temporal_anchor_end   TEXT,
       is_fixed_point        INTEGER NOT NULL DEFAULT 0,
       current_version_id    TEXT,
+      depth                 INTEGER NOT NULL DEFAULT 1,
       created_at            INTEGER NOT NULL,
       updated_at            INTEGER NOT NULL
     );
@@ -81,8 +71,12 @@ export function applySchema(db: Database.Database): void {
     CREATE TABLE IF NOT EXISTS article_links (
       source_article_id TEXT NOT NULL REFERENCES articles(id) ON DELETE CASCADE,
       target_article_id TEXT NOT NULL REFERENCES articles(id) ON DELETE CASCADE,
+      link_type         TEXT NOT NULL DEFAULT 'references',
       PRIMARY KEY (source_article_id, target_article_id)
     );
+
+    CREATE INDEX IF NOT EXISTS idx_article_links_target ON article_links(target_article_id, link_type);
+    CREATE INDEX IF NOT EXISTS idx_article_links_source ON article_links(source_article_id, link_type);
 
     CREATE TABLE IF NOT EXISTS coherence_warnings (
       id                TEXT PRIMARY KEY,
@@ -94,12 +88,13 @@ export function applySchema(db: Database.Database): void {
       created_at        INTEGER NOT NULL
     );
 
+    -- World Bible: LLM context store — one summary per article, no UI editing.
+    -- Summaries are set by agents or derived from article body on manual save.
     CREATE TABLE IF NOT EXISTS world_bible_entries (
       id         TEXT PRIMARY KEY,
       world_id   TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
       article_id TEXT NOT NULL UNIQUE REFERENCES articles(id) ON DELETE CASCADE,
       summary    TEXT NOT NULL,
-      sort_order INTEGER NOT NULL DEFAULT 0,
       updated_at INTEGER NOT NULL
     );
 
@@ -147,7 +142,6 @@ export function applySchema(db: Database.Database): void {
     );
 
     -- Global singleton: one row, id always 'singleton'.
-    -- config stores keys/URLs/model choices as JSON (never returned unmasked).
     CREATE TABLE IF NOT EXISTS provider_settings (
       id         TEXT PRIMARY KEY DEFAULT 'singleton',
       provider   TEXT NOT NULL DEFAULT 'none',
@@ -156,7 +150,6 @@ export function applySchema(db: Database.Database): void {
     );
   `);
 
-  // Seed the provider_settings singleton if it doesn't exist yet.
   db.prepare(`
     INSERT OR IGNORE INTO provider_settings (id, provider, config, updated_at)
     VALUES ('singleton', 'none', '{}', 0)

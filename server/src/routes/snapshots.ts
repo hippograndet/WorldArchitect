@@ -12,7 +12,6 @@ const router = Router({ mergeParams: true });
 interface SnapshotArticleRow {
   id: string;
   world_id: string;
-  category_id: string;
   title: string;
   status: string;
   template_type: string;
@@ -50,7 +49,6 @@ interface SnapshotBibleEntryRow {
   world_id: string;
   article_id: string;
   summary: string;
-  sort_order: number;
   updated_at: number;
 }
 
@@ -209,12 +207,10 @@ router.get('/:sid', (req, res) => {
 
   const data = JSON.parse(row.data) as SnapshotData;
 
-  // Return metadata + article list without full version bodies
   const articlePreviews = data.articles.map((a) => ({
     id: a.id,
     title: a.title,
     status: a.status,
-    category_id: a.category_id,
   }));
 
   res.json({
@@ -264,11 +260,11 @@ router.post('/:sid/restore', (req, res) => {
     // Restore articles
     const insertArticle = db.prepare(`
       INSERT INTO articles
-        (id, world_id, category_id, title, status, template_type,
+        (id, world_id, title, status, template_type,
          temporal_anchor_start, temporal_anchor_end, is_fixed_point,
          current_version_id, depth, created_at, updated_at)
       VALUES
-        (@id, @world_id, @category_id, @title, @status, @template_type,
+        (@id, @world_id, @title, @status, @template_type,
          @temporal_anchor_start, @temporal_anchor_end, @is_fixed_point,
          @current_version_id, @depth, @created_at, @updated_at)
     `);
@@ -294,8 +290,8 @@ router.post('/:sid/restore', (req, res) => {
 
     // Restore bible entries
     const insertBibleEntry = db.prepare(`
-      INSERT INTO world_bible_entries (id, world_id, article_id, summary, sort_order, updated_at)
-      VALUES (@id, @world_id, @article_id, @summary, @sort_order, @updated_at)
+      INSERT INTO world_bible_entries (id, world_id, article_id, summary, updated_at)
+      VALUES (@id, @world_id, @article_id, @summary, @updated_at)
     `);
     for (const e of target.bible_entries) insertBibleEntry.run(e);
 
