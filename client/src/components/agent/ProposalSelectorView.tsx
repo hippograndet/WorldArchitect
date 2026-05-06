@@ -5,7 +5,8 @@ export default function ProposalSelectorView() {
   const { wid } = useParams<{ wid: string }>();
   const {
     agentProposals, agentSelectedProposalIndex,
-    selectAgentProposal, runAgentExpand, agentRetry,
+    selectAgentProposal, editAgentProposalDirection,
+    runAgentExpand, agentRetry,
     agentPipelineType,
   } = useStore();
 
@@ -16,28 +17,45 @@ export default function ProposalSelectorView() {
 
   const canExpand = agentSelectedProposalIndex !== null;
 
-  // reorganize goes directly (no proposal needed – server returns result)
-  const expandLabel = agentPipelineType === 'reorganize' ? 'Reorganize' : 'Expand Selected';
+  const expandLabel =
+    agentPipelineType === 'reorganize' ? 'Reorganize' :
+    agentPipelineType === 'forge_expand' ? 'Get Ideas →' :
+    'Expand Selected';
 
   return (
     <div className="p-5 flex flex-col gap-4">
       <p className="text-xs font-semibold text-gray-600">Choose a direction</p>
 
       <div className="flex flex-col gap-3">
-        {agentProposals.map((p, i) => (
-          <button
-            key={i}
-            onClick={() => selectAgentProposal(i)}
-            className={`text-left p-3 rounded-xl border transition-colors ${
-              agentSelectedProposalIndex === i
-                ? 'border-purple-400 bg-purple-50 ring-1 ring-purple-300'
-                : 'border-gray-200 hover:border-gray-300 bg-white'
-            }`}
-          >
-            <p className="text-xs font-semibold text-gray-800 mb-1">{p.title}</p>
-            <p className="text-xs text-gray-500 leading-relaxed">{p.direction}</p>
-          </button>
-        ))}
+        {agentProposals.map((p, i) => {
+          const isSelected = agentSelectedProposalIndex === i;
+          return (
+            <div
+              key={i}
+              onClick={() => selectAgentProposal(i)}
+              className={`p-3 rounded-xl border cursor-pointer transition-colors ${
+                isSelected
+                  ? 'border-purple-400 bg-purple-50 ring-1 ring-purple-300'
+                  : 'border-gray-200 hover:border-gray-300 bg-white'
+              }`}
+            >
+              <p className="text-xs font-semibold text-gray-800 mb-1.5">{p.title}</p>
+              <textarea
+                value={p.direction}
+                onClick={(e) => e.stopPropagation()}
+                onChange={(e) => {
+                  e.stopPropagation();
+                  editAgentProposalDirection(i, e.target.value);
+                  if (!isSelected) selectAgentProposal(i);
+                }}
+                rows={3}
+                className={`w-full text-xs leading-relaxed resize-none bg-transparent focus:outline-none focus:ring-1 focus:ring-purple-300 rounded p-0.5 -mx-0.5 ${
+                  isSelected ? 'text-gray-700' : 'text-gray-500'
+                }`}
+              />
+            </div>
+          );
+        })}
       </div>
 
       <div className="flex gap-2 pt-1">

@@ -1,6 +1,7 @@
 import type { World, CreateWorldInput, BibleMeta } from '../types/world.ts';
 import type { FlatArticle } from './tree.ts';
 import type { Article, ArticleDetail, ArticleVersion, PendingDraft, CoherenceWarning } from '../types/article.ts';
+import type { ContextDepth, IdeaItem, EdgeProposal, GlobalWarning, StyleWardenResult } from '../types/agent.ts';
 
 const BASE = '/api';
 
@@ -36,6 +37,23 @@ export const api = {
     create: (input: CreateWorldInput)     => post<{ world: World; rootArticleId: string }>('/worlds', input),
     update: (wid: string, input: Partial<CreateWorldInput>) => patch<World>(`/worlds/${wid}`, input),
     delete: (wid: string)                 => del(`/worlds/${wid}`),
+    promptEngineer: (input: {
+      fieldType: 'inspiration' | 'vibe' | 'writing_style';
+      rawText: string;
+      worldName: string;
+      worldDescription: string;
+      wid?: string;
+    }) => {
+      const path = input.wid
+        ? `/worlds/${input.wid}/prompt-engineer`
+        : '/worlds/prompt-engineer';
+      return post<{ expandedDescription: string }>(path, {
+        fieldType:        input.fieldType,
+        rawText:          input.rawText,
+        worldName:        input.worldName,
+        worldDescription: input.worldDescription,
+      });
+    },
   },
 
   articles: {
@@ -97,32 +115,40 @@ export const api = {
   agents: {
     estimate: (wid: string, extra?: { extraText?: string }) =>
       post<{ estimatedTokens: number }>(`/worlds/${wid}/agents/estimate`, extra ?? {}),
-    propose: (wid: string, input: { articleId: string; pipelineType: string; userSpec?: string }) =>
-      post<{ proposals: import('../types/agent.ts').Proposal[] }>(`/worlds/${wid}/agents/propose`, input),
+    propose: (wid: string, input: {
+      articleId: string; pipelineType: string; userSpec?: string;
+      autoSelect?: boolean; contextDepth?: ContextDepth;
+    }) => post<{
+      proposals: import('../types/agent.ts').Proposal[];
+      autoSelectedIndex?: number;
+      autoSelectRationale?: string;
+    }>(`/worlds/${wid}/agents/propose`, input),
     expand: (wid: string, input: {
       articleId: string; pipelineType: string;
       selectedProposalIndex: number; proposals: import('../types/agent.ts').Proposal[];
-      userSpec?: string;
+      selectedIdeas?: IdeaItem[];
+      userSpec?: string; contextDepth?: ContextDepth;
+      runStyleWarden?: boolean;
     }) => post<{
-      description?: string; introduction?: string;
-      coherenceWarnings: CoherenceWarning[];
-      suggestedLinks: { targetArticleTitle: string; targetArticleId: string | null }[];
-      parentUpdate?: { articleId: string; appendText: string };
+      description: string;
+      introduction?: string;
+      parentUpdate?: { appendText: string };
+      styleCheck?: StyleWardenResult;
     }>(`/worlds/${wid}/agents/expand`, input),
-    proposeChildren: (wid: string, input: { articleId: string }) =>
+    proposeChildren: (wid: string, input: { articleId: string; contextDepth?: ContextDepth; userSpec?: string }) =>
       post<{ proposals: import('../types/agent.ts').ChildProposal[] }>(`/worlds/${wid}/agents/propose-children`, input),
-    chronology: (wid: string, input: { articleId: string; userSpec?: string }) =>
+    chronology: (wid: string, input: { articleId: string; userSpec?: string; contextDepth?: ContextDepth }) =>
       post<{ chronologySection: string; coherenceWarnings: CoherenceWarning[] }>(`/worlds/${wid}/agents/chronology`, input),
-    summarize: (wid: string, input: { articleId: string }) =>
+    summarize: (wid: string, input: { articleId: string; mode?: import('../types/agent.ts').SummarizerMode }) =>
       post<{ introduction: string }>(`/worlds/${wid}/agents/summarize`, input),
-    reorganize: (wid: string, input: { articleId: string; userSpec?: string }) =>
+    reorganize: (wid: string, input: { articleId: string; userSpec?: string; contextDepth?: ContextDepth }) =>
       post<{
         description: string; introduction: string;
         retentionIssues: { description: string; severity: 'warning' | 'critical' }[];
         coherenceWarnings: CoherenceWarning[];
         suggestedLinks: { targetArticleTitle: string; targetArticleId: string | null }[];
       }>(`/worlds/${wid}/agents/reorganize`, input),
-    cohere: (wid: string, input: { articleId: string }) =>
+    cohere: (wid: string, input: { articleId: string; contextDepth?: ContextDepth }) =>
       post<{
         warnings: CoherenceWarning[];
         suggestedLinks: { targetArticleTitle: string; targetArticleId: string | null }[];
@@ -131,6 +157,21 @@ export const api = {
       post<{ entries: { articleId: string; compressedSummary: string; tokensBefore: number; tokensAfter: number }[] }>(
         `/worlds/${wid}/agents/compress`,
       ),
+    proposeIdeas: (wid: string, input: {
+      articleId: string;
+      introduction: string;
+      selectedProposal: import('../types/agent.ts').Proposal;
+      userSpec?: string;
+      contextDepth?: ContextDepth;
+    }) => post<{ ideas: IdeaItem[] }>(`/worlds/${wid}/agents/propose-ideas`, input),
+    audit: (wid: string, input?: { sampleSize?: number }) =>
+      post<{ edgeProposals: EdgeProposal[]; globalWarnings: GlobalWarning[] }>(
+        `/worlds/${wid}/agents/audit`, input ?? {},
+      ),
+    acceptEdge: (wid: string, input: { sourceArticleId: string; targetArticleId: string; linkType: 'references' | 'hierarchical' }) =>
+      post<{ ok: true }>(`/worlds/${wid}/agents/audit/accept-edge`, input),
+    auditProposals: (wid: string) =>
+      get<{ proposals: (EdgeProposal & { id: string; status: string })[] }>(`/worlds/${wid}/agents/audit/proposals`),
   },
 
   settings: {

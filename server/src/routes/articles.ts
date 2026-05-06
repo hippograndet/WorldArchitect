@@ -304,7 +304,8 @@ router.get('/:aid', (req, res) => {
 
   const links = db
     .prepare(`
-      SELECT a.id, a.title, wbe.summary AS introduction
+      SELECT a.id, a.title, wbe.summary AS introduction,
+             al.link_type AS linkType
       FROM article_links al
       JOIN articles a ON a.id = al.target_article_id
       LEFT JOIN world_bible_entries wbe ON wbe.article_id = a.id

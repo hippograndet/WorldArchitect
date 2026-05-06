@@ -8,7 +8,8 @@ import {
 } from '../prompts/expander.js';
 import type { WorldContext } from './director.js';
 import type { ContextPackage } from '../services/archivist.js';
-import type { ProposalItem } from './proposal.js';
+import type { ProposalItem } from './muse.js';
+import type { IdeaItem } from './oracle.js';
 import type { ChatMessage } from '../providers/types.js';
 import type { Tool } from '../tools/types.js';
 
@@ -16,38 +17,25 @@ import type { Tool } from '../tools/types.js';
 // I/O types
 // ---------------------------------------------------------------------------
 
-const SuggestedLinkSchema = z.object({
-  targetArticleTitle: z.string(),
-  targetArticleId: z.string().nullable().optional(),
-});
-
-const TemporalAnchorSchema = z
-  .object({ start: z.string(), end: z.string().optional() })
-  .nullable()
-  .optional();
-
 const SubmitDescriptionSchema = z.object({
   description: z.string(),
-  suggestedLinks: z.array(SuggestedLinkSchema).optional().default([]),
-  temporalAnchor: TemporalAnchorSchema,
 });
 
 const SubmitChildDescriptionSchema = z.object({
   childDescription: z.string(),
   parentAppend: z.string(),
-  suggestedLinks: z.array(SuggestedLinkSchema).optional().default([]),
-  temporalAnchor: TemporalAnchorSchema,
 });
 
-export type ExpanderOutput =
-  | { mode: 'single'; description: string; suggestedLinks: { targetArticleTitle: string; targetArticleId?: string | null }[]; temporalAnchor?: { start: string; end?: string } | null }
-  | { mode: 'child'; childDescription: string; parentAppend: string; suggestedLinks: { targetArticleTitle: string; targetArticleId?: string | null }[]; temporalAnchor?: { start: string; end?: string } | null };
+export type ScribeOutput =
+  | { mode: 'single'; description: string }
+  | { mode: 'child'; childDescription: string; parentAppend: string };
 
-export interface ExpanderInput {
+export interface ScribeInput {
   contextPackage: ContextPackage;
   worldContext: WorldContext;
   mode: ExpanderMode;
   selectedProposal?: ProposalItem;
+  selectedIdeas?: IdeaItem[];
   userSpec?: string;
 }
 
@@ -55,8 +43,8 @@ export interface ExpanderInput {
 // Agent
 // ---------------------------------------------------------------------------
 
-export class ExpanderAgent extends BaseAgent<ExpanderInput, ExpanderOutput> {
-  readonly agentType = 'expander';
+export class ScribeAgent extends BaseAgent<ScribeInput, ScribeOutput> {
+  readonly agentType = 'scribe';
 
   get outputToolName(): string {
     return this._mode === 'create_child' ? 'submit_child_description' : 'submit_description';
@@ -64,7 +52,9 @@ export class ExpanderAgent extends BaseAgent<ExpanderInput, ExpanderOutput> {
 
   private _mode: ExpanderMode = 'expand_description';
 
-  protected buildMessages(_worldId: string, input: ExpanderInput): ChatMessage[] {
+  protected getMaxTokens(): number { return 8192; }
+
+  protected buildMessages(_worldId: string, input: ScribeInput): ChatMessage[] {
     this._mode = input.mode;
     return [
       {
@@ -78,6 +68,7 @@ export class ExpanderAgent extends BaseAgent<ExpanderInput, ExpanderOutput> {
           input.mode,
           input.selectedProposal,
           input.userSpec,
+          input.selectedIdeas,
         ),
       },
     ];
@@ -89,23 +80,12 @@ export class ExpanderAgent extends BaseAgent<ExpanderInput, ExpanderOutput> {
       : OUTPUT_TOOLS.submit_description;
   }
 
-  protected parseOutput(input: Record<string, unknown>): ExpanderOutput {
+  protected parseOutput(input: Record<string, unknown>): ScribeOutput {
     if (this._mode === 'create_child') {
       const parsed = SubmitChildDescriptionSchema.parse(input);
-      return {
-        mode: 'child',
-        childDescription: parsed.childDescription,
-        parentAppend: parsed.parentAppend,
-        suggestedLinks: parsed.suggestedLinks,
-        temporalAnchor: parsed.temporalAnchor,
-      };
+      return { mode: 'child', childDescription: parsed.childDescription, parentAppend: parsed.parentAppend };
     }
     const parsed = SubmitDescriptionSchema.parse(input);
-    return {
-      mode: 'single',
-      description: parsed.description,
-      suggestedLinks: parsed.suggestedLinks,
-      temporalAnchor: parsed.temporalAnchor,
-    };
+    return { mode: 'single', description: parsed.description };
   }
 }

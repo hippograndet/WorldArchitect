@@ -24,6 +24,41 @@ export function runMigrations(db: Database.Database): void {
 
   // M3: articles.depth for graph hierarchy
   tryAlter(db, `ALTER TABLE articles ADD COLUMN depth INTEGER NOT NULL DEFAULT 1`);
+
+  // M4: worlds.style_config for vibe, writing style, inspirations
+  tryAlter(db, `ALTER TABLE worlds ADD COLUMN style_config TEXT NOT NULL DEFAULT '{}'`);
+
+  // M5: auditor edge proposals table
+  tryAlter(db, `
+    CREATE TABLE IF NOT EXISTS auditor_edge_proposals (
+      id                   TEXT PRIMARY KEY,
+      world_id             TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
+      source_article_id    TEXT NOT NULL REFERENCES articles(id) ON DELETE CASCADE,
+      target_article_id    TEXT NOT NULL REFERENCES articles(id) ON DELETE CASCADE,
+      link_type            TEXT NOT NULL DEFAULT 'references',
+      rationale            TEXT NOT NULL,
+      status               TEXT NOT NULL DEFAULT 'pending',
+      created_at           INTEGER NOT NULL
+    )
+  `);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_auditor_edges_world ON auditor_edge_proposals(world_id, status)`);
+
+  // M6: pending_drafts.selected_ideas for Oracle idea selection
+  tryAlter(db, `ALTER TABLE pending_drafts ADD COLUMN selected_ideas TEXT`);
+
+  // M7: call_log agentType string updates (cosmetic — updates old log rows)
+  try {
+    db.exec(`UPDATE call_log SET agent_type = 'muse'        WHERE agent_type = 'proposal'`);
+    db.exec(`UPDATE call_log SET agent_type = 'scribe'       WHERE agent_type = 'expander'`);
+    db.exec(`UPDATE call_log SET agent_type = 'lorekeeper'   WHERE agent_type = 'summarizer'`);
+    db.exec(`UPDATE call_log SET agent_type = 'architect'    WHERE agent_type = 'skeleton'`);
+    db.exec(`UPDATE call_log SET agent_type = 'cartographer' WHERE agent_type = 'child_proposer'`);
+    db.exec(`UPDATE call_log SET agent_type = 'warden'       WHERE agent_type = 'coherence'`);
+    db.exec(`UPDATE call_log SET agent_type = 'sentinel'     WHERE agent_type = 'retention'`);
+    db.exec(`UPDATE call_log SET agent_type = 'condenser'    WHERE agent_type = 'bible_compressor'`);
+    db.exec(`UPDATE call_log SET agent_type = 'stylist'      WHERE agent_type = 'prompt_engineer'`);
+    db.exec(`UPDATE call_log SET agent_type = 'curator'      WHERE agent_type = 'taste'`);
+  } catch { /* ignore — call_log may be empty or already updated */ }
 }
 
 export function applySchema(db: Database.Database): void {
@@ -35,6 +70,7 @@ export function applySchema(db: Database.Database): void {
       tags         TEXT NOT NULL DEFAULT '[]',
       tone         TEXT NOT NULL DEFAULT 'narrative',
       origin_point TEXT,
+      style_config TEXT NOT NULL DEFAULT '{}',
       created_at   INTEGER NOT NULL,
       updated_at   INTEGER NOT NULL
     );

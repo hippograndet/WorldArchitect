@@ -22,12 +22,12 @@ export default function TopBar() {
   };
 
   return (
-    <header className="h-12 flex items-center gap-3 px-4 border-b border-gray-200 bg-white shrink-0">
-      <Link to="/" className="text-sm text-gray-400 hover:text-gray-700 shrink-0">← Worlds</Link>
+    <header className="h-12 flex items-center gap-3 px-4 border-b border-gray-200 bg-surface shrink-0">
+      <Link to="/" className="text-sm text-ink-muted hover:text-ink shrink-0">← Worlds</Link>
 
       <Link
         to={`/worlds/${wid ?? ''}`}
-        className="font-semibold text-gray-900 truncate hover:text-blue-600 transition-colors"
+        className="font-semibold text-ink truncate hover:text-blue-600 transition-colors"
         style={{ maxWidth: '180px' }}
       >
         {world?.name ?? '…'}

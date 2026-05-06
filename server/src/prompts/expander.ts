@@ -1,18 +1,10 @@
 import type { WorldContext } from '../agents/director.js';
 import type { ContextPackage } from '../services/archivist.js';
-import type { ProposalItem } from '../agents/proposal.js';
+import type { ProposalItem } from '../agents/muse.js';
+import type { IdeaItem } from '../agents/oracle.js';
+import { buildWorldHeader } from './shared.js';
 
 export type ExpanderMode = 'expand_description' | 'create_root' | 'create_child' | 'reorganize';
-
-function toneDescription(tone: string): string {
-  const tones: Record<string, string> = {
-    narrative: 'Write in an engaging narrative style, as if for a well-crafted novel companion wiki.',
-    academic: 'Write in a measured, analytical academic style, like a scholarly encyclopaedia.',
-    terse: 'Write concisely and factually — minimal prose, maximum information density.',
-    custom: 'Match the tone implied by the world description.',
-  };
-  return tones[tone] ?? tones.narrative;
-}
 
 function renderContextPackage(pkg: ContextPackage, mode: ExpanderMode): string {
   const parts: string[] = [];
@@ -80,8 +72,7 @@ You must NOT add new facts or remove existing ones. Return only the reorganized 
 
   return `You are the Expander for WorldArchitect, a fiction world-building tool.
 
-World: **${worldContext.name}**
-Tone: ${toneDescription(worldContext.tone)}${worldContext.originPoint ? `\nOrigin/Constraints: ${worldContext.originPoint}` : ''}
+${buildWorldHeader(worldContext)}
 
 ${modeInstructions}
 
@@ -93,6 +84,7 @@ export function buildExpanderUserMessage(
   mode: ExpanderMode,
   selectedProposal?: ProposalItem,
   userSpec?: string,
+  selectedIdeas?: IdeaItem[],
 ): string {
   const parts: string[] = [
     `## Article: ${pkg.targetTitle}`,
@@ -105,6 +97,11 @@ export function buildExpanderUserMessage(
 
   if (selectedProposal) {
     parts.push(`## Selected Creative Direction\n**${selectedProposal.title}**\n${selectedProposal.direction}`);
+  }
+
+  if (selectedIdeas && selectedIdeas.length > 0) {
+    const ideaList = selectedIdeas.map(i => `- **${i.theme}**: ${i.detail}`).join('\n');
+    parts.push(`## Themes to Incorporate\n${ideaList}`);
   }
 
   if (userSpec) {

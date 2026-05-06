@@ -8,6 +8,7 @@ import ChronologyEditor from './ChronologyEditor.tsx';
 import VersionHistoryPanel from './VersionHistoryPanel.tsx';
 import AddSubsectionDialog from './AddSubsectionDialog.tsx';
 import DraftCrashRecovery from './DraftCrashRecovery.tsx';
+import ArticleInfoSidebar from './ArticleInfoSidebar.tsx';
 import { mergeChronology } from '../../lib/sections.ts';
 
 // ---------------------------------------------------------------------------
@@ -112,7 +113,13 @@ export default function ArticlePage() {
   const handleOpenAgent = () => {
     if (!wid || !aid) return;
     setShowHistory(false);
-    openAgentPanel(aid, article.title, 'expand_description');
+    openAgentPanel(aid, article.title, 'spark');
+  };
+
+  const handleOpenSolidify = () => {
+    if (!wid || !aid) return;
+    setShowHistory(false);
+    openAgentPanel(aid, article.title, 'solidification');
   };
 
   // ---------------------------------------------------------------------------
@@ -163,9 +170,13 @@ export default function ArticlePage() {
   };
 
   return (
-    <div className="max-w-3xl mx-auto py-8 px-6">
+    <div className="max-w-screen-xl mx-auto py-8 px-6">
       {/* Crash recovery banner */}
       {wid && <DraftCrashRecovery worldId={wid} />}
+
+      <div className="flex gap-10 items-start">
+      {/* ── Main content column ── */}
+      <div className="flex-1 min-w-0 max-w-2xl">
 
       {/* Header */}
       <div className="flex items-start justify-between gap-4 mb-6">
@@ -193,6 +204,12 @@ export default function ArticlePage() {
             History
           </button>
           <button
+            onClick={handleOpenSolidify}
+            className="px-3 py-1.5 text-xs border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 transition-colors"
+          >
+            ⚙ Solidify
+          </button>
+          <button
             onClick={handleOpenAgent}
             className={`px-3 py-1.5 text-xs border rounded-lg font-medium transition-colors ${
               agentPanelOpen
@@ -200,7 +217,7 @@ export default function ArticlePage() {
                 : 'border-purple-300 text-purple-600 hover:bg-purple-50'
             }`}
           >
-            AI Agent
+            ✦ Spark
           </button>
         </div>
       </div>
@@ -326,6 +343,26 @@ export default function ArticlePage() {
           parentArticleId={aid}
           onClose={() => setShowAddSubsection(false)}
         />
+      )}
+
+      </div>{/* end main content column */}
+
+      {/* ── Info sidebar ── */}
+      <ArticleInfoSidebar />
+
+      </div>{/* end flex row */}
+
+      {/* Spark FAB — only when AgentPanel is closed */}
+      {!agentPanelOpen && wid && aid && (
+        <button
+          onClick={() => openAgentPanel(aid, article.title, 'spark')}
+          className="fixed bottom-8 right-8 w-14 h-14 rounded-full bg-purple-600 text-white
+                     shadow-xl hover:bg-purple-700 hover:scale-105 transition-all z-40
+                     flex items-center justify-center text-xl font-bold select-none"
+          title="Spark — open AI Agent"
+        >
+          ✦
+        </button>
       )}
     </div>
   );

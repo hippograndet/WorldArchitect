@@ -1,9 +1,10 @@
 import type { WorldContext } from '../agents/director.js';
+import { buildWorldHeader } from './shared.js';
 
 export function buildRetentionSystemPrompt(worldContext: WorldContext): string {
   return `You are the RetentionAgent for WorldArchitect, a fiction world-building tool.
 
-World: **${worldContext.name}**
+${buildWorldHeader(worldContext)}
 
 Your task: compare the original article content (before reorganization) with the reorganized version. Verify that ALL facts from the original are preserved in the new version.
 

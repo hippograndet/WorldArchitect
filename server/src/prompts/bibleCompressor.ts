@@ -1,4 +1,5 @@
 import type { WorldContext } from '../agents/director.js';
+import { buildWorldHeader } from './shared.js';
 
 export interface CompressorEntry {
   articleId: string;
@@ -9,7 +10,7 @@ export interface CompressorEntry {
 export function buildBibleCompressorSystemPrompt(worldContext: WorldContext): string {
   return `You are the BibleCompressor for WorldArchitect, a fiction world-building tool.
 
-World: **${worldContext.name}**
+${buildWorldHeader(worldContext)}
 
 Your task: compress the World Bible entries below. Each entry is a one-paragraph Introduction stored in the World Bible. Compress each so it is as concise as possible while retaining every key fact.
 

@@ -35,6 +35,9 @@ export abstract class BaseAgent<TInput, TOutput> {
     return CONTEXT_TOOLS;
   }
 
+  /** Override in subclasses that generate long prose (e.g. ScribeAgent). */
+  protected getMaxTokens(): number { return 4096; }
+
   async run(worldId: string, input: TInput): Promise<AgentResult<TOutput>> {
     const provider = getProvider();
     const tools: Tool[] = [...this.getContextTools(), this.buildOutputTool()];
@@ -47,7 +50,7 @@ export abstract class BaseAgent<TInput, TOutput> {
 
     try {
       for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
-        const result = await provider.complete(messages, { maxTokens: 4096 }, tools);
+        const result = await provider.complete(messages, { maxTokens: this.getMaxTokens() }, tools);
         tokensIn += result.tokensIn;
         tokensOut += result.tokensOut;
 
@@ -63,8 +66,14 @@ export abstract class BaseAgent<TInput, TOutput> {
         // Process each tool call
         for (const call of result.toolCalls) {
           if (call.name === this.outputToolName) {
-            output = this.parseOutput(call.input);
-            messages.push({ role: 'tool', content: 'accepted', toolCallId: call.id });
+            try {
+              output = this.parseOutput(call.input);
+              messages.push({ role: 'tool', content: 'accepted', toolCallId: call.id });
+            } catch (parseErr) {
+              // Feed validation error back so the LLM can self-correct in the next iteration
+              const msg = parseErr instanceof Error ? parseErr.message : 'Validation failed';
+              messages.push({ role: 'tool', content: `Tool call rejected: ${msg}. Please revise and call the tool again.`, toolCallId: call.id });
+            }
           } else {
             const content = executeContextTool(worldId, call);
             messages.push({ role: 'tool', content, toolCallId: call.id });
@@ -77,7 +86,9 @@ export abstract class BaseAgent<TInput, TOutput> {
         }
       }
     } finally {
-      logCall({ worldId, agentType: this.agentType, tokensIn, tokensOut, status });
+      try {
+        logCall({ worldId, agentType: this.agentType, tokensIn, tokensOut, status });
+      } catch { /* logging must never crash the agent */ }
     }
 
     if (output === null) {

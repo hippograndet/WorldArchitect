@@ -1,7 +1,11 @@
 import { z } from 'zod';
 import { BaseAgent } from './base.js';
 import { OUTPUT_TOOLS } from '../tools/output.js';
-import { buildSummarizerSystemPrompt, buildSummarizerUserMessage } from '../prompts/summarizer.js';
+import {
+  buildSummarizerSystemPrompt,
+  buildSummarizerUserMessage,
+  type SummarizerPromptMode,
+} from '../prompts/summarizer.js';
 import type { WorldContext } from './director.js';
 import type { ChatMessage } from '../providers/types.js';
 import type { Tool } from '../tools/types.js';
@@ -14,31 +18,40 @@ const SubmitIntroductionSchema = z.object({
   introduction: z.string().min(1),
 });
 
-export type SummarizerOutput = { introduction: string };
+export type LorekeepOutput = { introduction: string };
+export type LorekeepMode = 'full' | 'improve';
 
-export interface SummarizerInput {
+export interface LorekeepInput {
   articleTitle: string;
   description: string;
   worldContext: WorldContext;
+  mode?: LorekeepMode;
+  existingIntro?: string;
 }
 
 // ---------------------------------------------------------------------------
 // Agent
 // ---------------------------------------------------------------------------
 
-export class SummarizerAgent extends BaseAgent<SummarizerInput, SummarizerOutput> {
-  readonly agentType = 'summarizer';
+export class LorekeepAgent extends BaseAgent<LorekeepInput, LorekeepOutput> {
+  readonly agentType = 'lorekeeper';
   readonly outputToolName = 'submit_introduction';
 
-  protected buildMessages(_worldId: string, input: SummarizerInput): ChatMessage[] {
+  protected buildMessages(_worldId: string, input: LorekeepInput): ChatMessage[] {
+    const promptMode: SummarizerPromptMode = input.mode === 'improve' ? 'improve' : 'full';
     return [
       {
         role: 'system',
-        content: buildSummarizerSystemPrompt(input.worldContext),
+        content: buildSummarizerSystemPrompt(input.worldContext, promptMode),
       },
       {
         role: 'user',
-        content: buildSummarizerUserMessage(input.articleTitle, input.description),
+        content: buildSummarizerUserMessage(
+          input.articleTitle,
+          input.description,
+          promptMode,
+          input.existingIntro,
+        ),
       },
     ];
   }
@@ -47,12 +60,11 @@ export class SummarizerAgent extends BaseAgent<SummarizerInput, SummarizerOutput
     return OUTPUT_TOOLS.submit_introduction;
   }
 
-  // No DB context needed — works solely from the provided description
   protected getContextTools(): Tool[] {
     return [];
   }
 
-  protected parseOutput(input: Record<string, unknown>): SummarizerOutput {
+  protected parseOutput(input: Record<string, unknown>): LorekeepOutput {
     const parsed = SubmitIntroductionSchema.parse(input);
     return { introduction: parsed.introduction };
   }

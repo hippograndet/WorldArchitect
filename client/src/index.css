@@ -1,2 +1,282 @@
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
+
+/* ── Semantic theme tokens ── */
+@theme {
+  --color-surface:   var(--surface, #ffffff);
+  --color-surface-2: var(--surface-2, #f9fafb);
+  --color-ink:       var(--ink, #111827);
+  --color-ink-muted: var(--ink-muted, #6b7280);
+}
+
+/* ── Default ── */
+:root {
+  --surface:   #ffffff;
+  --surface-2: #f9fafb;
+  --ink:       #111827;
+  --ink-muted: #6b7280;
+}
+
+/* ============================================================
+   ARCANE SCROLL — Parchment fantasy
+   ============================================================ */
+
+[data-theme="arcane_scroll"] {
+  --surface:   #f4e8d0;
+  --surface-2: #e8d5b0;
+  --ink:       #3d2b1f;
+  --ink-muted: #6b4c35;
+  font-family: Georgia, 'Times New Roman', serif;
+  /* Subtle diagonal crosshatch texture */
+  background-image:
+    repeating-linear-gradient(
+      45deg,
+      transparent 0px,
+      transparent 40px,
+      rgba(139, 90, 43, 0.04) 40px,
+      rgba(139, 90, 43, 0.04) 41px
+    ),
+    repeating-linear-gradient(
+      -45deg,
+      transparent 0px,
+      transparent 40px,
+      rgba(139, 90, 43, 0.04) 40px,
+      rgba(139, 90, 43, 0.04) 41px
+    );
+}
+
+/* Backgrounds */
+[data-theme="arcane_scroll"] .bg-white        { background-color: #f9f1e0; }
+[data-theme="arcane_scroll"] .bg-gray-50      { background-color: #f4e8d0; }
+[data-theme="arcane_scroll"] .bg-gray-100     { background-color: #edd9b8; }
+[data-theme="arcane_scroll"] .bg-gray-200     { background-color: #e4cda4; }
+[data-theme="arcane_scroll"] .bg-blue-50      { background-color: #ede0c4; }
+[data-theme="arcane_scroll"] .bg-purple-50    { background-color: #ede0c4; }
+
+/* Text */
+[data-theme="arcane_scroll"] .text-gray-900   { color: #3d2b1f; }
+[data-theme="arcane_scroll"] .text-gray-800   { color: #4a3326; }
+[data-theme="arcane_scroll"] .text-gray-700   { color: #5a3f2e; }
+[data-theme="arcane_scroll"] .text-gray-600   { color: #6b4c35; }
+[data-theme="arcane_scroll"] .text-gray-500   { color: #8b6348; }
+[data-theme="arcane_scroll"] .text-gray-400   { color: #a07855; }
+[data-theme="arcane_scroll"] .text-gray-300   { color: #c4a882; }
+
+/* Borders */
+[data-theme="arcane_scroll"] .border-gray-100 { border-color: #dcc9a0; }
+[data-theme="arcane_scroll"] .border-gray-200 { border-color: #c9a96e; }
+[data-theme="arcane_scroll"] .border-gray-300 { border-color: #b8935a; }
+
+/* Inputs */
+[data-theme="arcane_scroll"] input:not([type="radio"]):not([type="checkbox"]),
+[data-theme="arcane_scroll"] textarea,
+[data-theme="arcane_scroll"] select {
+  background-color: #faf4e6;
+  color: #3d2b1f;
+  border-color: #c9a96e;
+}
+[data-theme="arcane_scroll"] input::placeholder,
+[data-theme="arcane_scroll"] textarea::placeholder { color: #a07855; }
+
+/* Article content area — give it a parchment card feel */
+[data-theme="arcane_scroll"] .prose h1,
+[data-theme="arcane_scroll"] .prose h2,
+[data-theme="arcane_scroll"] .prose h3 { color: #3d2b1f; font-variant: small-caps; }
+[data-theme="arcane_scroll"] .prose    { color: #4a3326; }
+[data-theme="arcane_scroll"] .prose a  { color: #8b4513; }
+[data-theme="arcane_scroll"] .prose hr { border-color: #c9a96e; }
+
+/* Navigation active state */
+[data-theme="arcane_scroll"] .bg-blue-50.text-blue-700 { background-color: #e8d5b0; color: #8b4513; }
+[data-theme="arcane_scroll"] .text-blue-700  { color: #8b4513; }
+[data-theme="arcane_scroll"] .text-blue-600  { color: #9b5523; }
+[data-theme="arcane_scroll"] .border-blue-300 { border-color: #c9a96e; }
+
+/* Scrollbar */
+[data-theme="arcane_scroll"] ::-webkit-scrollbar-track { background: #e8d5b0; }
+[data-theme="arcane_scroll"] ::-webkit-scrollbar-thumb { background: #c9a96e; border-radius: 4px; }
+
+/* ============================================================
+   DATA-LINK — Dark sci-fi terminal
+   ============================================================ */
+
+[data-theme="data_link"] {
+  --surface:   #0a0e1a;
+  --surface-2: #0d1220;
+  --ink:       #c8d8f0;
+  --ink-muted: #6a82aa;
+  font-family: 'Courier New', Courier, monospace;
+  /* Scan-line texture */
+  background-image:
+    repeating-linear-gradient(
+      0deg,
+      transparent 0px,
+      transparent 3px,
+      rgba(0, 200, 255, 0.025) 3px,
+      rgba(0, 200, 255, 0.025) 4px
+    );
+}
+
+/* Backgrounds */
+[data-theme="data_link"] .bg-white        { background-color: #0f1726; }
+[data-theme="data_link"] .bg-gray-50      { background-color: #0d1422; }
+[data-theme="data_link"] .bg-gray-100     { background-color: #111827; }
+[data-theme="data_link"] .bg-gray-200     { background-color: #1a2540; }
+[data-theme="data_link"] .bg-blue-50      { background-color: #0d1e35; }
+[data-theme="data_link"] .bg-purple-50    { background-color: #0d1730; }
+[data-theme="data_link"] .bg-amber-50     { background-color: #1a1800; }
+[data-theme="data_link"] .bg-red-50       { background-color: #1a0a0a; }
+[data-theme="data_link"] .bg-green-50     { background-color: #0a1a0f; }
+
+/* Text */
+[data-theme="data_link"] .text-gray-900   { color: #e0eeff; }
+[data-theme="data_link"] .text-gray-800   { color: #c8d8f0; }
+[data-theme="data_link"] .text-gray-700   { color: #a8c0e0; }
+[data-theme="data_link"] .text-gray-600   { color: #8aa8cc; }
+[data-theme="data_link"] .text-gray-500   { color: #6a82aa; }
+[data-theme="data_link"] .text-gray-400   { color: #4a6288; }
+[data-theme="data_link"] .text-gray-300   { color: #2a4268; }
+
+/* Borders */
+[data-theme="data_link"] .border-gray-100 { border-color: #1a2540; }
+[data-theme="data_link"] .border-gray-200 { border-color: #1e2d4a; }
+[data-theme="data_link"] .border-gray-300 { border-color: #243560; }
+
+/* Navigation active */
+[data-theme="data_link"] .bg-blue-50.text-blue-700 { background-color: #0d2240; color: #00d4ff; }
+[data-theme="data_link"] .text-blue-700  { color: #00d4ff; }
+[data-theme="data_link"] .text-blue-600  { color: #00bce0; }
+[data-theme="data_link"] .border-blue-300 { border-color: #004466; }
+[data-theme="data_link"] .border-blue-500 { border-color: #0066aa; }
+
+/* Inputs */
+[data-theme="data_link"] input:not([type="radio"]):not([type="checkbox"]),
+[data-theme="data_link"] textarea,
+[data-theme="data_link"] select {
+  background-color: #060910;
+  color: #c8d8f0;
+  border-color: #1e2d4a;
+}
+[data-theme="data_link"] input::placeholder,
+[data-theme="data_link"] textarea::placeholder { color: #4a6288; }
+[data-theme="data_link"] input:focus,
+[data-theme="data_link"] textarea:focus {
+  box-shadow: 0 0 0 2px rgba(0, 212, 255, 0.3);
+  border-color: #0066aa;
+}
+
+/* Article content area */
+[data-theme="data_link"] .prose           { color: #a8c0e0; }
+[data-theme="data_link"] .prose h1,
+[data-theme="data_link"] .prose h2,
+[data-theme="data_link"] .prose h3        { color: #00d4ff; letter-spacing: 0.05em; text-transform: uppercase; font-size: 0.9em; }
+[data-theme="data_link"] .prose a         { color: #00d4ff; }
+[data-theme="data_link"] .prose hr        { border-color: #1e2d4a; }
+[data-theme="data_link"] .prose code      { background-color: #0d1422; color: #00ff88; border: 1px solid #1e2d4a; }
+
+/* Glow effect on accents */
+[data-theme="data_link"] .text-purple-700,
+[data-theme="data_link"] .text-purple-600 { color: #00d4ff; }
+[data-theme="data_link"] .bg-purple-600   { background-color: #00507a; }
+[data-theme="data_link"] .bg-purple-700,
+[data-theme="data_link"] .hover\:bg-purple-700:hover { background-color: #006090; }
+[data-theme="data_link"] .bg-purple-50    { background-color: #0a1a2a; }
+[data-theme="data_link"] .text-purple-400 { color: #4ab8d4; }
+[data-theme="data_link"] .text-purple-500 { color: #00a8cc; }
+[data-theme="data_link"] .border-purple-300 { border-color: #004466; }
+
+/* Status dots — green and blue stay, gray goes light */
+[data-theme="data_link"] .bg-gray-300     { background-color: #2a4268; }
+
+/* Scrollbar */
+[data-theme="data_link"] ::-webkit-scrollbar-track { background: #060910; }
+[data-theme="data_link"] ::-webkit-scrollbar-thumb { background: #1e2d4a; border-radius: 4px; }
+[data-theme="data_link"] ::-webkit-scrollbar-thumb:hover { background: #2a4268; }
+
+/* ============================================================
+   THE DOSSIER — Typewriter noir
+   ============================================================ */
+
+[data-theme="dossier"] {
+  --surface:   #f5f0e8;
+  --surface-2: #ebe4d5;
+  --ink:       #2c2416;
+  --ink-muted: #5c4f3a;
+  font-family: 'Courier New', Courier, monospace;
+  /* Faint horizontal ruled lines */
+  background-image:
+    repeating-linear-gradient(
+      180deg,
+      transparent 0px,
+      transparent 27px,
+      rgba(100, 80, 50, 0.07) 27px,
+      rgba(100, 80, 50, 0.07) 28px
+    );
+}
+
+/* Backgrounds */
+[data-theme="dossier"] .bg-white          { background-color: #faf6ed; }
+[data-theme="dossier"] .bg-gray-50        { background-color: #f5f0e8; }
+[data-theme="dossier"] .bg-gray-100       { background-color: #ece4d4; }
+[data-theme="dossier"] .bg-gray-200       { background-color: #e2d9c8; }
+[data-theme="dossier"] .bg-blue-50        { background-color: #ede7d8; }
+[data-theme="dossier"] .bg-purple-50      { background-color: #ede7d8; }
+
+/* Text */
+[data-theme="dossier"] .text-gray-900     { color: #2c2416; }
+[data-theme="dossier"] .text-gray-800     { color: #36301e; }
+[data-theme="dossier"] .text-gray-700     { color: #4a4028; }
+[data-theme="dossier"] .text-gray-600     { color: #5c4f3a; }
+[data-theme="dossier"] .text-gray-500     { color: #7a6a52; }
+[data-theme="dossier"] .text-gray-400     { color: #9a8a72; }
+[data-theme="dossier"] .text-gray-300     { color: #c0af96; }
+
+/* Borders */
+[data-theme="dossier"] .border-gray-100   { border-color: #d8ceba; }
+[data-theme="dossier"] .border-gray-200   { border-color: #c5b89a; }
+[data-theme="dossier"] .border-gray-300   { border-color: #b0a080; }
+
+/* Navigation active */
+[data-theme="dossier"] .bg-blue-50.text-blue-700 { background-color: #ded8c4; color: #8b6914; }
+[data-theme="dossier"] .text-blue-700     { color: #8b6914; }
+[data-theme="dossier"] .text-blue-600     { color: #9b7924; }
+[data-theme="dossier"] .border-blue-300   { border-color: #c5b89a; }
+[data-theme="dossier"] .border-blue-500   { border-color: #b0a080; }
+
+/* Inputs */
+[data-theme="dossier"] input:not([type="radio"]):not([type="checkbox"]),
+[data-theme="dossier"] textarea,
+[data-theme="dossier"] select {
+  background-color: #faf6ed;
+  color: #2c2416;
+  border-color: #c5b89a;
+}
+[data-theme="dossier"] input::placeholder,
+[data-theme="dossier"] textarea::placeholder { color: #9a8a72; }
+
+/* Article content area */
+[data-theme="dossier"] .prose             { color: #36301e; }
+[data-theme="dossier"] .prose h1,
+[data-theme="dossier"] .prose h2,
+[data-theme="dossier"] .prose h3          { color: #2c2416; text-decoration: underline; text-underline-offset: 4px; }
+[data-theme="dossier"] .prose a           { color: #8b6914; }
+[data-theme="dossier"] .prose hr          { border-color: #c5b89a; }
+
+/* Purple accent → amber for dossier */
+[data-theme="dossier"] .text-purple-700,
+[data-theme="dossier"] .text-purple-600   { color: #8b6914; }
+[data-theme="dossier"] .bg-purple-600     { background-color: #8b6914; }
+[data-theme="dossier"] .hover\:bg-purple-700:hover { background-color: #7a5c10; }
+[data-theme="dossier"] .bg-purple-50      { background-color: #ede7d8; }
+[data-theme="dossier"] .text-purple-400   { color: #a07828; }
+[data-theme="dossier"] .text-purple-500   { color: #9a7020; }
+[data-theme="dossier"] .border-purple-300 { border-color: #c5b89a; }
+[data-theme="dossier"] .ring-purple-300   { --tw-ring-color: #c5b89a; }
+
+/* Status dots */
+[data-theme="dossier"] .bg-gray-300       { background-color: #c0af96; }
+
+/* Scrollbar */
+[data-theme="dossier"] ::-webkit-scrollbar-track { background: #ebe4d5; }
+[data-theme="dossier"] ::-webkit-scrollbar-thumb { background: #c5b89a; border-radius: 4px; }
+[data-theme="dossier"] ::-webkit-scrollbar-thumb:hover { background: #b0a080; }

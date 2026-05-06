@@ -2,10 +2,23 @@ import { Router } from 'express';
 import { nanoid } from 'nanoid';
 import { z } from 'zod';
 import { getDb } from '../db/index.js';
-import { isLLMConfigured } from '../providers/index.js';
+import { isLLMConfigured, requireLLM } from '../providers/index.js';
 import { PipelineCoordinator } from '../agents/director.js';
+import { StylistAgent } from '../agents/stylist.js';
+import type { PromptEngineerFieldType } from '../prompts/promptEngineer.js';
 
 const router = Router();
+
+const StyleConfigSchema = z.object({
+  preset:       z.string().optional(),
+  vibe:         z.string().optional().default(''),
+  writingStyle: z.string().optional().default(''),
+  inspirations: z.array(z.object({
+    name:                z.string(),
+    expandedDescription: z.string(),
+  })).optional().default([]),
+  constraints:  z.string().optional(),
+}).optional();
 
 const CreateWorldSchema = z.object({
   name:          z.string().min(1).max(200),
@@ -13,6 +26,7 @@ const CreateWorldSchema = z.object({
   tags:          z.array(z.string()).optional().default([]),
   tone:          z.enum(['narrative', 'academic', 'terse', 'custom']).optional().default('narrative'),
   originPoint:   z.string().optional(),
+  styleConfig:   StyleConfigSchema,
   generateStubs: z.boolean().optional().default(false),
 });
 
@@ -22,9 +36,12 @@ const UpdateWorldSchema = z.object({
   tags:        z.array(z.string()).optional(),
   tone:        z.enum(['narrative', 'academic', 'terse', 'custom']).optional(),
   originPoint: z.string().nullable().optional(),
+  styleConfig: StyleConfigSchema,
 });
 
 function parseWorld(row: Record<string, unknown>) {
+  let styleConfig = null;
+  try { styleConfig = JSON.parse((row.style_config as string) || '{}'); } catch { /* ignore */ }
   return {
     id:          row.id,
     name:        row.name,
@@ -32,6 +49,7 @@ function parseWorld(row: Record<string, unknown>) {
     tags:        JSON.parse(row.tags as string),
     tone:        row.tone,
     originPoint: row.origin_point ?? null,
+    styleConfig: styleConfig && Object.keys(styleConfig).length > 0 ? styleConfig : null,
     createdAt:   row.created_at,
     updatedAt:   row.updated_at,
   };
@@ -45,7 +63,7 @@ router.post('/', async (req, res) => {
     return;
   }
 
-  const { name, description, tags, tone, originPoint, generateStubs } = parse.data;
+  const { name, description, tags, tone, originPoint, styleConfig, generateStubs } = parse.data;
   const db = getDb();
   const now = Date.now();
   const worldId = nanoid();
@@ -53,12 +71,13 @@ router.post('/', async (req, res) => {
   const versionId = nanoid();
   const articleBody = `## Description\n\n${description}`;
   const wordCount = articleBody.split(/\s+/).filter(Boolean).length;
+  const styleConfigJson = JSON.stringify(styleConfig ?? {});
 
   db.transaction(() => {
     db.prepare(`
-      INSERT INTO worlds (id, name, description, tags, tone, origin_point, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(worldId, name, description, JSON.stringify(tags), tone, originPoint ?? null, now, now);
+      INSERT INTO worlds (id, name, description, tags, tone, origin_point, style_config, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(worldId, name, description, JSON.stringify(tags), tone, originPoint ?? null, styleConfigJson, now, now);
 
     db.prepare(`
       INSERT INTO cost_settings (world_id, daily_cap, bible_threshold)
@@ -155,6 +174,7 @@ router.patch('/:wid', (req, res) => {
   if (data.tags !== undefined)        { fields.push('tags = ?');          values.push(JSON.stringify(data.tags)); }
   if (data.tone !== undefined)        { fields.push('tone = ?');          values.push(data.tone); }
   if (data.originPoint !== undefined) { fields.push('origin_point = ?'); values.push(data.originPoint); }
+  if (data.styleConfig !== undefined) { fields.push('style_config = ?'); values.push(JSON.stringify(data.styleConfig ?? {})); }
 
   if (fields.length === 0) {
     res.json(parseWorld(existing));
@@ -185,5 +205,46 @@ router.delete('/:wid', (req, res) => {
   db.prepare('DELETE FROM worlds WHERE id = ?').run(req.params.wid);
   res.status(204).send();
 });
+
+// ---------------------------------------------------------------------------
+// POST /api/worlds/prompt-engineer — PromptEngineerAgent (no wid needed)
+// Also POST /api/worlds/:wid/prompt-engineer — for post-creation edits
+// ---------------------------------------------------------------------------
+
+const PromptEngineerSchema = z.object({
+  fieldType:        z.enum(['inspiration', 'vibe', 'writing_style']),
+  rawText:          z.string().min(1),
+  worldName:        z.string().min(1),
+  worldDescription: z.string().min(1),
+});
+
+async function handlePromptEngineer(req: import('express').Request, res: import('express').Response): Promise<void> {
+  const parse = PromptEngineerSchema.safeParse(req.body);
+  if (!parse.success) {
+    res.status(400).json({ error: parse.error.flatten().fieldErrors });
+    return;
+  }
+
+  const { fieldType, rawText, worldName, worldDescription } = parse.data;
+
+  // Use a placeholder worldId for logging — PromptEngineer doesn't need DB context
+  const worldId = (req.params as Record<string, string>).wid ?? 'wizard';
+
+  try {
+    const agent = new StylistAgent();
+    const result = await agent.run(worldId, {
+      fieldType: fieldType as PromptEngineerFieldType,
+      rawText,
+      worldName,
+      worldDescription,
+    });
+    res.json({ expandedDescription: result.output.expandedDescription });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+}
+
+router.post('/prompt-engineer', requireLLM, handlePromptEngineer);
+router.post('/:wid/prompt-engineer', requireLLM, handlePromptEngineer);
 
 export default router;

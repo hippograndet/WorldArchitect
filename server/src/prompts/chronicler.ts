@@ -1,21 +1,11 @@
 import type { WorldContext } from '../agents/director.js';
 import type { ContextPackage } from '../services/archivist.js';
-
-function toneDescription(tone: string): string {
-  const tones: Record<string, string> = {
-    narrative: 'Write in an engaging narrative style, as if for a well-crafted novel companion wiki.',
-    academic: 'Write in a measured, analytical academic style, like a scholarly encyclopaedia.',
-    terse: 'Write concisely and factually — minimal prose, maximum information density.',
-    custom: 'Match the tone implied by the world description.',
-  };
-  return tones[tone] ?? tones.narrative;
-}
+import { buildWorldHeader } from './shared.js';
 
 export function buildChroniclerSystemPrompt(worldContext: WorldContext): string {
   return `You are the Chronicler for WorldArchitect, a fiction world-building tool.
 
-World: **${worldContext.name}**
-Tone: ${toneDescription(worldContext.tone)}${worldContext.originPoint ? `\nOrigin/Constraints: ${worldContext.originPoint}` : ''}
+${buildWorldHeader(worldContext)}
 
 Your task: write the **## Chronology** section for an article. The Chronology is a list of events in chronological order — distinct from the Description, which covers thematic overview.
 

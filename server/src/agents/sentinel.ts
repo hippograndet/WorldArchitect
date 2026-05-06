@@ -21,9 +21,9 @@ const SubmitRetentionCheckSchema = z.object({
 });
 
 export type RetentionIssue = z.infer<typeof RetentionIssueSchema>;
-export type RetentionOutput = { passed: boolean; issues: RetentionIssue[] };
+export type SentinelOutput = { passed: boolean; issues: RetentionIssue[] };
 
-export interface RetentionInput {
+export interface SentinelInput {
   articleTitle: string;
   originalBody: string;
   reorganizedDescription: string;
@@ -34,11 +34,11 @@ export interface RetentionInput {
 // Agent
 // ---------------------------------------------------------------------------
 
-export class RetentionAgent extends BaseAgent<RetentionInput, RetentionOutput> {
-  readonly agentType = 'retention';
+export class SentinelAgent extends BaseAgent<SentinelInput, SentinelOutput> {
+  readonly agentType = 'sentinel';
   readonly outputToolName = 'submit_retention_check';
 
-  protected buildMessages(_worldId: string, input: RetentionInput): ChatMessage[] {
+  protected buildMessages(_worldId: string, input: SentinelInput): ChatMessage[] {
     return [
       {
         role: 'system',
@@ -59,12 +59,11 @@ export class RetentionAgent extends BaseAgent<RetentionInput, RetentionOutput> {
     return OUTPUT_TOOLS.submit_retention_check;
   }
 
-  // No live DB context tools needed — works from provided text
   protected getContextTools(): Tool[] {
     return [];
   }
 
-  protected parseOutput(input: Record<string, unknown>): RetentionOutput {
+  protected parseOutput(input: Record<string, unknown>): SentinelOutput {
     const parsed = SubmitRetentionCheckSchema.parse(input);
     return { passed: parsed.passed, issues: parsed.issues };
   }

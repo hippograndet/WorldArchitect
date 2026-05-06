@@ -9,6 +9,7 @@ __pycache__/
 # Claude Code
 .claude/settings.local.json
 .claude/skills/
+CLAUDE.md
 
 # Node
 node_modules/

@@ -15,6 +15,8 @@ const ChildProposalItemSchema = z.object({
   title: z.string(),
   introduction: z.string(),
   templateType: z.enum(['general', 'character', 'location', 'faction']),
+  nodeKind: z.enum(['conceptual', 'instance']),
+  nodeKindRationale: z.string(),
 });
 
 const SubmitChildProposalsSchema = z.object({
@@ -22,9 +24,9 @@ const SubmitChildProposalsSchema = z.object({
 });
 
 export type ChildProposalItem = z.infer<typeof ChildProposalItemSchema>;
-export type ChildProposerOutput = { proposals: ChildProposalItem[] };
+export type CartographerOutput = { proposals: ChildProposalItem[] };
 
-export interface ChildProposerInput {
+export interface CartographerInput {
   contextPackage: ContextPackage;
   worldContext: WorldContext;
   userSpec?: string;
@@ -34,11 +36,11 @@ export interface ChildProposerInput {
 // Agent
 // ---------------------------------------------------------------------------
 
-export class ChildProposerAgent extends BaseAgent<ChildProposerInput, ChildProposerOutput> {
-  readonly agentType = 'child_proposer';
+export class CartographerAgent extends BaseAgent<CartographerInput, CartographerOutput> {
+  readonly agentType = 'cartographer';
   readonly outputToolName = 'submit_child_proposals';
 
-  protected buildMessages(_worldId: string, input: ChildProposerInput): ChatMessage[] {
+  protected buildMessages(_worldId: string, input: CartographerInput): ChatMessage[] {
     return [
       {
         role: 'system',
@@ -55,12 +57,11 @@ export class ChildProposerAgent extends BaseAgent<ChildProposerInput, ChildPropo
     return OUTPUT_TOOLS.submit_child_proposals;
   }
 
-  // No live DB context tools needed — ContextPackage (with children) is pre-built
   protected getContextTools(): Tool[] {
     return [];
   }
 
-  protected parseOutput(input: Record<string, unknown>): ChildProposerOutput {
+  protected parseOutput(input: Record<string, unknown>): CartographerOutput {
     const parsed = SubmitChildProposalsSchema.parse(input);
     return { proposals: parsed.proposals };
   }

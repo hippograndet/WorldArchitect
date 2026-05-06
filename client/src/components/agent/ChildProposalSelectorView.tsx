@@ -42,8 +42,22 @@ export default function ChildProposalSelectorView() {
               className="mt-0.5 accent-purple-600"
             />
             <div className="min-w-0">
-              <p className="text-xs font-semibold text-gray-800 truncate">{p.title}</p>
-              <p className="text-xs text-gray-400 mt-0.5 leading-relaxed line-clamp-2">{p.introduction}</p>
+              <div className="flex items-center gap-1.5 mb-0.5">
+                <p className="text-xs font-semibold text-gray-800 truncate">{p.title}</p>
+                {p.nodeKind && (
+                  <span
+                    title={p.nodeKindRationale}
+                    className={`shrink-0 px-1.5 py-0.5 text-xs rounded font-medium ${
+                      p.nodeKind === 'conceptual'
+                        ? 'bg-purple-100 text-purple-700'
+                        : 'bg-teal-100 text-teal-700'
+                    }`}
+                  >
+                    {p.nodeKind === 'conceptual' ? 'Concept' : 'Instance'}
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-gray-400 leading-relaxed line-clamp-2">{p.introduction}</p>
               <p className="text-xs text-gray-300 mt-0.5">{p.templateType}</p>
             </div>
           </label>

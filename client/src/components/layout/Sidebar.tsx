@@ -136,7 +136,7 @@ export default function Sidebar() {
   };
 
   return (
-    <aside className="w-56 flex flex-col border-r border-gray-200 bg-gray-50 shrink-0 overflow-hidden">
+    <aside className="w-56 flex flex-col border-r border-gray-200 bg-surface-2 shrink-0 overflow-hidden">
       {/* Search */}
       <div className="p-2 border-b border-gray-200">
         <input

@@ -26,9 +26,9 @@ const SubmitCompressionSchema = z.object({
 });
 
 export type CompressionEntry = z.infer<typeof CompressionEntrySchema>;
-export type BibleCompressorOutput = { entries: CompressionEntry[] };
+export type CondenserOutput = { entries: CompressionEntry[] };
 
-export interface BibleCompressorInput {
+export interface CondenserInput {
   worldContext: WorldContext;
   entries: CompressorEntry[];
 }
@@ -37,11 +37,11 @@ export interface BibleCompressorInput {
 // Agent
 // ---------------------------------------------------------------------------
 
-export class BibleCompressorAgent extends BaseAgent<BibleCompressorInput, BibleCompressorOutput> {
-  readonly agentType = 'bible_compressor';
+export class CondenserAgent extends BaseAgent<CondenserInput, CondenserOutput> {
+  readonly agentType = 'condenser';
   readonly outputToolName = 'submit_compression';
 
-  protected buildMessages(_worldId: string, input: BibleCompressorInput): ChatMessage[] {
+  protected buildMessages(_worldId: string, input: CondenserInput): ChatMessage[] {
     return [
       {
         role: 'system',
@@ -58,12 +58,11 @@ export class BibleCompressorAgent extends BaseAgent<BibleCompressorInput, BibleC
     return OUTPUT_TOOLS.submit_compression;
   }
 
-  // No live context tools — works from provided Bible entries
   protected getContextTools(): Tool[] {
     return [];
   }
 
-  protected parseOutput(input: Record<string, unknown>): BibleCompressorOutput {
+  protected parseOutput(input: Record<string, unknown>): CondenserOutput {
     const parsed = SubmitCompressionSchema.parse(input);
     return { entries: parsed.entries };
   }

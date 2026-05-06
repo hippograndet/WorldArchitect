@@ -12,6 +12,7 @@ export interface WorldSlice {
   loadWorlds: () => Promise<void>;
   selectWorld: (id: string) => void;
   createWorld: (input: CreateWorldInput) => Promise<{ world: World; rootArticleId: string }>;
+  updateWorld: (id: string, input: Partial<CreateWorldInput>) => Promise<void>;
   deleteWorld: (id: string) => Promise<void>;
   loadBibleMeta: (worldId: string) => Promise<void>;
 }
@@ -38,6 +39,14 @@ export const worldSlice: StateCreator<StoreState, [['zustand/immer', never]], []
       s.currentWorldId = world.id;
     });
     return { world, rootArticleId };
+  },
+
+  updateWorld: async (id, input) => {
+    const updated = await api.worlds.update(id, input);
+    set((s) => {
+      const idx = s.worlds.findIndex((w) => w.id === id);
+      if (idx >= 0) s.worlds[idx] = updated;
+    });
   },
 
   deleteWorld: async (id) => {

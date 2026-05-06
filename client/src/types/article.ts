@@ -34,6 +34,7 @@ export interface ArticleLink {
   id: string;
   title: string;
   introduction?: string;
+  linkType: 'hierarchical' | 'references';
 }
 
 export interface CoherenceWarning {

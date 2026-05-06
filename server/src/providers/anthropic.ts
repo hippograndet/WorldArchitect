@@ -24,13 +24,25 @@ export class AnthropicProvider implements LLMProvider {
       input_schema: t.inputSchema as Anthropic.Tool['input_schema'],
     }));
 
-    const response = await this.client.messages.create({
-      model: this.model,
-      max_tokens: options?.maxTokens ?? 4096,
-      ...(systemMsg ? { system: systemMsg.content } : {}),
-      messages: apiMessages,
-      ...(anthropicTools?.length ? { tools: anthropicTools } : {}),
-    });
+    let response: Awaited<ReturnType<typeof this.client.messages.create>>;
+    try {
+      response = await this.client.messages.create({
+        model: this.model,
+        max_tokens: options?.maxTokens ?? 4096,
+        ...(systemMsg ? { system: systemMsg.content } : {}),
+        messages: apiMessages,
+        ...(anthropicTools?.length ? { tools: anthropicTools } : {}),
+      });
+    } catch (err) {
+      // Surface failed_generation from Anthropic 400 tool-call errors
+      const raw = err as Record<string, unknown>;
+      const body = (raw?.error ?? raw?.body) as Record<string, unknown> | undefined;
+      const failedGen = (body?.failed_generation ?? (body?.error as Record<string, unknown> | undefined)?.failed_generation) as string | undefined;
+      if (failedGen) {
+        throw new Error(`${(err as Error).message}\n\nFailed generation (truncated):\n${failedGen.slice(0, 500)}`);
+      }
+      throw err;
+    }
 
     const content = response.content.find((b) => b.type === 'text')
       ? (response.content.find((b) => b.type === 'text') as Anthropic.TextBlock).text

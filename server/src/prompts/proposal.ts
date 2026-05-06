@@ -1,17 +1,8 @@
 import type { WorldContext } from '../agents/director.js';
 import type { ContextPackage } from '../services/archivist.js';
+import { buildWorldHeader } from './shared.js';
 
 export type ProposalMode = 'expand_description' | 'create_root' | 'create_child';
-
-function toneDescription(tone: string): string {
-  const tones: Record<string, string> = {
-    narrative: 'Write in an engaging narrative style, as if for a well-crafted novel companion wiki.',
-    academic: 'Write in a measured, analytical academic style, like a scholarly encyclopaedia.',
-    terse: 'Write concisely and factually — minimal prose, maximum information density.',
-    custom: 'Match the tone implied by the world description.',
-  };
-  return tones[tone] ?? tones.narrative;
-}
 
 function renderContextPackage(pkg: ContextPackage): string {
   const parts: string[] = [];
@@ -43,8 +34,7 @@ export function buildProposalSystemPrompt(worldContext: WorldContext, mode: Prop
 
   return `You are the ProposalAgent for WorldArchitect, a fiction world-building tool.
 
-World: **${worldContext.name}**
-Tone: ${toneDescription(worldContext.tone)}${worldContext.originPoint ? `\nOrigin/Constraints: ${worldContext.originPoint}` : ''}
+${buildWorldHeader(worldContext)}
 
 ${modeDesc}
 

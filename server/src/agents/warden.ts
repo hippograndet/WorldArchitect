@@ -29,9 +29,9 @@ const SubmitCoherenceCheckSchema = z.object({
 
 export type CoherenceWarning = z.infer<typeof CoherenceWarningSchema>;
 export type SuggestedLink = z.infer<typeof SuggestedLinkSchema>;
-export type CoherenceOutput = { warnings: CoherenceWarning[]; suggestedLinks: SuggestedLink[] };
+export type WardenOutput = { warnings: CoherenceWarning[]; suggestedLinks: SuggestedLink[] };
 
-export interface CoherenceInput {
+export interface WardenInput {
   contextPackage: ContextPackage;
   worldContext: WorldContext;
   newContent: string;
@@ -42,11 +42,11 @@ export interface CoherenceInput {
 // Agent
 // ---------------------------------------------------------------------------
 
-export class CoherenceAgent extends BaseAgent<CoherenceInput, CoherenceOutput> {
-  readonly agentType = 'coherence';
+export class WardenAgent extends BaseAgent<WardenInput, WardenOutput> {
+  readonly agentType = 'warden';
   readonly outputToolName = 'submit_coherence_check';
 
-  protected buildMessages(_worldId: string, input: CoherenceInput): ChatMessage[] {
+  protected buildMessages(_worldId: string, input: WardenInput): ChatMessage[] {
     return [
       {
         role: 'system',
@@ -67,7 +67,7 @@ export class CoherenceAgent extends BaseAgent<CoherenceInput, CoherenceOutput> {
     return OUTPUT_TOOLS.submit_coherence_check;
   }
 
-  protected parseOutput(input: Record<string, unknown>): CoherenceOutput {
+  protected parseOutput(input: Record<string, unknown>): WardenOutput {
     const parsed = SubmitCoherenceCheckSchema.parse(input);
     return { warnings: parsed.warnings, suggestedLinks: parsed.suggestedLinks };
   }

@@ -21,13 +21,13 @@ const ProposalItemSchema = z.object({
 });
 
 const SubmitProposalsSchema = z.object({
-  proposals: z.array(ProposalItemSchema).min(1).max(3),
+  proposals: z.array(ProposalItemSchema).min(1).max(5),
 });
 
 export type ProposalItem = z.infer<typeof ProposalItemSchema>;
-export type ProposalOutput = { proposals: ProposalItem[] };
+export type MuseOutput = { proposals: ProposalItem[] };
 
-export interface ProposalInput {
+export interface MuseInput {
   contextPackage: ContextPackage;
   worldContext: WorldContext;
   mode: ProposalMode;
@@ -38,11 +38,11 @@ export interface ProposalInput {
 // Agent
 // ---------------------------------------------------------------------------
 
-export class ProposalAgent extends BaseAgent<ProposalInput, ProposalOutput> {
-  readonly agentType = 'proposal';
+export class MuseAgent extends BaseAgent<MuseInput, MuseOutput> {
+  readonly agentType = 'muse';
   readonly outputToolName = 'submit_proposals';
 
-  protected buildMessages(worldId: string, input: ProposalInput): ChatMessage[] {
+  protected buildMessages(_worldId: string, input: MuseInput): ChatMessage[] {
     return [
       {
         role: 'system',
@@ -59,12 +59,11 @@ export class ProposalAgent extends BaseAgent<ProposalInput, ProposalOutput> {
     return OUTPUT_TOOLS.submit_proposals;
   }
 
-  // No context tools needed — ContextPackage is pre-built by Archivist
   protected getContextTools(): Tool[] {
     return [];
   }
 
-  protected parseOutput(input: Record<string, unknown>): ProposalOutput {
+  protected parseOutput(input: Record<string, unknown>): MuseOutput {
     const parsed = SubmitProposalsSchema.parse(input);
     return { proposals: parsed.proposals };
   }

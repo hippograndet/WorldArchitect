@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { BaseAgent } from './base.js';
 import { OUTPUT_TOOLS } from '../tools/output.js';
 import { buildSkeletonSystemPrompt, buildSkeletonUserPrompt } from '../prompts/skeleton.js';
+import type { WorldContext } from './director.js';
 import type { ChatMessage } from '../providers/types.js';
 import type { Tool } from '../tools/types.js';
 
@@ -21,26 +22,27 @@ const SubmitStubsSchema = z.object({
 });
 
 export type Stub = z.infer<typeof StubSchema>;
-export type SkeletonOutput = { stubs: Stub[] };
+export type ArchitectOutput = { stubs: Stub[] };
 
-export interface SkeletonInput {
+export interface ArchitectInput {
   seedText: string;
   categories: Array<{ id: string; name: string }>;
+  worldContext?: WorldContext;
 }
 
 // ---------------------------------------------------------------------------
 // Agent
 // ---------------------------------------------------------------------------
 
-export class SkeletonAgent extends BaseAgent<SkeletonInput, SkeletonOutput> {
-  readonly agentType = 'skeleton';
+export class ArchitectAgent extends BaseAgent<ArchitectInput, ArchitectOutput> {
+  readonly agentType = 'architect';
   readonly outputToolName = 'submit_stubs';
 
-  protected buildMessages(_worldId: string, input: SkeletonInput): ChatMessage[] {
+  protected buildMessages(_worldId: string, input: ArchitectInput): ChatMessage[] {
     return [
       {
         role: 'system',
-        content: buildSkeletonSystemPrompt(input.categories.map((c) => c.name)),
+        content: buildSkeletonSystemPrompt(input.categories.map((c) => c.name), input.worldContext),
       },
       {
         role: 'user',
@@ -53,12 +55,11 @@ export class SkeletonAgent extends BaseAgent<SkeletonInput, SkeletonOutput> {
     return OUTPUT_TOOLS.submit_stubs;
   }
 
-  // SkeletonAgent works only from the world description — no DB context needed.
   protected getContextTools(): Tool[] {
     return [];
   }
 
-  protected parseOutput(input: Record<string, unknown>): SkeletonOutput {
+  protected parseOutput(input: Record<string, unknown>): ArchitectOutput {
     const parsed = SubmitStubsSchema.parse(input);
     return { stubs: parsed.stubs };
   }
