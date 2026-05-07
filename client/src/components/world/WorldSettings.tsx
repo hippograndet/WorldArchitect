@@ -1,8 +1,92 @@
 import { useState } from 'react';
+import { ArrowLeft, X, RotateCcw } from 'lucide-react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useStore } from '../../stores/index.ts';
 import { api } from '../../lib/api.ts';
 import type { WorldStyleInspiration, VisualTheme } from '../../types/world.ts';
+
+// ---------------------------------------------------------------------------
+// Appearance constants (theme previews + font size steps)
+// ---------------------------------------------------------------------------
+
+interface ThemePreview {
+  value: VisualTheme;
+  label: string;
+  desc: string;
+  preview: { bg: string; surface: string; ink: string; accent: string; font: string; texture: string; textureSize: string };
+}
+
+const THEME_PREVIEWS: ThemePreview[] = [
+  {
+    value: 'default',
+    label: 'Luminary',
+    desc: 'Clean & modern',
+    preview: {
+      bg: '#ffffff', surface: '#f8fafc', ink: '#0f172a', accent: '#6d28d9',
+      font: 'system-ui, sans-serif',
+      texture: 'radial-gradient(rgba(15,23,42,0.04) 1px, transparent 1px)',
+      textureSize: '20px 20px',
+    },
+  },
+  {
+    value: 'arcane_scroll',
+    label: 'Arcane Scroll',
+    desc: 'Parchment fantasy',
+    preview: {
+      bg: '#f4e8d0', surface: '#e8d5b0', ink: '#3d2b1f', accent: '#8b4513',
+      font: "'IM Fell English', Georgia, serif",
+      texture: "repeating-linear-gradient(45deg,transparent 0px,transparent 10px,rgba(139,90,43,0.07) 10px,rgba(139,90,43,0.07) 11px),repeating-linear-gradient(-45deg,transparent 0px,transparent 10px,rgba(139,90,43,0.07) 10px,rgba(139,90,43,0.07) 11px)",
+      textureSize: 'auto',
+    },
+  },
+  {
+    value: 'data_link',
+    label: 'Data-Link',
+    desc: 'Dark sci-fi',
+    preview: {
+      bg: '#0a0e1a', surface: '#0d1220', ink: '#c8d8f0', accent: '#00d4ff',
+      font: "'IBM Plex Mono', monospace",
+      texture: "repeating-linear-gradient(0deg,transparent 0px,transparent 3px,rgba(0,200,255,0.03) 3px,rgba(0,200,255,0.03) 4px)",
+      textureSize: 'auto',
+    },
+  },
+  {
+    value: 'dossier',
+    label: 'The Dossier',
+    desc: 'Typewriter noir',
+    preview: {
+      bg: '#f5f0e8', surface: '#ebe4d5', ink: '#2c2416', accent: '#8b6914',
+      font: "'Courier Prime', 'Courier New', monospace",
+      texture: "repeating-linear-gradient(180deg,transparent 0px,transparent 13px,rgba(100,80,50,0.1) 13px,rgba(100,80,50,0.1) 14px)",
+      textureSize: 'auto',
+    },
+  },
+  {
+    value: 'obsidian_codex',
+    label: 'Obsidian Codex',
+    desc: 'Dark fantasy',
+    preview: {
+      bg: '#0b0810', surface: '#0f0c18', ink: '#d4c8f0', accent: '#9b72cf',
+      font: "'Crimson Pro', Georgia, serif",
+      texture: "repeating-linear-gradient(0deg,transparent 0px,transparent 15px,rgba(120,80,180,0.06) 15px,rgba(120,80,180,0.06) 16px),repeating-linear-gradient(90deg,transparent 0px,transparent 15px,rgba(120,80,180,0.06) 15px,rgba(120,80,180,0.06) 16px)",
+      textureSize: 'auto',
+    },
+  },
+  {
+    value: 'verdant_atlas',
+    label: 'Verdant Atlas',
+    desc: 'Field journal',
+    preview: {
+      bg: '#f2f5ee', surface: '#e8ede3', ink: '#1c3a1c', accent: '#2e6b42',
+      font: "'Lora', Georgia, serif",
+      texture: 'radial-gradient(rgba(30,60,30,0.07) 1.2px, transparent 1.2px)',
+      textureSize: '14px 14px',
+    },
+  },
+];
+
+const FONT_SIZE_STEPS = [0.85, 0.925, 1, 1.1, 1.2];
+const FONT_SIZE_LABELS = ['XS', 'S', 'M', 'L', 'XL'];
 
 // ---------------------------------------------------------------------------
 // Inspiration chip with expand button
@@ -56,12 +140,12 @@ function InspirationChip({ wid, worldName, worldDescription, item, onExpand, onR
             <button
               onClick={handleExpand}
               disabled={expanding}
-              className="px-2 py-0.5 text-purple-600 border border-purple-300 rounded text-xs hover:bg-purple-50 disabled:opacity-50"
+              className="px-2 py-0.5 text-purple-600 border border-purple-300 rounded text-xs hover:bg-purple-50 disabled:opacity-50 flex items-center gap-1"
             >
-              {expanding ? '…' : '↺'}
+              {expanding ? '…' : <RotateCcw size={12} />}
             </button>
           )}
-          <button onClick={onRemove} className="text-gray-400 hover:text-red-500 px-1">×</button>
+          <button onClick={onRemove} className="text-gray-400 hover:text-red-500 px-1"><X size={14} /></button>
         </div>
       </div>
       {item.expanded && (
@@ -81,7 +165,7 @@ function InspirationChip({ wid, worldName, worldDescription, item, onExpand, onR
 export default function WorldSettings() {
   const { wid } = useParams<{ wid: string }>();
   const navigate = useNavigate();
-  const { worlds, updateWorld, deleteWorld, addToast } = useStore();
+  const { worlds, updateWorld, deleteWorld, addToast, globalTheme, setGlobalTheme, fontSize, setFontSize } = useStore();
 
   const world = worlds.find((w) => w.id === wid);
 
@@ -97,7 +181,6 @@ export default function WorldSettings() {
   );
   const [newInspirationName, setNewInspirationName] = useState('');
   const [expandingField, setExpandingField] = useState<'vibe' | 'writingStyle' | null>(null);
-  const [visualTheme, setVisualTheme] = useState<VisualTheme>(world?.styleConfig?.visualTheme ?? 'default');
 
   if (!world) {
     return <div className="p-8 text-sm text-gray-400">World not found.</div>;
@@ -129,7 +212,6 @@ export default function WorldSettings() {
           writingStyle,
           inspirations: inspirations.map(({ name, expandedDescription }) => ({ name, expandedDescription })),
           constraints: world.styleConfig?.constraints,
-          visualTheme: visualTheme !== 'default' ? visualTheme : undefined,
         },
       });
       addToast({ message: 'Style saved.', type: 'success' });
@@ -171,7 +253,9 @@ export default function WorldSettings() {
 
   return (
     <div className="max-w-xl mx-auto py-10 px-6">
-      <Link to={`/worlds/${wid ?? ''}`} className="text-sm text-gray-400 hover:text-gray-700">← Back</Link>
+      <Link to={`/worlds/${wid ?? ''}`} className="text-sm text-gray-400 hover:text-gray-700 flex items-center gap-1 w-fit">
+        <ArrowLeft size={14} /> Back
+      </Link>
 
       <h1 className="text-xl font-bold text-gray-900 mt-4 mb-1">Settings</h1>
       <p className="text-sm text-gray-500 mb-8">{world.name}</p>
@@ -189,6 +273,93 @@ export default function WorldSettings() {
             <div className="flex gap-2"><dt className="font-medium w-24 shrink-0">Origin</dt><dd>{world.originPoint}</dd></div>
           )}
         </dl>
+      </section>
+
+      {/* App Appearance — global, instant */}
+      <section className="mb-10 border border-gray-200 rounded-xl p-5">
+        <h2 className="text-sm font-semibold text-gray-800 mb-1">Appearance</h2>
+        <p className="text-xs text-gray-400 mb-5">Global settings — apply instantly and persist across worlds.</p>
+
+        {/* Theme grid */}
+        <div className="mb-6">
+          <label className="text-xs font-medium text-gray-700 block mb-2">Theme</label>
+          <div className="grid grid-cols-3 gap-2">
+            {(THEME_PREVIEWS as ThemePreview[]).map((t) => (
+              <button
+                key={t.value}
+                type="button"
+                onClick={() => setGlobalTheme(t.value)}
+                className="cursor-pointer text-left focus:outline-none transition-transform hover:scale-[1.02]"
+                style={{
+                  outline: globalTheme === t.value ? `2px solid ${t.preview.accent}` : '2px solid transparent',
+                  outlineOffset: '2px',
+                  borderRadius: '10px',
+                }}
+              >
+                {/* Swatch */}
+                <div
+                  className="h-14 w-full overflow-hidden flex items-center justify-center"
+                  style={{
+                    background: t.preview.bg,
+                    backgroundImage: t.preview.texture,
+                    backgroundSize: t.preview.textureSize,
+                    borderRadius: '8px 8px 0 0',
+                    fontFamily: t.preview.font,
+                    color: t.preview.ink,
+                  }}
+                >
+                  <span style={{ fontSize: '1.6rem', lineHeight: 1, opacity: 0.85 }}>Aa</span>
+                </div>
+                {/* Accent strip */}
+                <div style={{ height: '3px', background: t.preview.accent }} />
+                {/* Label — uses this card's own font */}
+                <div
+                  className="px-2 py-1.5"
+                  style={{
+                    background: t.preview.surface,
+                    borderRadius: '0 0 8px 8px',
+                    border: `1px solid ${t.preview.accent}20`,
+                    borderTop: 'none',
+                    fontFamily: t.preview.font,
+                  }}
+                >
+                  <p className="text-xs font-medium leading-tight" style={{ color: t.preview.ink, fontSize: '0.7rem' }}>{t.label}</p>
+                  <p className="leading-tight mt-0.5" style={{ color: t.preview.ink, opacity: 0.5, fontSize: '0.62rem' }}>{t.desc}</p>
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Font size slider */}
+        <div>
+          {(() => {
+            const stepIdx = FONT_SIZE_STEPS.reduce((best, s, i) =>
+              Math.abs(s - fontSize) < Math.abs(FONT_SIZE_STEPS[best] - fontSize) ? i : best, 2);
+            return (
+              <>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-xs font-medium text-gray-700">Text Size</label>
+                  <span className="text-xs text-gray-400">{FONT_SIZE_LABELS[stepIdx]}</span>
+                </div>
+                <input
+                  type="range"
+                  min={0}
+                  max={FONT_SIZE_STEPS.length - 1}
+                  step={1}
+                  value={stepIdx}
+                  onChange={(e) => setFontSize(FONT_SIZE_STEPS[Number(e.target.value)])}
+                  className="w-full wa-slider"
+                />
+              </>
+            );
+          })()}
+          <div className="flex justify-between mt-1">
+            {FONT_SIZE_LABELS.map((lbl) => (
+              <span key={lbl} className="text-xs text-gray-400" style={{ fontSize: '0.6rem' }}>{lbl}</span>
+            ))}
+          </div>
+        </div>
       </section>
 
       {/* Style config */}
@@ -274,41 +445,6 @@ export default function WorldSettings() {
             >
               Add
             </button>
-          </div>
-        </div>
-
-        {/* Visual theme */}
-        <div className="mb-5">
-          <label className="text-xs font-medium text-gray-700 block mb-2">Visual Theme</label>
-          <div className="grid grid-cols-2 gap-2">
-            {([
-              { value: 'default',      label: 'Default',       desc: 'Clean & minimal' },
-              { value: 'arcane_scroll', label: 'Arcane Scroll', desc: 'Parchment fantasy' },
-              { value: 'data_link',    label: 'Data-Link',     desc: 'Dark sci-fi' },
-              { value: 'dossier',      label: 'The Dossier',   desc: 'Typewriter noir' },
-            ] as { value: VisualTheme; label: string; desc: string }[]).map((t) => (
-              <label
-                key={t.value}
-                className={`flex items-start gap-2 p-2.5 rounded-lg border cursor-pointer transition-colors ${
-                  visualTheme === t.value
-                    ? 'border-purple-400 bg-purple-50'
-                    : 'border-gray-200 hover:border-gray-300'
-                }`}
-              >
-                <input
-                  type="radio"
-                  name="visualTheme"
-                  value={t.value}
-                  checked={visualTheme === t.value}
-                  onChange={() => setVisualTheme(t.value)}
-                  className="mt-0.5 accent-purple-600"
-                />
-                <div>
-                  <p className="text-xs font-medium text-gray-800">{t.label}</p>
-                  <p className="text-xs text-gray-400">{t.desc}</p>
-                </div>
-              </label>
-            ))}
           </div>
         </div>
 

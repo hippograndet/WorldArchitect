@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Pencil, Plus, Settings } from 'lucide-react';
 import { useParams, Link } from 'react-router-dom';
 import { useStore } from '../../stores/index.ts';
 import { extractDescription, extractChronology, mergeDescription } from '../../lib/sections.ts';
@@ -10,26 +11,6 @@ import AddSubsectionDialog from './AddSubsectionDialog.tsx';
 import DraftCrashRecovery from './DraftCrashRecovery.tsx';
 import ArticleInfoSidebar from './ArticleInfoSidebar.tsx';
 import { mergeChronology } from '../../lib/sections.ts';
-
-// ---------------------------------------------------------------------------
-// Small helpers
-// ---------------------------------------------------------------------------
-
-function EditIcon() {
-  return (
-    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536M9 13l-4 1 1-4L15.232 5.232a2 2 0 012.828 0l.708.708a2 2 0 010 2.828L9 13z" />
-    </svg>
-  );
-}
-
-function PlusIcon() {
-  return (
-    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-    </svg>
-  );
-}
 
 function SectionHeader({
   title,
@@ -49,7 +30,7 @@ function SectionHeader({
           className="flex items-center gap-1 text-xs text-gray-400 hover:text-blue-600 transition-colors"
           title={`Add to ${title}`}
         >
-          <PlusIcon />
+          <Plus size={14} />
         </button>
       )}
       {onEdit && (
@@ -58,7 +39,7 @@ function SectionHeader({
           className="flex items-center gap-1 text-xs text-gray-400 hover:text-blue-600 transition-colors"
           title={`Edit ${title}`}
         >
-          <EditIcon />
+          <Pencil size={14} />
         </button>
       )}
     </div>
@@ -205,9 +186,9 @@ export default function ArticlePage() {
           </button>
           <button
             onClick={handleOpenSolidify}
-            className="px-3 py-1.5 text-xs border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 transition-colors"
+            className="px-3 py-1.5 text-xs border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 transition-colors flex items-center gap-1"
           >
-            ⚙ Solidify
+            <Settings size={14} /> Solidify
           </button>
           <button
             onClick={handleOpenAgent}

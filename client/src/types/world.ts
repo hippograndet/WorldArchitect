@@ -5,7 +5,7 @@ export interface WorldStyleInspiration {
   expandedDescription: string;
 }
 
-export type VisualTheme = 'default' | 'arcane_scroll' | 'data_link' | 'dossier';
+export type VisualTheme = 'default' | 'arcane_scroll' | 'data_link' | 'dossier' | 'obsidian_codex' | 'verdant_atlas';
 
 export interface WorldStyleConfig {
   preset?: string;

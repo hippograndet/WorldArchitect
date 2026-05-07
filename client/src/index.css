@@ -1,3 +1,4 @@
+@import url('https://fonts.googleapis.com/css2?family=IM+Fell+English:ital@0;1&family=IBM+Plex+Mono:ital,wght@0,400;0,500;1,400&family=Courier+Prime:ital@0;1&family=Crimson+Pro:ital,wght@0,400;0,600;1,400&family=Lora:ital,wght@0,400;0,600;1,400&display=swap');
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
 
@@ -9,13 +10,74 @@
   --color-ink-muted: var(--ink-muted, #6b7280);
 }
 
-/* ── Default ── */
+/* ── Default / Luminary ── */
 :root {
   --surface:   #ffffff;
-  --surface-2: #f9fafb;
-  --ink:       #111827;
-  --ink-muted: #6b7280;
+  --surface-2: #f8fafc;
+  --ink:       #0f172a;
+  --ink-muted: #64748b;
 }
+
+/* ── Text-only font scaling via --wa-fs (default 1, layout stays fixed) ── */
+.text-xs   { font-size: calc(0.75rem  * var(--wa-fs, 1)); }
+.text-sm   { font-size: calc(0.875rem * var(--wa-fs, 1)); }
+.text-base { font-size: calc(1rem     * var(--wa-fs, 1)); }
+.text-lg   { font-size: calc(1.125rem * var(--wa-fs, 1)); }
+.text-xl   { font-size: calc(1.25rem  * var(--wa-fs, 1)); }
+.text-2xl  { font-size: calc(1.5rem   * var(--wa-fs, 1)); }
+.text-3xl  { font-size: calc(1.875rem * var(--wa-fs, 1)); }
+.text-4xl  { font-size: calc(2.25rem  * var(--wa-fs, 1)); }
+
+/* Ultra-faint dot grid on default */
+body {
+  background-image: radial-gradient(rgba(15, 23, 42, 0.03) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+/* ── Range slider (wa-slider) ── */
+.wa-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--slider-track, #e2e8f0);
+  outline: none;
+  cursor: pointer;
+  border: none;
+  padding: 0;
+}
+.wa-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--slider-thumb, #6d28d9);
+  cursor: pointer;
+  border: 2px solid var(--slider-bg, #ffffff);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+.wa-slider::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--slider-thumb, #6d28d9);
+  cursor: pointer;
+  border: 2px solid var(--slider-bg, #ffffff);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+
+:root {
+  --slider-track: #e2e8f0;
+  --slider-thumb: #6d28d9;
+  --slider-bg: #ffffff;
+}
+[data-theme="arcane_scroll"]  { --slider-track: #c9a96e; --slider-thumb: #8b4513; --slider-bg: #f4e8d0; }
+[data-theme="data_link"]      { --slider-track: #1e2d4a; --slider-thumb: #00d4ff; --slider-bg: #0a0e1a; }
+[data-theme="dossier"]        { --slider-track: #c5b89a; --slider-thumb: #8b6914; --slider-bg: #f5f0e8; }
+[data-theme="obsidian_codex"] { --slider-track: #261e48; --slider-thumb: #9b72cf; --slider-bg: #0b0810; }
+[data-theme="verdant_atlas"]  { --slider-track: #b8ccb8; --slider-thumb: #2e6b42; --slider-bg: #f2f5ee; }
 
 /* ============================================================
    ARCANE SCROLL — Parchment fantasy
@@ -26,24 +88,28 @@
   --surface-2: #e8d5b0;
   --ink:       #3d2b1f;
   --ink-muted: #6b4c35;
-  font-family: Georgia, 'Times New Roman', serif;
-  /* Subtle diagonal crosshatch texture */
+  font-family: 'IM Fell English', Georgia, 'Times New Roman', serif;
+  /* Crosshatch + radial vignette */
   background-image:
+    radial-gradient(ellipse at center, transparent 60%, rgba(61, 43, 31, 0.06) 100%),
     repeating-linear-gradient(
       45deg,
       transparent 0px,
-      transparent 40px,
-      rgba(139, 90, 43, 0.04) 40px,
-      rgba(139, 90, 43, 0.04) 41px
+      transparent 38px,
+      rgba(139, 90, 43, 0.055) 38px,
+      rgba(139, 90, 43, 0.055) 39px
     ),
     repeating-linear-gradient(
       -45deg,
       transparent 0px,
-      transparent 40px,
-      rgba(139, 90, 43, 0.04) 40px,
-      rgba(139, 90, 43, 0.04) 41px
+      transparent 38px,
+      rgba(139, 90, 43, 0.055) 38px,
+      rgba(139, 90, 43, 0.055) 39px
     );
 }
+
+/* Borders */
+[data-theme="arcane_scroll"] .rounded-xl  { border-radius: 14px; }
 
 /* Backgrounds */
 [data-theme="arcane_scroll"] .bg-white        { background-color: #f9f1e0; }
@@ -78,19 +144,39 @@
 [data-theme="arcane_scroll"] input::placeholder,
 [data-theme="arcane_scroll"] textarea::placeholder { color: #a07855; }
 
-/* Article content area — give it a parchment card feel */
+/* Article content */
 [data-theme="arcane_scroll"] .prose h1,
 [data-theme="arcane_scroll"] .prose h2,
 [data-theme="arcane_scroll"] .prose h3 { color: #3d2b1f; font-variant: small-caps; }
 [data-theme="arcane_scroll"] .prose    { color: #4a3326; }
 [data-theme="arcane_scroll"] .prose a  { color: #8b4513; }
 [data-theme="arcane_scroll"] .prose hr { border-color: #c9a96e; }
+/* Drop-cap on first paragraph */
+[data-theme="arcane_scroll"] .prose p:first-of-type::first-letter {
+  font-size: 3em;
+  line-height: 0.8;
+  float: left;
+  margin-right: 0.08em;
+  color: #8b4513;
+  font-family: 'IM Fell English', Georgia, serif;
+}
 
-/* Navigation active state */
+/* Navigation active */
 [data-theme="arcane_scroll"] .bg-blue-50.text-blue-700 { background-color: #e8d5b0; color: #8b4513; }
 [data-theme="arcane_scroll"] .text-blue-700  { color: #8b4513; }
 [data-theme="arcane_scroll"] .text-blue-600  { color: #9b5523; }
 [data-theme="arcane_scroll"] .border-blue-300 { border-color: #c9a96e; }
+
+/* Purple accent → brown/sienna */
+[data-theme="arcane_scroll"] .text-purple-700,
+[data-theme="arcane_scroll"] .text-purple-600  { color: #8b4513; }
+[data-theme="arcane_scroll"] .bg-purple-600    { background-color: #8b4513; }
+[data-theme="arcane_scroll"] .hover\:bg-purple-700:hover { background-color: #7a3c10; }
+[data-theme="arcane_scroll"] .bg-purple-50     { background-color: #ede0c4; }
+[data-theme="arcane_scroll"] .text-purple-400  { color: #a06030; }
+[data-theme="arcane_scroll"] .text-purple-500  { color: #985520; }
+[data-theme="arcane_scroll"] .border-purple-300 { border-color: #c9a96e; }
+[data-theme="arcane_scroll"] .ring-purple-300  { --tw-ring-color: #c9a96e; }
 
 /* Scrollbar */
 [data-theme="arcane_scroll"] ::-webkit-scrollbar-track { background: #e8d5b0; }
@@ -105,17 +191,31 @@
   --surface-2: #0d1220;
   --ink:       #c8d8f0;
   --ink-muted: #6a82aa;
-  font-family: 'Courier New', Courier, monospace;
-  /* Scan-line texture */
+  font-family: 'IBM Plex Mono', 'Courier New', Courier, monospace;
+  /* Scan-lines + faint diagonal grid */
   background-image:
     repeating-linear-gradient(
       0deg,
       transparent 0px,
       transparent 3px,
-      rgba(0, 200, 255, 0.025) 3px,
-      rgba(0, 200, 255, 0.025) 4px
+      rgba(0, 200, 255, 0.02) 3px,
+      rgba(0, 200, 255, 0.02) 4px
+    ),
+    repeating-linear-gradient(
+      60deg,
+      transparent 0px,
+      transparent 28px,
+      rgba(0, 180, 255, 0.012) 28px,
+      rgba(0, 180, 255, 0.012) 29px
     );
 }
+
+/* Sharp edges */
+[data-theme="data_link"] .rounded,
+[data-theme="data_link"] .rounded-md,
+[data-theme="data_link"] .rounded-lg,
+[data-theme="data_link"] .rounded-xl,
+[data-theme="data_link"] .rounded-2xl { border-radius: 0; }
 
 /* Backgrounds */
 [data-theme="data_link"] .bg-white        { background-color: #0f1726; }
@@ -161,20 +261,37 @@
 [data-theme="data_link"] textarea::placeholder { color: #4a6288; }
 [data-theme="data_link"] input:focus,
 [data-theme="data_link"] textarea:focus {
-  box-shadow: 0 0 0 2px rgba(0, 212, 255, 0.3);
-  border-color: #0066aa;
+  box-shadow: 0 0 0 2px rgba(0, 212, 255, 0.35), 0 0 12px rgba(0, 212, 255, 0.1);
+  border-color: #0088cc;
 }
 
-/* Article content area */
+/* Article content */
 [data-theme="data_link"] .prose           { color: #a8c0e0; }
 [data-theme="data_link"] .prose h1,
 [data-theme="data_link"] .prose h2,
-[data-theme="data_link"] .prose h3        { color: #00d4ff; letter-spacing: 0.05em; text-transform: uppercase; font-size: 0.9em; }
+[data-theme="data_link"] .prose h3        {
+  color: #00d4ff;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-size: 0.88em;
+  text-shadow: 0 0 8px rgba(0, 212, 255, 0.4);
+}
 [data-theme="data_link"] .prose a         { color: #00d4ff; }
 [data-theme="data_link"] .prose hr        { border-color: #1e2d4a; }
 [data-theme="data_link"] .prose code      { background-color: #0d1422; color: #00ff88; border: 1px solid #1e2d4a; }
 
-/* Glow effect on accents */
+/* Blinking cursor on AgentPanel header mode label */
+@keyframes data-link-blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0; }
+}
+[data-theme="data_link"] .agent-panel-mode-label::after {
+  content: '_';
+  animation: data-link-blink 1s step-end infinite;
+  margin-left: 2px;
+}
+
+/* Purple accent → cyan */
 [data-theme="data_link"] .text-purple-700,
 [data-theme="data_link"] .text-purple-600 { color: #00d4ff; }
 [data-theme="data_link"] .bg-purple-600   { background-color: #00507a; }
@@ -185,12 +302,12 @@
 [data-theme="data_link"] .text-purple-500 { color: #00a8cc; }
 [data-theme="data_link"] .border-purple-300 { border-color: #004466; }
 
-/* Status dots — green and blue stay, gray goes light */
+/* Status dots */
 [data-theme="data_link"] .bg-gray-300     { background-color: #2a4268; }
 
 /* Scrollbar */
 [data-theme="data_link"] ::-webkit-scrollbar-track { background: #060910; }
-[data-theme="data_link"] ::-webkit-scrollbar-thumb { background: #1e2d4a; border-radius: 4px; }
+[data-theme="data_link"] ::-webkit-scrollbar-thumb { background: #1e2d4a; }
 [data-theme="data_link"] ::-webkit-scrollbar-thumb:hover { background: #2a4268; }
 
 /* ============================================================
@@ -202,17 +319,26 @@
   --surface-2: #ebe4d5;
   --ink:       #2c2416;
   --ink-muted: #5c4f3a;
-  font-family: 'Courier New', Courier, monospace;
-  /* Faint horizontal ruled lines */
+  font-family: 'Courier Prime', 'Courier New', Courier, monospace;
+  letter-spacing: 0.03em;
+  /* Ruled lines + corner age stain */
   background-image:
+    radial-gradient(ellipse 40% 30% at 98% 96%, rgba(120, 80, 30, 0.05) 0%, transparent 70%),
     repeating-linear-gradient(
       180deg,
       transparent 0px,
-      transparent 27px,
-      rgba(100, 80, 50, 0.07) 27px,
-      rgba(100, 80, 50, 0.07) 28px
+      transparent 26px,
+      rgba(100, 80, 50, 0.09) 26px,
+      rgba(100, 80, 50, 0.09) 27px
     );
 }
+
+/* Near-square corners */
+[data-theme="dossier"] .rounded,
+[data-theme="dossier"] .rounded-md,
+[data-theme="dossier"] .rounded-lg  { border-radius: 2px; }
+[data-theme="dossier"] .rounded-xl,
+[data-theme="dossier"] .rounded-2xl { border-radius: 4px; }
 
 /* Backgrounds */
 [data-theme="dossier"] .bg-white          { background-color: #faf6ed; }
@@ -221,6 +347,10 @@
 [data-theme="dossier"] .bg-gray-200       { background-color: #e2d9c8; }
 [data-theme="dossier"] .bg-blue-50        { background-color: #ede7d8; }
 [data-theme="dossier"] .bg-purple-50      { background-color: #ede7d8; }
+/* Red states look like file stamps */
+[data-theme="dossier"] .bg-red-50         { background-color: #f5eae8; }
+[data-theme="dossier"] .border-red-200    { border-color: #c8826e; }
+[data-theme="dossier"] .text-red-700      { color: #8b2a1a; }
 
 /* Text */
 [data-theme="dossier"] .text-gray-900     { color: #2c2416; }
@@ -254,7 +384,7 @@
 [data-theme="dossier"] input::placeholder,
 [data-theme="dossier"] textarea::placeholder { color: #9a8a72; }
 
-/* Article content area */
+/* Article content */
 [data-theme="dossier"] .prose             { color: #36301e; }
 [data-theme="dossier"] .prose h1,
 [data-theme="dossier"] .prose h2,
@@ -262,7 +392,7 @@
 [data-theme="dossier"] .prose a           { color: #8b6914; }
 [data-theme="dossier"] .prose hr          { border-color: #c5b89a; }
 
-/* Purple accent → amber for dossier */
+/* Purple accent → amber */
 [data-theme="dossier"] .text-purple-700,
 [data-theme="dossier"] .text-purple-600   { color: #8b6914; }
 [data-theme="dossier"] .bg-purple-600     { background-color: #8b6914; }
@@ -278,5 +408,217 @@
 
 /* Scrollbar */
 [data-theme="dossier"] ::-webkit-scrollbar-track { background: #ebe4d5; }
-[data-theme="dossier"] ::-webkit-scrollbar-thumb { background: #c5b89a; border-radius: 4px; }
+[data-theme="dossier"] ::-webkit-scrollbar-thumb { background: #c5b89a; border-radius: 2px; }
 [data-theme="dossier"] ::-webkit-scrollbar-thumb:hover { background: #b0a080; }
+
+/* ============================================================
+   OBSIDIAN CODEX — Dark fantasy / cosmic horror
+   ============================================================ */
+
+[data-theme="obsidian_codex"] {
+  --surface:   #0b0810;
+  --surface-2: #0f0c18;
+  --ink:       #d4c8f0;
+  --ink-muted: #8a7ab0;
+  font-family: 'Crimson Pro', Georgia, serif;
+  /* Stone/masonry grid */
+  background-image:
+    repeating-linear-gradient(
+      0deg,
+      transparent 0px,
+      transparent 31px,
+      rgba(120, 80, 180, 0.04) 31px,
+      rgba(120, 80, 180, 0.04) 32px
+    ),
+    repeating-linear-gradient(
+      90deg,
+      transparent 0px,
+      transparent 31px,
+      rgba(120, 80, 180, 0.04) 31px,
+      rgba(120, 80, 180, 0.04) 32px
+    );
+}
+
+/* Slight bevel — carved stone */
+[data-theme="obsidian_codex"] .rounded,
+[data-theme="obsidian_codex"] .rounded-md  { border-radius: 2px; }
+[data-theme="obsidian_codex"] .rounded-lg  { border-radius: 3px; }
+[data-theme="obsidian_codex"] .rounded-xl,
+[data-theme="obsidian_codex"] .rounded-2xl { border-radius: 6px; }
+
+/* Backgrounds */
+[data-theme="obsidian_codex"] .bg-white        { background-color: #120f1c; }
+[data-theme="obsidian_codex"] .bg-gray-50      { background-color: #0f0c18; }
+[data-theme="obsidian_codex"] .bg-gray-100     { background-color: #151020; }
+[data-theme="obsidian_codex"] .bg-gray-200     { background-color: #1c1630; }
+[data-theme="obsidian_codex"] .bg-blue-50      { background-color: #14102a; }
+[data-theme="obsidian_codex"] .bg-purple-50    { background-color: #16102c; }
+[data-theme="obsidian_codex"] .bg-amber-50     { background-color: #1a1508; }
+[data-theme="obsidian_codex"] .bg-red-50       { background-color: #180c14; }
+[data-theme="obsidian_codex"] .bg-green-50     { background-color: #0c1818; }
+
+/* Text */
+[data-theme="obsidian_codex"] .text-gray-900   { color: #ede8ff; }
+[data-theme="obsidian_codex"] .text-gray-800   { color: #d4c8f0; }
+[data-theme="obsidian_codex"] .text-gray-700   { color: #b8a8d8; }
+[data-theme="obsidian_codex"] .text-gray-600   { color: #9a88be; }
+[data-theme="obsidian_codex"] .text-gray-500   { color: #8a7ab0; }
+[data-theme="obsidian_codex"] .text-gray-400   { color: #6a5890; }
+[data-theme="obsidian_codex"] .text-gray-300   { color: #3e2e68; }
+
+/* Borders */
+[data-theme="obsidian_codex"] .border-gray-100 { border-color: #1e183a; }
+[data-theme="obsidian_codex"] .border-gray-200 { border-color: #261e48; }
+[data-theme="obsidian_codex"] .border-gray-300 { border-color: #302858; }
+
+/* Inputs */
+[data-theme="obsidian_codex"] input:not([type="radio"]):not([type="checkbox"]),
+[data-theme="obsidian_codex"] textarea,
+[data-theme="obsidian_codex"] select {
+  background-color: #07050e;
+  color: #d4c8f0;
+  border-color: #261e48;
+}
+[data-theme="obsidian_codex"] input::placeholder,
+[data-theme="obsidian_codex"] textarea::placeholder { color: #6a5890; }
+[data-theme="obsidian_codex"] input:focus,
+[data-theme="obsidian_codex"] textarea:focus {
+  box-shadow: 0 0 0 2px rgba(155, 114, 207, 0.35), 0 0 10px rgba(155, 114, 207, 0.08);
+  border-color: #6a3e9e;
+}
+
+/* Navigation active */
+[data-theme="obsidian_codex"] .bg-blue-50.text-blue-700 { background-color: #1a1438; color: #d4a84b; }
+[data-theme="obsidian_codex"] .text-blue-700  { color: #d4a84b; }
+[data-theme="obsidian_codex"] .text-blue-600  { color: #c49840; }
+[data-theme="obsidian_codex"] .border-blue-300 { border-color: #40307a; }
+[data-theme="obsidian_codex"] .border-blue-500 { border-color: #5a408a; }
+
+/* Article content */
+[data-theme="obsidian_codex"] .prose           { color: #b8a8d8; font-size: 1.05em; }
+[data-theme="obsidian_codex"] .prose h1,
+[data-theme="obsidian_codex"] .prose h2,
+[data-theme="obsidian_codex"] .prose h3        {
+  color: #d4a84b;
+  font-variant: small-caps;
+  letter-spacing: 0.08em;
+}
+[data-theme="obsidian_codex"] .prose a         { color: #9b72cf; }
+[data-theme="obsidian_codex"] .prose a:hover   { color: #b890e8; }
+[data-theme="obsidian_codex"] .prose hr        { border-color: #261e48; }
+[data-theme="obsidian_codex"] .prose code      { background-color: #0f0c18; color: #d4a84b; border: 1px solid #261e48; }
+
+/* Purple accent is native — use slightly brighter mystic purple */
+[data-theme="obsidian_codex"] .text-purple-700,
+[data-theme="obsidian_codex"] .text-purple-600 { color: #b880e8; }
+[data-theme="obsidian_codex"] .bg-purple-600   { background-color: #6a3e9e; }
+[data-theme="obsidian_codex"] .bg-purple-700,
+[data-theme="obsidian_codex"] .hover\:bg-purple-700:hover { background-color: #7a4ab4; }
+[data-theme="obsidian_codex"] .bg-purple-50    { background-color: #16102c; }
+[data-theme="obsidian_codex"] .text-purple-400 { color: #9b72cf; }
+[data-theme="obsidian_codex"] .text-purple-500 { color: #8858b8; }
+[data-theme="obsidian_codex"] .border-purple-300 { border-color: #40307a; }
+[data-theme="obsidian_codex"] .ring-purple-300 { --tw-ring-color: rgba(155, 114, 207, 0.5); }
+
+/* Status dots */
+[data-theme="obsidian_codex"] .bg-gray-300     { background-color: #3e2e68; }
+
+/* Scrollbar */
+[data-theme="obsidian_codex"] ::-webkit-scrollbar-track { background: #07050e; }
+[data-theme="obsidian_codex"] ::-webkit-scrollbar-thumb { background: #261e48; border-radius: 3px; }
+[data-theme="obsidian_codex"] ::-webkit-scrollbar-thumb:hover { background: #362a5e; }
+
+/* ============================================================
+   VERDANT ATLAS — Naturalist field journal
+   ============================================================ */
+
+[data-theme="verdant_atlas"] {
+  --surface:   #f2f5ee;
+  --surface-2: #e8ede3;
+  --ink:       #1c3a1c;
+  --ink-muted: #4a6b4a;
+  font-family: 'Lora', Georgia, serif;
+  /* Dot grid — field notebook */
+  background-image: radial-gradient(rgba(30, 60, 30, 0.055) 1.2px, transparent 1.2px);
+  background-size: 18px 18px;
+}
+
+/* Organic, generous rounding */
+[data-theme="verdant_atlas"] .rounded-lg  { border-radius: 10px; }
+[data-theme="verdant_atlas"] .rounded-xl  { border-radius: 18px; }
+[data-theme="verdant_atlas"] .rounded-2xl { border-radius: 22px; }
+
+/* Backgrounds */
+[data-theme="verdant_atlas"] .bg-white        { background-color: #f8faf5; }
+[data-theme="verdant_atlas"] .bg-gray-50      { background-color: #f2f5ee; }
+[data-theme="verdant_atlas"] .bg-gray-100     { background-color: #e8ede3; }
+[data-theme="verdant_atlas"] .bg-gray-200     { background-color: #dce4d6; }
+[data-theme="verdant_atlas"] .bg-blue-50      { background-color: #e8f0e2; }
+[data-theme="verdant_atlas"] .bg-purple-50    { background-color: #e8f0e2; }
+[data-theme="verdant_atlas"] .bg-amber-50     { background-color: #f5f0de; }
+[data-theme="verdant_atlas"] .bg-green-50     { background-color: #dff0e4; }
+
+/* Text */
+[data-theme="verdant_atlas"] .text-gray-900   { color: #1c3a1c; }
+[data-theme="verdant_atlas"] .text-gray-800   { color: #254825; }
+[data-theme="verdant_atlas"] .text-gray-700   { color: #305530; }
+[data-theme="verdant_atlas"] .text-gray-600   { color: #4a6b4a; }
+[data-theme="verdant_atlas"] .text-gray-500   { color: #607a60; }
+[data-theme="verdant_atlas"] .text-gray-400   { color: #80a080; }
+[data-theme="verdant_atlas"] .text-gray-300   { color: #a8c4a8; }
+
+/* Borders */
+[data-theme="verdant_atlas"] .border-gray-100 { border-color: #ccdacc; }
+[data-theme="verdant_atlas"] .border-gray-200 { border-color: #b8ccb8; }
+[data-theme="verdant_atlas"] .border-gray-300 { border-color: #a0b8a0; }
+
+/* Inputs */
+[data-theme="verdant_atlas"] input:not([type="radio"]):not([type="checkbox"]),
+[data-theme="verdant_atlas"] textarea,
+[data-theme="verdant_atlas"] select {
+  background-color: #f8faf5;
+  color: #1c3a1c;
+  border-color: #b8ccb8;
+}
+[data-theme="verdant_atlas"] input::placeholder,
+[data-theme="verdant_atlas"] textarea::placeholder { color: #80a080; }
+[data-theme="verdant_atlas"] input:focus,
+[data-theme="verdant_atlas"] textarea:focus {
+  box-shadow: 0 0 0 2px rgba(46, 107, 66, 0.3);
+  border-color: #2e6b42;
+}
+
+/* Navigation active */
+[data-theme="verdant_atlas"] .bg-blue-50.text-blue-700 { background-color: #dce8d6; color: #2e6b42; }
+[data-theme="verdant_atlas"] .text-blue-700  { color: #2e6b42; }
+[data-theme="verdant_atlas"] .text-blue-600  { color: #3a8050; }
+[data-theme="verdant_atlas"] .border-blue-300 { border-color: #b8ccb8; }
+[data-theme="verdant_atlas"] .border-blue-500 { border-color: #6aaa80; }
+
+/* Article content */
+[data-theme="verdant_atlas"] .prose           { color: #254825; }
+[data-theme="verdant_atlas"] .prose h1,
+[data-theme="verdant_atlas"] .prose h2,
+[data-theme="verdant_atlas"] .prose h3        { color: #1c3a1c; font-style: italic; }
+[data-theme="verdant_atlas"] .prose a         { color: #2e6b42; }
+[data-theme="verdant_atlas"] .prose hr        { border-color: #b8ccb8; }
+
+/* Purple accent → forest green */
+[data-theme="verdant_atlas"] .text-purple-700,
+[data-theme="verdant_atlas"] .text-purple-600 { color: #2e6b42; }
+[data-theme="verdant_atlas"] .bg-purple-600   { background-color: #2e6b42; }
+[data-theme="verdant_atlas"] .bg-purple-700,
+[data-theme="verdant_atlas"] .hover\:bg-purple-700:hover { background-color: #255838; }
+[data-theme="verdant_atlas"] .bg-purple-50    { background-color: #e8f0e2; }
+[data-theme="verdant_atlas"] .text-purple-400 { color: #4a9060; }
+[data-theme="verdant_atlas"] .text-purple-500 { color: #3a7c52; }
+[data-theme="verdant_atlas"] .border-purple-300 { border-color: #b8ccb8; }
+[data-theme="verdant_atlas"] .ring-purple-300 { --tw-ring-color: rgba(46, 107, 66, 0.4); }
+
+/* Status dots */
+[data-theme="verdant_atlas"] .bg-gray-300     { background-color: #a8c4a8; }
+
+/* Scrollbar */
+[data-theme="verdant_atlas"] ::-webkit-scrollbar-track { background: #e8ede3; }
+[data-theme="verdant_atlas"] ::-webkit-scrollbar-thumb { background: #b8ccb8; border-radius: 10px; }
+[data-theme="verdant_atlas"] ::-webkit-scrollbar-thumb:hover { background: #a0b8a0; }

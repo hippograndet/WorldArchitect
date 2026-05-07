@@ -1,3 +1,4 @@
+import { Check, ArrowRight } from 'lucide-react';
 import { useStore } from '../../stores/index.ts';
 import type { NextStep } from '../../stores/agentSlice.ts';
 
@@ -18,7 +19,7 @@ export default function ContinuationView() {
   return (
     <div className="p-5 flex flex-col gap-4">
       <div className="flex items-center gap-2">
-        <span className="text-lg">✓</span>
+        <Check size={20} className="text-green-500 shrink-0" />
         <div>
           <p className="text-sm font-semibold text-gray-800">Content accepted</p>
           <p className="text-xs text-gray-400">What would you like to do next?</p>
@@ -33,7 +34,7 @@ export default function ContinuationView() {
             className="text-left p-3 rounded-xl border border-gray-200 hover:border-purple-300 hover:bg-purple-50 transition-colors group"
           >
             <div className="flex items-center gap-2">
-              <span className="text-base">{PIPELINE_ICONS[step.pipeline] ?? '→'}</span>
+              <span className="text-base flex items-center">{PIPELINE_ICONS[step.pipeline] ?? <ArrowRight size={16} />}</span>
               <div>
                 <p className="text-xs font-semibold text-gray-800 group-hover:text-purple-700">{step.label}</p>
                 <p className="text-xs text-gray-400">{step.description}</p>

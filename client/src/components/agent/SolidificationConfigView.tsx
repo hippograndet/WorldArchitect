@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react';
+import { RotateCcw, Scale } from 'lucide-react';
 import { useParams } from 'react-router-dom';
 import { useStore } from '../../stores/index.ts';
 import type { PipelineType } from '../../stores/agentSlice.ts';
@@ -8,18 +10,23 @@ import type { PipelineType } from '../../stores/agentSlice.ts';
 
 type SolidTask = 'reorganize' | 'cohere';
 
-const TASKS: { id: SolidTask; pipeline: PipelineType; icon: string; label: string; desc: string }[] = [
+const TASKS: { id: SolidTask; pipeline: PipelineType; label: string; desc: string }[] = [
   {
     id: 'reorganize', pipeline: 'reorganize',
-    icon: '↺', label: 'Reorganize',
+    label: 'Reorganize',
     desc: 'Restructure and improve the existing Description while preserving all facts.',
   },
   {
     id: 'cohere', pipeline: 'cohere',
-    icon: '⚖', label: 'Coherence Check',
+    label: 'Coherence Check',
     desc: 'Scan for contradictions between this article and the rest of the world.',
   },
 ];
+
+const TASK_ICON: Record<SolidTask, ReactNode> = {
+  reorganize: <RotateCcw size={16} />,
+  cohere: <Scale size={16} />,
+};
 
 // ---------------------------------------------------------------------------
 // Component
@@ -66,7 +73,7 @@ export default function SolidificationConfigView() {
                     : 'border-gray-200 hover:border-gray-400 hover:bg-gray-50 text-gray-600 cursor-pointer'
                   }`}
               >
-                <span className="text-base leading-none">{t.icon}</span>
+                <span className="flex items-center justify-center">{TASK_ICON[t.id]}</span>
                 <span className="text-xs font-medium">{t.label}</span>
               </button>
             );
@@ -127,7 +134,10 @@ export default function SolidificationConfigView() {
           onClick={handleGenerate}
           className="w-full py-2 text-sm font-medium bg-gray-700 text-white rounded-lg hover:bg-gray-800 transition-colors"
         >
-          {selectedTask === 'reorganize' ? '↺ Reorganize' : '⚖ Check Coherence'}
+          <span className="flex items-center justify-center gap-1.5">
+            {TASK_ICON[selectedTask]}
+            {selectedTask === 'reorganize' ? 'Reorganize' : 'Check Coherence'}
+          </span>
         </button>
       </div>
     </div>

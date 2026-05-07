@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { ArrowLeft, ArrowRight, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../../stores/index.ts';
 import { api } from '../../lib/api.ts';
@@ -216,8 +217,8 @@ export default function WorldCreationWizard() {
     <div className="min-h-screen bg-gray-50 flex items-start justify-center py-16 px-4">
       <div className="w-full max-w-xl">
         {step === 1 && (
-          <button onClick={() => navigate('/')} className="text-sm text-gray-400 hover:text-gray-700 mb-6">
-            ← Back
+          <button onClick={() => navigate('/')} className="text-sm text-gray-400 hover:text-gray-700 mb-6 flex items-center gap-1">
+            <ArrowLeft size={14} /> Back
           </button>
         )}
 
@@ -271,7 +272,9 @@ export default function WorldCreationWizard() {
               onClick={handleCreateWorld}
               className="w-full py-2.5 bg-blue-600 text-white rounded-lg font-medium text-sm hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {creatingWorld ? 'Creating…' : 'Next: World Style →'}
+              <span className="flex items-center justify-center gap-1.5">
+                {creatingWorld ? 'Creating…' : <><ArrowRight size={14} /> Next: World Style</>}
+              </span>
             </button>
           </div>
         )}
@@ -400,7 +403,7 @@ export default function WorldCreationWizard() {
                     >
                       <div className="flex items-center justify-between mb-1">
                         <span className="font-medium text-gray-800">{ins.name}</span>
-                        <button type="button" onClick={() => handleRemoveInspiration(idx)} className="text-gray-400 hover:text-gray-700">✕</button>
+                        <button type="button" onClick={() => handleRemoveInspiration(idx)} className="text-gray-400 hover:text-gray-700"><X size={14} /></button>
                       </div>
                       {ins.expandedDescription
                         ? <p className="text-gray-600 leading-relaxed line-clamp-3">{ins.expandedDescription}</p>
@@ -432,14 +435,16 @@ export default function WorldCreationWizard() {
                 onClick={handleFinish}
                 className="w-full py-2.5 bg-blue-600 text-white rounded-lg font-medium text-sm hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {savingStyle ? 'Saving…' : step2HasStyle ? 'Finish — Save Style' : 'Finish'}
+                <span className="flex items-center justify-center gap-1.5">
+                  {savingStyle ? 'Saving…' : step2HasStyle ? 'Finish — Save Style' : 'Finish'}
+                </span>
               </button>
               <button
                 type="button"
                 onClick={navigateToWorld}
                 className="w-full py-2 text-sm text-gray-400 hover:text-gray-600"
               >
-                Skip style for now →
+                <span className="flex items-center justify-center gap-1">Skip style for now <ArrowRight size={14} /></span>
               </button>
             </div>
           </div>

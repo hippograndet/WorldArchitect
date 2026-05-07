@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { ArrowLeft } from 'lucide-react';
 import { useParams } from 'react-router-dom';
 import { useStore } from '../../stores/index.ts';
 
@@ -77,7 +78,7 @@ export default function ChildProposalSelectorView() {
           className="px-3 py-2 text-sm text-gray-500 border border-gray-200 rounded-lg hover:bg-gray-50"
           title="Back"
         >
-          ←
+          <ArrowLeft size={16} />
         </button>
       </div>
     </div>

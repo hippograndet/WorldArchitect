@@ -1,5 +1,6 @@
 import type { StateCreator } from 'zustand';
 import type { StoreState } from './index.ts';
+import type { VisualTheme } from '../types/world.ts';
 
 export type ActiveView = 'encyclopedia' | 'timeline' | 'bible' | 'usage';
 
@@ -23,6 +24,8 @@ export interface UISlice {
   sidebarOpen: boolean;
   activeView: ActiveView;
   searchQuery: string;
+  globalTheme: VisualTheme;
+  fontSize: number;
 
   addToast: (toast: Omit<Toast, 'id'>) => void;
   dismissToast: (id: string) => void;
@@ -31,6 +34,8 @@ export interface UISlice {
   setActiveView: (view: ActiveView) => void;
   setSearchQuery: (q: string) => void;
   setSidebarOpen: (open: boolean) => void;
+  setGlobalTheme: (theme: VisualTheme) => void;
+  setFontSize: (size: number) => void;
 }
 
 let toastSeq = 0;
@@ -41,6 +46,8 @@ export const uiSlice: StateCreator<StoreState, [['zustand/immer', never]], [], U
   sidebarOpen: true,
   activeView: 'encyclopedia',
   searchQuery: '',
+  globalTheme: (localStorage.getItem('wa-theme') as VisualTheme) || 'default',
+  fontSize: Number(localStorage.getItem('wa-font-scale')) || 1,
 
   addToast: (toast) => {
     const id = String(++toastSeq);
@@ -70,5 +77,15 @@ export const uiSlice: StateCreator<StoreState, [['zustand/immer', never]], [], U
 
   setSidebarOpen: (open) => {
     set((s) => { s.sidebarOpen = open; });
+  },
+
+  setGlobalTheme: (theme) => {
+    localStorage.setItem('wa-theme', theme);
+    set((s) => { s.globalTheme = theme; });
+  },
+
+  setFontSize: (size) => {
+    localStorage.setItem('wa-font-scale', String(size));
+    set((s) => { s.fontSize = size; });
   },
 });

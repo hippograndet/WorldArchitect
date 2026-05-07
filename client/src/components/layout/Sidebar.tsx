@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { ChevronDown, ChevronRight, X, Plus } from 'lucide-react';
 import { Link, useParams, useNavigate } from 'react-router-dom';
 import { useStore } from '../../stores/index.ts';
 import { api } from '../../lib/api.ts';
@@ -40,7 +41,7 @@ function TreeNodeRow({ node, wid, activeId, depth, matchIds }: NodeProps) {
           className={`w-4 h-4 flex items-center justify-center text-xs text-gray-400 shrink-0 ${node.children.length === 0 ? 'invisible' : ''}`}
           onMouseDown={(e) => { e.preventDefault(); setOpen((v) => !v); }}
         >
-          {open ? '▾' : '▸'}
+          {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
         </button>
         <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${statusDot[node.status] ?? 'bg-gray-300'}`} />
         <Link to={`/worlds/${wid}/articles/${node.id}`} className="truncate flex-1" title={node.title}>
@@ -207,7 +208,7 @@ export default function Sidebar() {
                 onClick={() => { setShowNewForm(false); setNewTitle(''); }}
                 className="px-2 py-1 text-xs text-gray-400 hover:text-gray-600"
               >
-                ✕
+                <X size={14} />
               </button>
             </div>
           </form>
@@ -216,7 +217,7 @@ export default function Sidebar() {
             onClick={() => setShowNewForm(true)}
             className="w-full flex items-center gap-1.5 px-2 py-1 text-xs text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors"
           >
-            <span className="text-base leading-none">+</span>
+            <Plus size={14} />
             New Article
           </button>
         )}

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Check, ChevronUp, ChevronDown } from 'lucide-react';
 import { useParams } from 'react-router-dom';
 import { useStore } from '../../stores/index.ts';
 
@@ -59,7 +60,7 @@ export default function DraftReviewView() {
       {/* Coherence warnings */}
       {isCohere && warnings.length === 0 && (
         <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
-          <p className="text-xs font-semibold text-green-700">✓ No incoherences detected</p>
+          <p className="text-xs font-semibold text-green-700 flex items-center gap-1"><Check size={12} /> No incoherences detected</p>
           <p className="text-xs text-green-600 mt-0.5">This article is consistent with the World Bible.</p>
         </div>
       )}
@@ -107,7 +108,7 @@ export default function DraftReviewView() {
             }`}>
               Style Check — {agentStyleCheck.overallToneMatch}
             </span>
-            <span className="text-xs text-gray-400">{styleExpanded ? '▲' : '▼'}</span>
+            <span className="text-xs text-gray-400">{styleExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</span>
           </button>
           <p className="text-xs text-gray-600 mt-1">{agentStyleCheck.summary}</p>
           {styleExpanded && agentStyleCheck.issues.length > 0 && (

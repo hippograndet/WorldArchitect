@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react';
+import { Star, ArrowUp, GitBranch, Lock, Settings, Play } from 'lucide-react';
 import { useParams } from 'react-router-dom';
 import { useStore } from '../../stores/index.ts';
 import { extractDescription } from '../../lib/sections.ts';
@@ -8,11 +10,17 @@ import { extractDescription } from '../../lib/sections.ts';
 
 type SparkTask = 'inception' | 'expansion' | 'branching';
 
-const TASKS: { id: SparkTask; icon: string; label: string; desc: string }[] = [
-  { id: 'inception', icon: '★', label: 'Inception',  desc: 'Generate a complete Introduction from the article name and world context.' },
-  { id: 'expansion', icon: '↑', label: 'Expansion',  desc: 'Write the full Description using creative proposals and thematic ideas.' },
-  { id: 'branching', icon: '⤆', label: 'Branching',  desc: 'Propose 10 child articles to branch this node into subsections.' },
+const TASKS: { id: SparkTask; label: string; desc: string }[] = [
+  { id: 'inception', label: 'Inception',  desc: 'Generate a complete Introduction from the article name and world context.' },
+  { id: 'expansion', label: 'Expansion',  desc: 'Write the full Description using creative proposals and thematic ideas.' },
+  { id: 'branching', label: 'Branching',  desc: 'Propose 10 child articles to branch this node into subsections.' },
 ];
+
+const TASK_ICON: Record<SparkTask, ReactNode> = {
+  inception: <Star size={16} />,
+  expansion: <ArrowUp size={16} />,
+  branching: <GitBranch size={16} />,
+};
 
 const TASK_TO_PIPELINE = {
   inception: 'summarize',
@@ -92,11 +100,10 @@ export default function SparkConfigView() {
 
   const worldInfo = `${treeNodes.length} article${treeNodes.length !== 1 ? 's' : ''} · ~${(bibleTokenCount / 1000).toFixed(1)}k tokens Bible`;
 
-  const ctaLabel = agentParams.forgeEnabled
-    ? '⚙ Start Forge'
-    : selectedTask === 'inception' ? '▶ Start Inception'
-    : selectedTask === 'expansion' ? '▶ Start Expansion'
-    : '▶ Start Branching';
+  const ctaTaskLabel =
+    selectedTask === 'inception' ? 'Start Inception' :
+    selectedTask === 'expansion' ? 'Start Expansion' :
+    'Start Branching';
 
   return (
     <div className="flex flex-col gap-0 h-full">
@@ -121,7 +128,7 @@ export default function SparkConfigView() {
                       : 'border-gray-100 bg-gray-50 text-gray-300 cursor-not-allowed'
                   }`}
               >
-                <span className="text-base leading-none">{avail.ok ? t.icon : '🔒'}</span>
+                <span className="flex items-center justify-center">{avail.ok ? TASK_ICON[t.id] : <Lock size={16} />}</span>
                 <span className="text-xs font-medium">{t.label}</span>
               </button>
             );
@@ -397,7 +404,10 @@ export default function SparkConfigView() {
               : 'bg-purple-600 hover:bg-purple-700'
           }`}
         >
-          {ctaLabel}
+          <span className="flex items-center justify-center gap-1.5">
+            {agentParams.forgeEnabled ? <Settings size={14} /> : <Play size={14} />}
+            {agentParams.forgeEnabled ? 'Start Forge' : ctaTaskLabel}
+          </span>
         </button>
         {!agentParams.forgeEnabled && (
           <button

@@ -1,10 +1,12 @@
+import type { ReactNode } from 'react';
+import { Star, ArrowUp, GitBranch, X, Play, Pause, Square } from 'lucide-react';
 import { useParams } from 'react-router-dom';
 import { useStore } from '../../stores/index.ts';
 
-const STEP_ICON: Record<string, string> = {
-  Inception: '★',
-  Expansion: '↑',
-  Branching: '⤆',
+const STEP_ICON: Record<string, ReactNode> = {
+  Inception: <Star size={12} />,
+  Expansion: <ArrowUp size={12} />,
+  Branching: <GitBranch size={12} />,
 };
 
 export default function ForgeProgressView() {
@@ -80,13 +82,16 @@ export default function ForgeProgressView() {
                   : 'border-gray-300 text-gray-600 hover:bg-gray-50'
               }`}
             >
-              {forgePaused ? '▶ Resume' : '⏸ Pause'}
+              <span className="flex items-center justify-center gap-1">
+                {forgePaused ? <Play size={12} /> : <Pause size={12} />}
+                {forgePaused ? 'Resume' : 'Pause'}
+              </span>
             </button>
             <button
               onClick={stopForge}
               className="flex-1 py-1.5 text-xs rounded border border-red-300 text-red-600 hover:bg-red-50 transition-colors"
             >
-              ■ Stop
+              <span className="flex items-center justify-center gap-1"><Square size={12} /> Stop</span>
             </button>
           </div>
         )}
@@ -108,8 +113,8 @@ export default function ForgeProgressView() {
                   entry.ok ? '' : 'bg-red-50'
                 }`}
               >
-                <span className={`shrink-0 ${entry.ok ? 'text-gray-400' : 'text-red-500'}`}>
-                  {entry.ok ? (STEP_ICON[entry.step] ?? '·') : '✕'}
+                <span className={`shrink-0 flex items-center ${entry.ok ? 'text-gray-400' : 'text-red-500'}`}>
+                  {entry.ok ? (STEP_ICON[entry.step] ?? '·') : <X size={12} />}
                 </span>
                 <div className="min-w-0 flex-1">
                   <span className={`font-medium ${entry.ok ? 'text-gray-700' : 'text-red-600'}`}>

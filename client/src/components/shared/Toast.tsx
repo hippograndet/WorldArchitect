@@ -1,9 +1,11 @@
+import type { ReactNode } from 'react';
+import { Check, X, Info } from 'lucide-react';
 import { useStore } from '../../stores/index.ts';
 
-const icons: Record<string, string> = {
-  success: '✓',
-  error:   '✕',
-  info:    'ℹ',
+const icons: Record<string, ReactNode> = {
+  success: <Check size={14} />,
+  error:   <X size={14} />,
+  info:    <Info size={14} />,
 };
 
 const bg: Record<string, string> = {
@@ -30,7 +32,7 @@ export default function ToastContainer() {
             onClick={() => dismissToast(t.id)}
             className="ml-auto opacity-70 hover:opacity-100"
           >
-            ✕
+            <X size={14} />
           </button>
         </div>
       ))}

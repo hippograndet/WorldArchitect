@@ -1,3 +1,4 @@
+import { ArrowLeft, Settings } from 'lucide-react';
 import { Link, useParams, useLocation } from 'react-router-dom';
 import { useStore } from '../../stores/index.ts';
 import WorldBibleMeter from './WorldBibleMeter.tsx';
@@ -23,7 +24,9 @@ export default function TopBar() {
 
   return (
     <header className="h-12 flex items-center gap-3 px-4 border-b border-gray-200 bg-surface shrink-0">
-      <Link to="/" className="text-sm text-ink-muted hover:text-ink shrink-0">← Worlds</Link>
+      <Link to="/" className="text-sm text-ink-muted hover:text-ink shrink-0 flex items-center gap-1">
+        <ArrowLeft size={14} /> Worlds
+      </Link>
 
       <Link
         to={`/worlds/${wid ?? ''}`}
@@ -76,7 +79,7 @@ export default function TopBar() {
           className="px-2 py-1 text-gray-400 hover:text-gray-700 text-sm"
           title="World settings"
         >
-          ⚙
+          <Settings size={16} />
         </Link>
       </div>
     </header>
