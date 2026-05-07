@@ -5,6 +5,7 @@ import { getDb } from '../db/index.js';
 import { isLLMConfigured, requireLLM } from '../providers/index.js';
 import { PipelineCoordinator } from '../agents/director.js';
 import { StylistAgent } from '../agents/stylist.js';
+import { asyncHandler } from '../middleware/errorHandler.js';
 import type { PromptEngineerFieldType } from '../prompts/promptEngineer.js';
 
 const router = Router();
@@ -56,7 +57,7 @@ function parseWorld(row: Record<string, unknown>) {
 }
 
 // POST /api/worlds — create world
-router.post('/', async (req, res) => {
+router.post('/', asyncHandler(async (req, res) => {
   const parse = CreateWorldSchema.safeParse(req.body);
   if (!parse.success) {
     res.status(400).json({ error: parse.error.flatten().fieldErrors });
@@ -114,14 +115,15 @@ router.post('/', async (req, res) => {
       const seedText = [description, originPoint].filter(Boolean).join('\n\n');
       const director = new PipelineCoordinator();
       const skeletonResult = await director.createWorld(worldId, seedText);
-      return res.status(201).json({ world: parseWorld(world), rootArticleId: articleId, stubs: skeletonResult.stubs });
+      res.status(201).json({ world: parseWorld(world), rootArticleId: articleId, stubs: skeletonResult.stubs });
+      return;
     } catch {
       // SkeletonAgent failure must not block world creation
     }
   }
 
   res.status(201).json({ world: parseWorld(world), rootArticleId: articleId });
-});
+}));
 
 // GET /api/worlds — list all worlds
 router.get('/', (_req, res) => {
@@ -218,7 +220,7 @@ const PromptEngineerSchema = z.object({
   worldDescription: z.string().min(1),
 });
 
-async function handlePromptEngineer(req: import('express').Request, res: import('express').Response): Promise<void> {
+const handlePromptEngineer = asyncHandler(async (req, res) => {
   const parse = PromptEngineerSchema.safeParse(req.body);
   if (!parse.success) {
     res.status(400).json({ error: parse.error.flatten().fieldErrors });
@@ -230,19 +232,15 @@ async function handlePromptEngineer(req: import('express').Request, res: import(
   // Use a placeholder worldId for logging — PromptEngineer doesn't need DB context
   const worldId = (req.params as Record<string, string>).wid ?? 'wizard';
 
-  try {
-    const agent = new StylistAgent();
-    const result = await agent.run(worldId, {
-      fieldType: fieldType as PromptEngineerFieldType,
-      rawText,
-      worldName,
-      worldDescription,
-    });
-    res.json({ expandedDescription: result.output.expandedDescription });
-  } catch (err) {
-    res.status(500).json({ error: (err as Error).message });
-  }
-}
+  const agent = new StylistAgent();
+  const result = await agent.run(worldId, {
+    fieldType: fieldType as PromptEngineerFieldType,
+    rawText,
+    worldName,
+    worldDescription,
+  });
+  res.json({ expandedDescription: result.output.expandedDescription });
+});
 
 router.post('/prompt-engineer', requireLLM, handlePromptEngineer);
 router.post('/:wid/prompt-engineer', requireLLM, handlePromptEngineer);

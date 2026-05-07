@@ -8,6 +8,7 @@ import callLogRoutes from './routes/callLog.js';
 import agentRoutes from './routes/agents.js';
 import snapshotRoutes from './routes/snapshots.js';
 import exportRoutes from './routes/export.js';
+import { errorMiddleware } from './middleware/errorHandler.js';
 
 const app = express();
 const PORT = 3001;
@@ -49,6 +50,8 @@ app.use('/api/worlds/:wid/export', exportRoutes);
 app.use('/api/settings', settingsRoutes);
 
 getDb();
+
+app.use(errorMiddleware);
 
 app.listen(PORT, () => {
   console.log(`WorldArchitect server running at http://localhost:${PORT}`);

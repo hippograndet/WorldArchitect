@@ -1,5 +1,7 @@
+import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useStore } from '../stores/index.ts';
+import BibleCompressorModal from '../components/bible/BibleCompressorModal.tsx';
 import type { ArticleStatus } from '../types/article.ts';
 
 export default function WorldOverviewPage() {
@@ -30,6 +32,8 @@ export default function WorldOverviewPage() {
   const biblePercent = bibleThreshold > 0
     ? Math.min(100, Math.round((bibleTokenCount / bibleThreshold) * 100))
     : 0;
+
+  const [showCompressor, setShowCompressor] = useState(false);
 
   const handleAudit = () => {
     if (!wid) return;
@@ -104,7 +108,7 @@ export default function WorldOverviewPage() {
       {/* World Tools */}
       <section>
         <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">World Tools</h2>
-        <div className="border border-gray-200 rounded-xl overflow-hidden">
+        <div className="border border-gray-200 rounded-xl overflow-hidden divide-y divide-gray-200">
           <button
             onClick={handleAudit}
             disabled={agentPanelOpen}
@@ -118,8 +122,24 @@ export default function WorldOverviewPage() {
               </p>
             </div>
           </button>
+          <button
+            onClick={() => setShowCompressor(true)}
+            className="w-full flex items-start gap-4 p-4 hover:bg-gray-50 transition-colors text-left"
+          >
+            <span className="text-xl leading-none mt-0.5">📦</span>
+            <div>
+              <p className="text-sm font-semibold text-gray-800">Compress Bible</p>
+              <p className="text-xs text-gray-500 mt-0.5">
+                Preview and apply AI-compressed summaries to reduce World Bible token usage.
+              </p>
+            </div>
+          </button>
         </div>
       </section>
+
+      {showCompressor && wid && (
+        <BibleCompressorModal worldId={wid} onClose={() => setShowCompressor(false)} />
+      )}
     </div>
   );
 }

@@ -59,6 +59,45 @@ export function runMigrations(db: Database.Database): void {
     db.exec(`UPDATE call_log SET agent_type = 'stylist'      WHERE agent_type = 'prompt_engineer'`);
     db.exec(`UPDATE call_log SET agent_type = 'curator'      WHERE agent_type = 'taste'`);
   } catch { /* ignore — call_log may be empty or already updated */ }
+
+  // M8: pending_drafts — change UNIQUE(article_id) to UNIQUE(article_id, pipeline_type)
+  // Allows multiple concurrent drafts of different types on the same article.
+  // SQLite can't ALTER constraints, so we recreate the table.
+  const pendingDraftsSql = (db.prepare(
+    `SELECT sql FROM sqlite_master WHERE type='table' AND name='pending_drafts'`,
+  ).get() as { sql: string } | undefined)?.sql ?? '';
+
+  if (!pendingDraftsSql.includes('UNIQUE(article_id, pipeline_type)')) {
+    db.transaction(() => {
+      db.exec(`CREATE TABLE pending_drafts_new (
+        id                TEXT PRIMARY KEY,
+        article_id        TEXT NOT NULL REFERENCES articles(id) ON DELETE CASCADE,
+        pipeline_type     TEXT NOT NULL DEFAULT 'expand_description',
+        selected_proposal TEXT NOT NULL DEFAULT '{}',
+        draft_content     TEXT,
+        expansion_params  TEXT NOT NULL DEFAULT '{}',
+        phase             TEXT NOT NULL DEFAULT 'done',
+        parent_update     TEXT,
+        selected_ideas    TEXT,
+        created_at        INTEGER NOT NULL,
+        updated_at        INTEGER NOT NULL,
+        UNIQUE(article_id, pipeline_type)
+      )`);
+      db.exec(`INSERT OR IGNORE INTO pending_drafts_new
+        SELECT id, article_id,
+               COALESCE(pipeline_type, 'expand_description'),
+               COALESCE(selected_proposal, '{}'),
+               draft_content,
+               COALESCE(expansion_params, '{}'),
+               COALESCE(phase, 'done'),
+               parent_update,
+               selected_ideas,
+               created_at, updated_at
+        FROM pending_drafts`);
+      db.exec(`DROP TABLE pending_drafts`);
+      db.exec(`ALTER TABLE pending_drafts_new RENAME TO pending_drafts`);
+    })();
+  }
 }
 
 export function applySchema(db: Database.Database): void {
@@ -162,13 +201,17 @@ export function applySchema(db: Database.Database): void {
 
     CREATE TABLE IF NOT EXISTS pending_drafts (
       id                TEXT PRIMARY KEY,
-      article_id        TEXT NOT NULL UNIQUE REFERENCES articles(id) ON DELETE CASCADE,
-      selected_proposal TEXT NOT NULL,
+      article_id        TEXT NOT NULL REFERENCES articles(id) ON DELETE CASCADE,
+      pipeline_type     TEXT NOT NULL DEFAULT 'expand_description',
+      selected_proposal TEXT NOT NULL DEFAULT '{}',
       draft_content     TEXT,
-      expansion_params  TEXT NOT NULL,
-      phase             TEXT NOT NULL,
+      expansion_params  TEXT NOT NULL DEFAULT '{}',
+      phase             TEXT NOT NULL DEFAULT 'done',
+      parent_update     TEXT,
+      selected_ideas    TEXT,
       created_at        INTEGER NOT NULL,
-      updated_at        INTEGER NOT NULL
+      updated_at        INTEGER NOT NULL,
+      UNIQUE(article_id, pipeline_type)
     );
 
     CREATE TABLE IF NOT EXISTS cost_settings (

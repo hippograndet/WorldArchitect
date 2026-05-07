@@ -3,6 +3,7 @@ import { getDb } from '../db/index.js';
 import { upsertEntry, getEntries } from '../services/worldBible.js';
 import { mergeSections, splitSections } from '../services/sections.js';
 import { buildContextPackage, type ArchivistMode, type ContextDepth } from '../services/archivist.js';
+import { AppError } from '../middleware/errorHandler.js';
 import { ArchitectAgent, type Stub } from './architect.js';
 import { MuseAgent, type ProposalItem } from './muse.js';
 import { ScribeAgent } from './scribe.js';
@@ -20,6 +21,32 @@ import type { ProposalMode } from '../prompts/proposal.js';
 import type { ExpanderMode } from '../prompts/expander.js';
 import type { AuditorArticleSummary } from '../prompts/auditor.js';
 import type { WorldStyleConfig } from '../services/worldStylePresets.js';
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Throws if a non-empty article body is missing the expected ## sections.
+ *  Empty bodies (stubs) are valid — the agent will generate fresh content. */
+function assertBodyFormat(body: string, articleId: string): void {
+  if (!body.trim()) return;
+  const { description, chronology } = splitSections(body);
+  if (!description.trim() && !chronology.trim()) {
+    throw new AppError(
+      400,
+      'BODY_FORMAT_ERROR',
+      `Article ${articleId} body is missing ## Description / ## Chronology sections. Restore the section headers before running agents.`,
+    );
+  }
+}
+
+/** Returns true if the world bible has enough entries for a coherence check to be meaningful. */
+function hasSufficientBibleContent(worldId: string): boolean {
+  const row = getDb()
+    .prepare('SELECT COUNT(*) AS n FROM world_bible_entries WHERE world_id = ? AND summary != ""')
+    .get(worldId) as { n: number };
+  return row.n >= 5;
+}
 
 // ---------------------------------------------------------------------------
 // WorldContext — shared agent architecture
@@ -370,6 +397,7 @@ export class PipelineCoordinator {
 
     if (!article) throw new Error(`Article ${articleId} not found`);
 
+    assertBodyFormat(article.body ?? '', articleId);
     const { description } = splitSections(article.body ?? '');
     const existingIntro = article.summary ?? '';
 
@@ -469,6 +497,10 @@ export class PipelineCoordinator {
     articleId: string,
     contextDepth: ContextDepth = 'mid',
   ): Promise<{ warnings: CoherenceWarning[]; suggestedLinks: SuggestedLink[]; tokensIn: number; tokensOut: number }> {
+    if (!hasSufficientBibleContent(worldId)) {
+      return { warnings: [], suggestedLinks: [], tokensIn: 0, tokensOut: 0 };
+    }
+
     const worldContext = fetchWorldContext(worldId);
     const contextPackage = buildContextPackage(worldId, articleId, { contextDepth });
 
@@ -510,16 +542,24 @@ export class PipelineCoordinator {
     });
     const { chronologySection } = chroniclerResult.output;
 
-    const wardenAgent = new WardenAgent();
-    const coherenceResult = await wardenAgent.run(worldId, {
-      contextPackage,
-      worldContext,
-      newContent: chronologySection,
-      contentLabel: 'Chronology',
-    });
+    let tokensIn  = chroniclerResult.tokensIn;
+    let tokensOut = chroniclerResult.tokensOut;
+    let coherenceWarnings: CoherenceWarning[] = [];
+    let suggestedLinks: SuggestedLink[] = [];
 
-    let tokensIn  = chroniclerResult.tokensIn  + coherenceResult.tokensIn;
-    let tokensOut = chroniclerResult.tokensOut + coherenceResult.tokensOut;
+    if (hasSufficientBibleContent(worldId)) {
+      const wardenAgent = new WardenAgent();
+      const coherenceResult = await wardenAgent.run(worldId, {
+        contextPackage,
+        worldContext,
+        newContent: chronologySection,
+        contentLabel: 'Chronology',
+      });
+      coherenceWarnings = coherenceResult.output.warnings;
+      suggestedLinks    = coherenceResult.output.suggestedLinks;
+      tokensIn  += coherenceResult.tokensIn;
+      tokensOut += coherenceResult.tokensOut;
+    }
     let styleCheck: StyleWardenOutput | undefined;
 
     if (runStyleWarden) {
@@ -537,8 +577,8 @@ export class PipelineCoordinator {
 
     return {
       chronologySection,
-      coherenceWarnings: coherenceResult.output.warnings,
-      suggestedLinks: coherenceResult.output.suggestedLinks,
+      coherenceWarnings,
+      suggestedLinks,
       ...(styleCheck ? { styleCheck } : {}),
       tokensIn,
       tokensOut,

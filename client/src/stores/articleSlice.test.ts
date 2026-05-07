@@ -39,6 +39,7 @@ import { worldSlice } from './worldSlice.ts';
 import { articleSlice } from './articleSlice.ts';
 import { uiSlice } from './uiSlice.ts';
 import { agentSlice } from './agentSlice.ts';
+import { forgeSlice } from './forgeSlice.ts';
 
 function makeStore() {
   return createStore(
@@ -47,6 +48,7 @@ function makeStore() {
       ...articleSlice(...a),
       ...uiSlice(...a),
       ...agentSlice(...a),
+      ...forgeSlice(...a),
     })),
   );
 }

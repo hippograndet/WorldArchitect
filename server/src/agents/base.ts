@@ -4,7 +4,7 @@ import { executeContextTool, CONTEXT_TOOLS } from '../tools/context.js';
 import type { ChatMessage } from '../providers/types.js';
 import type { Tool, ToolCall } from '../tools/types.js';
 
-const MAX_ITERATIONS = 6;
+const MAX_ITERATIONS = 10;
 
 export interface AgentResult<TOutput> {
   output: TOutput;
@@ -38,6 +38,9 @@ export abstract class BaseAgent<TInput, TOutput> {
   /** Override in subclasses that generate long prose (e.g. ScribeAgent). */
   protected getMaxTokens(): number { return 4096; }
 
+  /** Override in agents that only ever call the output tool once (e.g. Curator, Sentinel). */
+  protected getMaxIterations(): number { return MAX_ITERATIONS; }
+
   async run(worldId: string, input: TInput): Promise<AgentResult<TOutput>> {
     const provider = getProvider();
     const tools: Tool[] = [...this.getContextTools(), this.buildOutputTool()];
@@ -49,7 +52,7 @@ export abstract class BaseAgent<TInput, TOutput> {
     let output: TOutput | null = null;
 
     try {
-      for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
+      for (let iter = 0; iter < this.getMaxIterations(); iter++) {
         const result = await provider.complete(messages, { maxTokens: this.getMaxTokens() }, tools);
         tokensIn += result.tokensIn;
         tokensOut += result.tokensOut;
@@ -93,7 +96,7 @@ export abstract class BaseAgent<TInput, TOutput> {
 
     if (output === null) {
       throw new Error(
-        `Agent "${this.agentType}" did not produce output within ${MAX_ITERATIONS} iterations`,
+        `Agent "${this.agentType}" did not produce output within ${this.getMaxIterations()} iterations`,
       );
     }
 

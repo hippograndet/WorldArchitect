@@ -4,8 +4,9 @@ import { worldSlice, type WorldSlice } from './worldSlice.ts';
 import { articleSlice, type ArticleSlice } from './articleSlice.ts';
 import { uiSlice, type UISlice } from './uiSlice.ts';
 import { agentSlice, type AgentSlice } from './agentSlice.ts';
+import { forgeSlice, type ForgeSlice } from './forgeSlice.ts';
 
-export type StoreState = WorldSlice & ArticleSlice & UISlice & AgentSlice;
+export type StoreState = WorldSlice & ArticleSlice & UISlice & AgentSlice & ForgeSlice;
 
 export const useStore = create<StoreState>()(
   immer((...a) => ({
@@ -13,5 +14,6 @@ export const useStore = create<StoreState>()(
     ...articleSlice(...a),
     ...uiSlice(...a),
     ...agentSlice(...a),
+    ...forgeSlice(...a),
   })),
 );

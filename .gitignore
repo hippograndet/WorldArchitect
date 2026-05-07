@@ -7,9 +7,12 @@ __pycache__/
 *.pyc
 
 # Claude Code
-.claude/settings.local.json
-.claude/skills/
+.claude/
 CLAUDE.md
+
+# Internal docs (local only)
+docs/
+README_DEV.md
 
 # Node
 node_modules/

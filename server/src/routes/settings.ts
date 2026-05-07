@@ -7,6 +7,7 @@ import {
   getProvider,
   maskKey,
 } from '../providers/index.js';
+import { asyncHandler } from '../middleware/errorHandler.js';
 import type { ProviderName, ProviderConfig } from '../providers/index.js';
 
 const router = Router();
@@ -93,7 +94,7 @@ router.patch('/', (req, res) => {
 });
 
 // POST /api/settings/test — fire a minimal completion to verify the key works
-router.post('/test', async (_req, res) => {
+router.post('/test', asyncHandler(async (_req, res) => {
   try {
     const provider = getProvider();
     const result = await provider.complete(
@@ -105,10 +106,10 @@ router.post('/test', async (_req, res) => {
     const message = err instanceof Error ? err.message : 'Unknown error';
     res.status(400).json({ ok: false, error: message });
   }
-});
+}));
 
 // GET /api/settings/ollama/models — list models available in the local Ollama daemon
-router.get('/ollama/models', async (_req, res) => {
+router.get('/ollama/models', asyncHandler(async (_req, res) => {
   const { config } = readProviderSettings();
   const base = (config.ollamaUrl ?? 'http://localhost:11434').replace(/\/v1\/?$/, '');
 
@@ -121,7 +122,7 @@ router.get('/ollama/models', async (_req, res) => {
     const message = err instanceof Error ? err.message : 'Cannot reach Ollama';
     res.status(503).json({ error: message, hint: 'Is Ollama running on your machine?' });
   }
-});
+}));
 
 // ---------------------------------------------------------------------------
 // Per-world cost settings  GET|PATCH /api/worlds/:wid/settings
