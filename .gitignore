@@ -19,7 +19,7 @@ node_modules/
 dist/
 
 # Runtime data
-data/
+server/data/
 
 # Env
 .env

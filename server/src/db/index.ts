@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url';
 import { applySchema, runMigrations } from './schema.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = resolve(__dirname, '../../../data');
+const DATA_DIR = resolve(__dirname, '../../data');
 const DB_PATH = resolve(DATA_DIR, 'worldarchitect.db');
 
 let instance: Database.Database | null = null;
