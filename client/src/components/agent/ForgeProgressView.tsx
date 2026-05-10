@@ -12,7 +12,7 @@ const STEP_ICON: Record<string, ReactNode> = {
 export default function ForgeProgressView() {
   const { wid } = useParams<{ wid: string }>();
   const {
-    agentParams,
+    agentParams, agentError,
     forgeRunning, forgePaused,
     forgeQueue, forgeLog,
     forgeCurrentTitle, forgeCurrentStep,
@@ -20,7 +20,8 @@ export default function ForgeProgressView() {
     pauseForge, resumeForge, stopForge,
   } = useStore();
 
-  const isDone = !forgeRunning && !forgePaused;
+  const isDone    = !forgeRunning && !forgePaused;
+  const hasError  = isDone && !!agentError;
   const progress = forgeTotal > 0 ? Math.round((forgeCompleted / forgeTotal) * 100) : 0;
   const modeLabel = agentParams.forgeMode === 'breadth' ? 'Breadth-first' : 'Depth-first';
 
@@ -39,7 +40,7 @@ export default function ForgeProgressView() {
       <div className="p-4 border-b border-gray-100">
         <div className="flex items-center justify-between mb-1">
           <p className="text-xs font-semibold text-amber-700 uppercase tracking-wider">
-            {isDone ? 'Forge Complete' : forgePaused ? 'Paused' : 'Forging…'}
+            {hasError ? 'Forge Stopped' : isDone ? 'Forge Complete' : forgePaused ? 'Paused' : 'Forging…'}
           </p>
           <p className="text-xs text-gray-500">{modeLabel}</p>
         </div>
@@ -48,7 +49,7 @@ export default function ForgeProgressView() {
         <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden mb-1">
           <div
             className={`h-full rounded-full transition-all ${
-              isDone ? 'bg-green-400' : forgePaused ? 'bg-amber-300' : 'bg-amber-400'
+              hasError ? 'bg-red-400' : isDone ? 'bg-green-400' : forgePaused ? 'bg-amber-300' : 'bg-amber-400'
             }`}
             style={{ width: `${isDone && forgeTotal === 0 ? 100 : progress}%` }}
           />
@@ -65,7 +66,10 @@ export default function ForgeProgressView() {
               : `${forgeCurrentStep ?? '…'}: ${forgeCurrentTitle}`}
           </p>
         )}
-        {isDone && forgeTotal > 0 && (
+        {isDone && hasError && (
+          <p className="mt-2 text-xs text-red-600 font-medium">{agentError}</p>
+        )}
+        {isDone && !hasError && forgeTotal > 0 && (
           <p className="mt-2 text-xs text-green-700 font-medium">
             All {forgeCompleted} article{forgeCompleted !== 1 ? 's' : ''} processed.
           </p>

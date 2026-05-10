@@ -1,4 +1,4 @@
-import type { World, CreateWorldInput, BibleMeta } from '../types/world.ts';
+import type { World, CreateWorldInput, BibleMeta, WorldIssue } from '../types/world.ts';
 import type { FlatArticle } from './tree.ts';
 import type { Article, ArticleDetail, ArticleVersion, PendingDraft, CoherenceWarning } from '../types/article.ts';
 import type { ContextDepth, IdeaItem, EdgeProposal, GlobalWarning, StyleWardenResult } from '../types/agent.ts';
@@ -38,20 +38,30 @@ export const api = {
     update: (wid: string, input: Partial<CreateWorldInput>) => patch<World>(`/worlds/${wid}`, input),
     delete: (wid: string)                 => del(`/worlds/${wid}`),
     promptEngineer: (input: {
-      fieldType: 'inspiration' | 'vibe' | 'writing_style';
+      fieldType: 'vibe' | 'writing_style' | 'distill' | 'article_brief' | 'intro_seed' | 'prompt_lab';
       rawText: string;
       worldName: string;
       worldDescription: string;
+      currentVibe?: string;
+      currentWritingStyle?: string;
+      articleTitle?: string;
+      articleType?: string;
+      focus?: string;
       wid?: string;
     }) => {
       const path = input.wid
         ? `/worlds/${input.wid}/prompt-engineer`
         : '/worlds/prompt-engineer';
-      return post<{ expandedDescription: string }>(path, {
-        fieldType:        input.fieldType,
-        rawText:          input.rawText,
-        worldName:        input.worldName,
-        worldDescription: input.worldDescription,
+      return post<{ expandedDescription: string } | { vibe_append: string; writingStyle_append: string } | { userSpec: string } | { introduction: string }>(path, {
+        fieldType:           input.fieldType,
+        rawText:             input.rawText,
+        worldName:           input.worldName,
+        worldDescription:    input.worldDescription,
+        currentVibe:         input.currentVibe,
+        currentWritingStyle: input.currentWritingStyle,
+        articleTitle:        input.articleTitle,
+        articleType:         input.articleType,
+        focus:               input.focus,
       });
     },
   },
@@ -66,9 +76,9 @@ export const api = {
       return get<Article[]>(`/worlds/${wid}/articles${query}`);
     },
     get:    (wid: string, aid: string)    => get<ArticleDetail>(`/worlds/${wid}/articles/${aid}`),
-    create: (wid: string, input: { title: string; templateType?: string; body?: string; summary?: string }) =>
+    create: (wid: string, input: { title: string; templateType?: string; introduction?: string; description?: string; chronology?: string }) =>
       post<{ article: Article; version: ArticleVersion }>(`/worlds/${wid}/articles`, input),
-    update: (wid: string, aid: string, input: { body: string; summary?: string; status?: string; title?: string }) =>
+    update: (wid: string, aid: string, input: { introduction?: string; description?: string; chronology?: string; status?: string; title?: string }) =>
       patch<{ article: Article; version: ArticleVersion }>(`/worlds/${wid}/articles/${aid}`, input),
     delete: (wid: string, aid: string)    => del(`/worlds/${wid}/articles/${aid}`),
 
@@ -81,7 +91,7 @@ export const api = {
 
     draft: {
       get:     (wid: string, aid: string)              => get<PendingDraft | null>(`/worlds/${wid}/articles/${aid}/draft`),
-      accept:  (wid: string, aid: string, input?: { bodyOverride?: string; summaryOverride?: string }) =>
+      accept:  (wid: string, aid: string, input?: { descriptionOverride?: string; introductionOverride?: string }) =>
         post<{ article: Article; version: ArticleVersion }>(`/worlds/${wid}/articles/${aid}/accept`, input ?? {}),
       discard: (wid: string, aid: string)              => del(`/worlds/${wid}/articles/${aid}/draft`),
     },
@@ -129,6 +139,8 @@ export const api = {
       selectedIdeas?: IdeaItem[];
       userSpec?: string; contextDepth?: ContextDepth;
       runStyleWarden?: boolean;
+      runContinuityEditor?: boolean;
+      wordCountPreset?: 'short' | 'medium' | 'long';
     }) => post<{
       description: string;
       introduction?: string;
@@ -164,7 +176,7 @@ export const api = {
       userSpec?: string;
       contextDepth?: ContextDepth;
     }) => post<{ ideas: IdeaItem[] }>(`/worlds/${wid}/agents/propose-ideas`, input),
-    audit: (wid: string, input?: { sampleSize?: number }) =>
+    audit: (wid: string, input?: { sampleSize?: number; focus?: 'all' | 'recent' }) =>
       post<{ edgeProposals: EdgeProposal[]; globalWarnings: GlobalWarning[] }>(
         `/worlds/${wid}/agents/audit`, input ?? {},
       ),
@@ -190,5 +202,81 @@ export const api = {
 
   export: {
     downloadUrl: (wid: string) => `${BASE}/worlds/${wid}/export`,
+  },
+
+  names: {
+    list: (wid: string, filter?: { entityType?: string; gender?: string; socialClass?: string; nameComponent?: string; tags?: string[] }) => {
+      const qs = new URLSearchParams();
+      if (filter?.entityType)    qs.set('entityType', filter.entityType);
+      if (filter?.gender)        qs.set('gender', filter.gender);
+      if (filter?.socialClass)   qs.set('socialClass', filter.socialClass);
+      if (filter?.nameComponent) qs.set('nameComponent', filter.nameComponent);
+      if (filter?.tags?.length)  qs.set('tags', filter.tags.join(','));
+      const query = qs.toString() ? `?${qs}` : '';
+      return get<import('../types/world.js').NameListResponse>(`/worlds/${wid}/names${query}`);
+    },
+    generate: (wid: string, profileId: string, entityType: string, count = 8, opts?: {
+      gender?: string; socialClass?: string; nameComponent?: string;
+    }) =>
+      post<{ names: string[] }>(`/worlds/${wid}/names/generate`, { profileId, entityType, count, ...opts }),
+    save: (wid: string, entries: Array<{
+      name: string; profileId: string; entityType: string;
+      gender?: string; socialClass?: string; nameComponent?: string;
+      tags: string[]; source?: 'generated' | 'user';
+    }>) =>
+      post<{ names: import('../types/world.js').NameEntry[] }>(`/worlds/${wid}/names`, { names: entries }),
+    delete: (wid: string, nid: string) => del(`/worlds/${wid}/names/${nid}`),
+  },
+
+  entityMentions: {
+    list: (wid: string, status?: string) => {
+      const qs = status ? `?status=${status}` : '';
+      return get<import('../types/world.js').EntityMention[]>(`/worlds/${wid}/entity-mentions${qs}`);
+    },
+    ignore: (wid: string, mid: string) =>
+      patch<import('../types/world.js').EntityMention>(`/worlds/${wid}/entity-mentions/${mid}`, { status: 'ignored' }),
+  },
+
+  issues: {
+    list: (wid: string, aid: string) =>
+      get<import('../types/world.js').ArticleIssue[]>(`/worlds/${wid}/articles/${aid}/issues`),
+    updateStatus: (wid: string, aid: string, iid: string, status: 'open' | 'in_review' | 'dismissed' | 'fixed') =>
+      patch<{ ok: boolean }>(`/worlds/${wid}/articles/${aid}/issues/${iid}`, { status }),
+    dismiss: (wid: string, aid: string, iid: string) =>
+      patch<{ ok: boolean }>(`/worlds/${wid}/articles/${aid}/issues/${iid}`, { status: 'dismissed' }),
+    lint: (wid: string, aid: string) =>
+      post<import('../types/world.js').ArticleIssue[]>(`/worlds/${wid}/articles/${aid}/lint`),
+    worldSummary: (wid: string) =>
+      get<{ blocking: number; warnings: number; total: number }>(`/worlds/${wid}/issues`),
+    fix: (wid: string, aid: string, iid: string) =>
+      post<{ rewrittenPassage: string }>(`/worlds/${wid}/articles/${aid}/issues/${iid}/fix`),
+    applyFix: (wid: string, aid: string, iid: string, rewrittenPassage: string, excerpt: string) =>
+      post<{ article: Record<string, unknown>; version: Record<string, unknown> }>(`/worlds/${wid}/articles/${aid}/issues/${iid}/apply-fix`, { rewrittenPassage, excerpt }),
+  },
+
+  worldIssues: {
+    list: (wid: string, params?: { status?: string; severity?: string; type?: string }) => {
+      const qs = new URLSearchParams();
+      if (params?.status)   qs.set('status', params.status);
+      if (params?.severity) qs.set('severity', params.severity);
+      if (params?.type)     qs.set('type', params.type);
+      const query = qs.toString() ? `?${qs}` : '';
+      return get<WorldIssue[]>(`/worlds/${wid}/world-issues${query}`);
+    },
+    update: (wid: string, iid: string, status: string) =>
+      patch<{ ok: true }>(`/worlds/${wid}/world-issues/${iid}`, { status }),
+    forArticle: (wid: string, aid: string) =>
+      get<WorldIssue[]>(`/worlds/${wid}/articles/${aid}/world-issues`),
+  },
+
+  publish: {
+    staged:  (wid: string) =>
+      get<Array<{ id: string; title: string; status: string; templateType: string; depth: number; blockingIssues: number; warningIssues: number; health: string; updatedAt: number }>>(`/worlds/${wid}/publish/staged`),
+    check:   (wid: string, articleIds: string[]) =>
+      post<{ summary: { blocking: number; warnings: number; clean: number }; issues: import('../types/world.js').ArticleIssue[] }>(`/worlds/${wid}/publish/check`, { articleIds }),
+    commit:  (wid: string, articleIds: string[], force?: boolean) =>
+      post<{ published: string[]; publishedAt: number }>(`/worlds/${wid}/publish/commit`, { articleIds, force }),
+    history: (wid: string) =>
+      get<Array<{ id: string; articleId: string; articleTitle: string; versionId: string | null; publishedAt: number }>>(`/worlds/${wid}/publish/history`),
   },
 };

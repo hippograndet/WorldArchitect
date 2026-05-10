@@ -118,32 +118,34 @@ router.post('/propose', requireLLM, checkCap, asyncHandler(async (req, res) => {
 // ---------------------------------------------------------------------------
 
 const ExpandSchema = z.object({
-  articleId:             z.string().min(1),
-  pipelineType:          z.enum(['expand_description', 'create_root', 'create_child', 'reorganize']),
-  selectedProposalIndex: z.number().int().min(0).max(4),
-  proposals:             z.array(z.object({ title: z.string(), direction: z.string() })).max(5),
-  selectedIdeas:         z.array(z.object({ id: z.string(), theme: z.string(), detail: z.string() })).optional(),
-  userSpec:              z.string().optional(),
-  contextDepth:          ContextDepthSchema,
-  runStyleWarden:        z.boolean().optional().default(false),
+  articleId:              z.string().min(1),
+  pipelineType:           z.enum(['expand_description', 'create_root', 'create_child', 'reorganize']),
+  selectedProposalIndex:  z.number().int().min(0).max(4),
+  proposals:              z.array(z.object({ title: z.string(), direction: z.string() })).max(5),
+  selectedIdeas:          z.array(z.object({ id: z.string(), theme: z.string(), detail: z.string() })).optional(),
+  userSpec:               z.string().optional(),
+  contextDepth:           ContextDepthSchema,
+  runStyleWarden:         z.boolean().optional().default(false),
+  runContinuityEditor:    z.boolean().optional().default(false),
+  wordCountPreset:        z.enum(['short', 'medium', 'long']).optional().default('medium'),
 });
 
 router.post('/expand', requireLLM, checkCap, asyncHandler(async (req, res) => {
   const parse = ExpandSchema.safeParse(req.body);
   if (!parse.success) throw new AppError(400, 'VALIDATION_ERROR', 'Invalid request', parse.error.flatten().fieldErrors);
 
-  const { articleId, pipelineType, selectedProposalIndex, proposals, selectedIdeas, userSpec, contextDepth, runStyleWarden } = parse.data;
+  const { articleId, pipelineType, selectedProposalIndex, proposals, selectedIdeas, userSpec, contextDepth, runStyleWarden, runContinuityEditor, wordCountPreset } = parse.data;
   const selectedProposal = proposals[selectedProposalIndex];
   if (!selectedProposal) throw new AppError(400, 'VALIDATION_ERROR', 'Invalid selectedProposalIndex');
 
   const worldId = wid(req);
-  const result = await coordinator.expand(worldId, articleId, pipelineType, selectedProposal, userSpec, contextDepth, selectedIdeas, runStyleWarden);
+  const result = await coordinator.expand(worldId, articleId, pipelineType, selectedProposal, userSpec, contextDepth, selectedIdeas, runStyleWarden, runContinuityEditor, wordCountPreset);
 
   // Persist draft so POST /accept can commit it
   const db = getDb();
   const draftContent = pipelineType === 'create_child'
-    ? { childDescription: result.description, introduction: result.introduction }
-    : { description: result.description };
+    ? { childDescription: result.description, introduction: result.introduction, mentions: result.mentions }
+    : { description: result.description, mentions: result.mentions };
 
   const parentUpdateJson = result.parentUpdate
     ? JSON.stringify({ articleId, appendText: result.parentUpdate.appendText })
@@ -231,7 +233,22 @@ router.post('/cohere', requireLLM, checkCap, asyncHandler(async (req, res) => {
   if (!parse.success) throw new AppError(400, 'VALIDATION_ERROR', 'Invalid request', parse.error.flatten().fieldErrors);
 
   const worldId = wid(req);
-  const result = await coordinator.cohere(worldId, parse.data.articleId, parse.data.contextDepth);
+  const { articleId } = parse.data;
+  const result = await coordinator.cohere(worldId, articleId, parse.data.contextDepth);
+
+  // Persist Warden warnings to article_issues (replacing previous warden issues for this article)
+  if (result.warnings.length > 0) {
+    const db = getDb();
+    const now = Date.now();
+    db.prepare(`DELETE FROM article_issues WHERE article_id = ? AND source = 'warden'`).run(articleId);
+    for (const w of result.warnings) {
+      db.prepare(
+        `INSERT INTO article_issues (id, world_id, article_id, source, severity, code, excerpt, explanation, suggestion, status, created_at)
+         VALUES (?, ?, ?, 'warden', ?, 'COHERENCE_WARNING', NULL, ?, NULL, 'open', ?)`,
+      ).run(nanoid(), worldId, articleId, w.severity === 'conflict' ? 'blocking' : 'warning', w.description, now);
+    }
+  }
+
   res.json({ warnings: result.warnings, suggestedLinks: result.suggestedLinks });
 }));
 
@@ -301,15 +318,19 @@ router.post('/propose-ideas', requireLLM, checkCap, asyncHandler(async (req, res
 // ---------------------------------------------------------------------------
 
 router.post('/audit', requireLLM, checkCap, asyncHandler(async (req, res) => {
-  const parse = z.object({ sampleSize: z.number().int().min(1).optional() }).safeParse(req.body ?? {});
+  const parse = z.object({
+    sampleSize: z.number().int().min(1).optional(),
+    focus: z.enum(['all', 'recent']).optional().default('all'),
+  }).safeParse(req.body ?? {});
   if (!parse.success) throw new AppError(400, 'VALIDATION_ERROR', 'Invalid request', parse.error.flatten().fieldErrors);
 
   const worldId = wid(req);
-  const result = await coordinator.audit(worldId, parse.data.sampleSize);
+  const result = await coordinator.audit(worldId, parse.data.sampleSize, parse.data.focus);
 
-  // Persist edge proposals for later acceptance
   const db = getDb();
   const now = Date.now();
+
+  // Persist edge proposals for later acceptance
   for (const ep of result.edgeProposals) {
     const sourceExists = db.prepare('SELECT id FROM articles WHERE id = ? AND world_id = ?').get(ep.sourceArticleId, worldId);
     const targetExists = db.prepare('SELECT id FROM articles WHERE id = ? AND world_id = ?').get(ep.targetArticleId, worldId);
@@ -320,6 +341,15 @@ router.post('/audit', requireLLM, checkCap, asyncHandler(async (req, res) => {
          (id, world_id, source_article_id, target_article_id, link_type, rationale, status, created_at)
        VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)`,
     ).run(nanoid(), worldId, ep.sourceArticleId, ep.targetArticleId, ep.linkType, ep.rationale, now);
+  }
+
+  // Persist global warnings to world_issues (replace open ones, preserve dismissed/resolved/in_review)
+  db.prepare(`DELETE FROM world_issues WHERE world_id = ? AND status = 'open'`).run(worldId);
+  for (const gw of result.globalWarnings) {
+    db.prepare(
+      `INSERT INTO world_issues (id, world_id, severity, type, description, article_ids, source, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, 'auditor', 'open', ?, ?)`,
+    ).run(nanoid(), worldId, gw.severity, gw.type, gw.description, JSON.stringify(gw.involvedArticleIds), now, now);
   }
 
   res.json({

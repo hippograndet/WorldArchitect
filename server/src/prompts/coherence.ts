@@ -32,8 +32,8 @@ export function buildCoherenceUserMessage(
     `Template type: ${pkg.targetTemplateType}`,
   ];
 
-  if (pkg.targetSummary) {
-    parts.push(`Introduction:\n${pkg.targetSummary}`);
+  if (pkg.targetIntroduction) {
+    parts.push(`Introduction:\n${pkg.targetIntroduction}`);
   }
 
   parts.push(`## New ${contentLabel}\n${newContent}`);

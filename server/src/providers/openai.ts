@@ -52,6 +52,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
       temperature: options?.temperature,
       messages: openAIMessages,
       ...(openAITools?.length ? { tools: openAITools } : {}),
+      ...(openAITools?.length && options?.toolChoice === 'required' ? { tool_choice: 'required' as const } : {}),
       // json_object mode is supported by OpenAI and Groq; skip for Ollama (varies by model)
       ...(options?.jsonMode && this.name !== 'ollama' && !openAITools?.length
         ? { response_format: { type: 'json_object' as const } }

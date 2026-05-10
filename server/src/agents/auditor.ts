@@ -25,6 +25,7 @@ const EdgeProposalSchema = z.object({
 
 const GlobalWarningSchema = z.object({
   severity: z.enum(['warning', 'conflict']),
+  type: z.enum(['coherence', 'gap', 'narrative', 'thematic']),
   description: z.string(),
   involvedArticleIds: z.array(z.string()),
 });

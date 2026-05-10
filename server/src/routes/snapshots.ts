@@ -28,12 +28,14 @@ interface SnapshotVersionRow {
   id: string;
   article_id: string;
   version_number: number;
-  body: string;
-  summary: string;
+  introduction: string;
+  description: string;
+  chronology: string;
   expansion_params: string | null;
   proposal_used: string | null;
   word_count: number;
   is_revert: number;
+  is_published: number;
   reverted_from_version_id: string | null;
   created_at: number;
 }
@@ -273,11 +275,11 @@ router.post('/:sid/restore', (req, res) => {
     // Restore versions
     const insertVersion = db.prepare(`
       INSERT INTO article_versions
-        (id, article_id, version_number, body, summary, expansion_params,
-         proposal_used, word_count, is_revert, reverted_from_version_id, created_at)
+        (id, article_id, version_number, introduction, description, chronology, expansion_params,
+         proposal_used, word_count, is_revert, is_published, reverted_from_version_id, created_at)
       VALUES
-        (@id, @article_id, @version_number, @body, @summary, @expansion_params,
-         @proposal_used, @word_count, @is_revert, @reverted_from_version_id, @created_at)
+        (@id, @article_id, @version_number, @introduction, @description, @chronology, @expansion_params,
+         @proposal_used, @word_count, @is_revert, @is_published, @reverted_from_version_id, @created_at)
     `);
     for (const v of target.versions) insertVersion.run(v);
 

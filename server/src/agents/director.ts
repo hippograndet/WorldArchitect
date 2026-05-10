@@ -1,12 +1,11 @@
 import { nanoid } from 'nanoid';
 import { getDb } from '../db/index.js';
 import { upsertEntry, getEntries } from '../services/worldBible.js';
-import { mergeSections, splitSections } from '../services/sections.js';
 import { buildContextPackage, type ArchivistMode, type ContextDepth } from '../services/archivist.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { ArchitectAgent, type Stub } from './architect.js';
 import { MuseAgent, type ProposalItem } from './muse.js';
-import { ScribeAgent } from './scribe.js';
+import { ScribeAgent, type MentionItem } from './scribe.js';
 import { LorekeepAgent, type LorekeepMode } from './lorekeeper.js';
 import { CartographerAgent, type ChildProposalItem } from './cartographer.js';
 import { WardenAgent, type CoherenceWarning, type SuggestedLink } from './warden.js';
@@ -16,6 +15,8 @@ import { CondenserAgent, type CompressionEntry } from './condenser.js';
 import { CuratorAgent } from './curator.js';
 import { OracleAgent, type IdeaItem } from './oracle.js';
 import { StyleWardenAgent, type StyleWardenOutput } from './styleWarden.js';
+import { ResearcherAgent } from './researcher.js';
+import { ContinuityEditorAgent, type ContinuityEditorOutput } from './continuityEditor.js';
 import { AuditorAgent, type EdgeProposal, type GlobalWarning } from './auditor.js';
 import type { ProposalMode } from '../prompts/proposal.js';
 import type { ExpanderMode } from '../prompts/expander.js';
@@ -25,20 +26,6 @@ import type { WorldStyleConfig } from '../services/worldStylePresets.js';
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/** Throws if a non-empty article body is missing the expected ## sections.
- *  Empty bodies (stubs) are valid — the agent will generate fresh content. */
-function assertBodyFormat(body: string, articleId: string): void {
-  if (!body.trim()) return;
-  const { description, chronology } = splitSections(body);
-  if (!description.trim() && !chronology.trim()) {
-    throw new AppError(
-      400,
-      'BODY_FORMAT_ERROR',
-      `Article ${articleId} body is missing ## Description / ## Chronology sections. Restore the section headers before running agents.`,
-    );
-  }
-}
 
 /** Returns true if the world bible has enough entries for a coherence check to be meaningful. */
 function hasSufficientBibleContent(worldId: string): boolean {
@@ -107,6 +94,8 @@ export interface ExpandOutput {
   introduction?: string;
   parentUpdate?: { appendText: string };
   styleCheck?: StyleWardenOutput;
+  continuityCheck?: ContinuityEditorOutput;
+  mentions?: MentionItem[];
   tokensIn: number;
   tokensOut: number;
 }
@@ -189,7 +178,6 @@ export class PipelineCoordinator {
 
         const articleId = nanoid();
         const versionId = nanoid();
-        const body = mergeSections('', '');
 
         db.prepare(
           `INSERT INTO articles
@@ -200,9 +188,9 @@ export class PipelineCoordinator {
 
         db.prepare(
           `INSERT INTO article_versions
-             (id, article_id, version_number, body, summary, word_count, created_at)
-           VALUES (?, ?, 1, ?, ?, 0, ?)`,
-        ).run(versionId, articleId, body, stub.summary, now);
+             (id, article_id, version_number, introduction, description, chronology, word_count, created_at)
+           VALUES (?, ?, 1, ?, '', '', 0, ?)`,
+        ).run(versionId, articleId, stub.summary, now);
 
         upsertEntry(worldId, articleId, stub.summary);
       }
@@ -248,7 +236,7 @@ export class PipelineCoordinator {
         proposals,
         articleTitle: article?.title ?? '',
         articleTemplateType: article?.template_type ?? 'general',
-        currentSummary: contextPackage.targetSummary,
+        currentSummary: contextPackage.targetIntroduction,
         worldContext,
       });
       totalTokensIn  += curatorResult.tokensIn;
@@ -319,23 +307,72 @@ export class PipelineCoordinator {
     contextDepth: ContextDepth = 'mid',
     selectedIdeas?: IdeaItem[],
     runStyleWarden = false,
+    runContinuityEditor = false,
+    wordCountPreset: 'short' | 'medium' | 'long' = 'medium',
   ): Promise<ExpandOutput> {
     const worldContext = fetchWorldContext(worldId);
     const archivistMode: ArchivistMode = pipelineType === 'reorganize' ? 'reorganize' : 'default';
     const contextPackage = buildContextPackage(worldId, articleId, { mode: archivistMode, contextDepth });
 
+    // Researcher (always-on): build constraint brief before Scribe writes
+    const researcherAgent = new ResearcherAgent();
+    const researchResult = await researcherAgent.run(worldId, { contextPackage, worldContext });
+    const researchBrief = researchResult.output;
+    let tokensIn  = researchResult.tokensIn;
+    let tokensOut = researchResult.tokensOut;
+
     const scribeAgent = new ScribeAgent();
     const expandResult = await scribeAgent.run(worldId, {
-      contextPackage, worldContext, mode: pipelineType, selectedProposal, userSpec, selectedIdeas,
+      contextPackage, worldContext, mode: pipelineType, selectedProposal, userSpec, selectedIdeas, researchBrief,
+      wordCountPreset,
     });
-    const expandOut = expandResult.output;
+    tokensIn  += expandResult.tokensIn;
+    tokensOut += expandResult.tokensOut;
+    let expandOut = expandResult.output;
+
+    // Continuity Editor (opt-in): self-correction pass, up to 2 attempts
+    let continuityCheck: ContinuityEditorOutput | undefined;
+    if (runContinuityEditor && pipelineType !== 'reorganize') {
+      for (let pass = 0; pass < 2; pass++) {
+        const currentDesc = expandOut.mode === 'child' ? expandOut.childDescription : expandOut.description;
+        const ceAgent = new ContinuityEditorAgent();
+        const ceResult = await ceAgent.run(worldId, {
+          contextPackage, worldContext, draft: currentDesc, researchBrief,
+        });
+        tokensIn  += ceResult.tokensIn;
+        tokensOut += ceResult.tokensOut;
+        continuityCheck = ceResult.output;
+
+        if (continuityCheck.approved || continuityCheck.contradictions.length === 0) break;
+
+        // If contradictions found and not last pass, ask Scribe to revise
+        if (pass < 1) {
+          const correctionNote = continuityCheck.contradictions
+            .map(c => `- Excerpt: "${c.excerpt}"\n  Issue: ${c.issue}\n  Fix: ${c.correction}`)
+            .join('\n');
+          const revisionResult = await scribeAgent.run(worldId, {
+            contextPackage,
+            worldContext,
+            mode: pipelineType,
+            selectedProposal,
+            userSpec: [userSpec, `\n\n## Revision Required\nPlease correct the following contradictions:\n${correctionNote}`]
+              .filter(Boolean).join(''),
+            selectedIdeas,
+            researchBrief,
+            wordCountPreset,
+          });
+          tokensIn  += revisionResult.tokensIn;
+          tokensOut += revisionResult.tokensOut;
+          expandOut = revisionResult.output;
+        }
+      }
+    }
 
     const description = expandOut.mode === 'child' ? expandOut.childDescription : expandOut.description;
     const parentAppend = expandOut.mode === 'child' ? expandOut.parentAppend : undefined;
+    const mentions = expandOut.mentions;
 
     let introduction: string | undefined;
-    let tokensIn = expandResult.tokensIn;
-    let tokensOut = expandResult.tokensOut;
 
     if (pipelineType === 'create_child') {
       const lorekeepAgent = new LorekeepAgent();
@@ -368,6 +405,8 @@ export class PipelineCoordinator {
       ...(introduction !== undefined ? { introduction } : {}),
       ...(parentAppend ? { parentUpdate: { appendText: parentAppend } } : {}),
       ...(styleCheck ? { styleCheck } : {}),
+      ...(continuityCheck ? { continuityCheck } : {}),
+      ...(mentions?.length ? { mentions } : {}),
       tokensIn,
       tokensOut,
     };
@@ -387,19 +426,17 @@ export class PipelineCoordinator {
 
     const article = db
       .prepare(
-        `SELECT a.title, av.body, wbe.summary
+        `SELECT a.title, av.description, av.introduction
          FROM articles a
          LEFT JOIN article_versions av ON av.id = a.current_version_id
-         LEFT JOIN world_bible_entries wbe ON wbe.article_id = a.id
          WHERE a.id = ? AND a.world_id = ?`,
       )
-      .get(articleId, worldId) as { title: string; body: string; summary: string } | undefined;
+      .get(articleId, worldId) as { title: string; description: string; introduction: string } | undefined;
 
     if (!article) throw new Error(`Article ${articleId} not found`);
 
-    assertBodyFormat(article.body ?? '', articleId);
-    const { description } = splitSections(article.body ?? '');
-    const existingIntro = article.summary ?? '';
+    const description = article.description ?? '';
+    const existingIntro = article.introduction ?? '';
 
     const effectiveMode: LorekeepMode =
       mode === 'improve' && existingIntro.trim().length === 0 ? 'full' : mode;
@@ -467,7 +504,7 @@ export class PipelineCoordinator {
     const sentinelAgent = new SentinelAgent();
     const retentionResult = await sentinelAgent.run(worldId, {
       articleTitle: contextPackage.targetTitle,
-      originalBody: contextPackage.targetBody,
+      originalBody: contextPackage.targetDescription,
       reorganizedDescription: description,
       worldContext,
     });
@@ -508,7 +545,7 @@ export class PipelineCoordinator {
     const result = await agent.run(worldId, {
       contextPackage,
       worldContext,
-      newContent: contextPackage.targetBody,
+      newContent: contextPackage.targetDescription,
       contentLabel: 'Article Body',
     });
 
@@ -613,17 +650,25 @@ export class PipelineCoordinator {
   // audit — Auditor (world-wide coherence scan)
   // ---------------------------------------------------------------------------
 
-  async audit(worldId: string, sampleSize?: number): Promise<AuditOutput> {
+  async audit(worldId: string, sampleSize?: number, focus: 'all' | 'recent' = 'all'): Promise<AuditOutput> {
     const worldContext = fetchWorldContext(worldId);
     const db = getDb();
+
+    let lastAuditTs = 0;
+    if (focus === 'recent') {
+      const lastRow = db.prepare(
+        `SELECT MAX(created_at) AS ts FROM world_issues WHERE world_id = ?`,
+      ).get(worldId) as { ts: number | null };
+      lastAuditTs = lastRow?.ts ?? 0;
+    }
 
     const rows = db.prepare(
       `SELECT a.id, a.title, wbe.summary
        FROM articles a
        LEFT JOIN world_bible_entries wbe ON wbe.article_id = a.id
-       WHERE a.world_id = ?
+       WHERE a.world_id = ? ${focus === 'recent' && lastAuditTs > 0 ? 'AND a.updated_at > ?' : ''}
        ORDER BY a.depth ASC, a.title ASC`,
-    ).all(worldId) as Array<{ id: string; title: string; summary: string | null }>;
+    ).all(worldId, ...(focus === 'recent' && lastAuditTs > 0 ? [lastAuditTs] : [])) as Array<{ id: string; title: string; summary: string | null }>;
 
     const linkRows = db.prepare(
       `SELECT al.source_article_id, al.target_article_id, al.link_type, a.title AS target_title

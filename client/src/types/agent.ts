@@ -43,6 +43,7 @@ export interface EdgeProposal {
 
 export interface GlobalWarning {
   severity: 'warning' | 'conflict';
+  type: 'coherence' | 'gap' | 'narrative' | 'thematic';
   description: string;
   involvedArticleIds: string[];
 }

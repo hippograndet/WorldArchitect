@@ -2,6 +2,7 @@ import type { WorldContext } from '../agents/director.js';
 import type { ContextPackage } from '../services/archivist.js';
 import type { ProposalItem } from '../agents/muse.js';
 import type { IdeaItem } from '../agents/oracle.js';
+import type { ResearchBrief } from '../agents/scribe.js';
 import { buildWorldHeader } from './shared.js';
 
 export type ExpanderMode = 'expand_description' | 'create_root' | 'create_child' | 'reorganize';
@@ -10,7 +11,8 @@ function renderContextPackage(pkg: ContextPackage, mode: ExpanderMode): string {
   const parts: string[] = [];
 
   if (mode === 'reorganize') {
-    parts.push(`## Current Article Body (read-only constraint)\n${pkg.targetBody}`);
+    if (pkg.targetDescription) parts.push(`## Current Description (read-only constraint)\n${pkg.targetDescription}`);
+    if (pkg.targetChronology)  parts.push(`## Current Chronology (read-only constraint)\n${pkg.targetChronology}`);
   }
 
   if (pkg.parents.length > 0) {
@@ -35,28 +37,39 @@ function renderContextPackage(pkg: ContextPackage, mode: ExpanderMode): string {
   return parts.join('\n\n');
 }
 
-export function buildExpanderSystemPrompt(worldContext: WorldContext, mode: ExpanderMode): string {
+export function buildExpanderSystemPrompt(worldContext: WorldContext, mode: ExpanderMode, wordCountPreset: 'short' | 'medium' | 'long' = 'medium'): string {
+  const LENGTH_GUIDANCE: Record<string, string> = {
+    short:  '~150–200 words. 2–3 paragraphs.',
+    medium: '~300–350 words. 4–5 paragraphs.',
+    long:   '~500–550 words. 6–7 paragraphs.',
+  };
+  const lengthTarget = LENGTH_GUIDANCE[wordCountPreset] ?? LENGTH_GUIDANCE.medium;
+
   let modeInstructions: string;
 
   switch (mode) {
     case 'expand_description':
-      modeInstructions = `You are expanding an existing article stub. Write its **## Description** section (3–5 paragraphs) using the selected creative direction as your seed. Do not write the heading — return only the content.
+      modeInstructions = `You are expanding an existing article stub. Write its **## Description** section using the selected creative direction as your seed. Do not write the heading — return only the content.
 
-The Description is a deep, thematic overview of the subject. It is not chronological — events and developments belong in the separate ## Chronology section. Focus on nature, significance, characteristics, relationships, and role in the world.`;
+Target length: ${lengthTarget} Separate ideas into distinct paragraphs with a blank line between each. Do not pad or repeat — stop when the content is complete.
+
+The Description is a thematic overview of the subject. It is not chronological — events belong in the separate ## Chronology section. Focus on nature, significance, characteristics, relationships, and role in the world.`;
       break;
 
     case 'create_root':
-      modeInstructions = `You are creating a new root article (no parent). Write its **## Description** section (3–5 paragraphs) using the selected creative direction as your seed. Do not write the heading — return only the content.
+      modeInstructions = `You are creating a new root article (no parent). Write its **## Description** section using the selected creative direction as your seed. Do not write the heading — return only the content.
 
-Make this article feel like a genuine, specific entity in the world. Establish its nature, significance, and position in the world clearly.`;
+Target length: ${lengthTarget} Separate ideas into distinct paragraphs with a blank line between each. Do not pad or repeat — stop when the content is complete.
+
+Make this article feel like a genuine, specific entity in the world. Establish its nature, significance, and position clearly.`;
       break;
 
     case 'create_child':
-      modeInstructions = `You are creating a new child article under an existing parent. Write:
-1. The child's **## Description** section (3–5 paragraphs) — call submit_child_description with childDescription
-2. A short **parentAppend** paragraph (1–2 sentences) that can be appended to the parent article acknowledging this new child
+      modeInstructions = `You are creating a new child article stub under an existing parent. Write:
+1. A short seed paragraph (~80 words) describing what this entity fundamentally IS — its nature, character, and role in the world. This will become the article's Introduction. Call submit_child_description with this as childDescription.
+2. A short **parentAppend** (1–2 sentences) to append to the parent article acknowledging this new child.
 
-The child should feel like a natural, specific sub-entity or sub-topic of the parent. Do not contradict the parent's established facts.`;
+Do NOT write a full Description — the user will expand the child article separately. Focus only on establishing what the entity is at its core. Do not contradict the parent's established facts.`;
       break;
 
     case 'reorganize':
@@ -66,17 +79,20 @@ The child should feel like a natural, specific sub-entity or sub-topic of the pa
 - Improve sentence structure and clarity
 - Remove redundancy
 
-You must NOT add new facts or remove existing ones. Return only the reorganized ## Description content (no heading).`;
+You must NOT add new facts or remove existing ones. Return only the reorganized ## Description content (no heading). Target length: ${lengthTarget} Separate ideas into distinct paragraphs with a blank line between each. Do not pad or repeat — stop when the content is complete.`;
       break;
   }
+
+  const mentionInstruction = mode === 'reorganize' ? '' : `
+**Entity mentions**: If your description coins a brand-new entity — a character, location, or faction that you invented and that does not appear anywhere in the world context above — list it in the optional \`mentions\` field. Do NOT include: the article's parent, siblings, ancestors, or any entity already named in the provided world context. Only genuinely novel creations that are central to this article belong here. For each, provide the template type and a one-sentence summary.`;
 
   return `You are the Expander for WorldArchitect, a fiction world-building tool.
 
 ${buildWorldHeader(worldContext)}
 
 ${modeInstructions}
-
-You may use context tools to look up specific articles if needed. When ready, call the appropriate output tool.`;
+${mentionInstruction}
+You may use context tools to look up specific articles if needed. When you are ready to deliver your output, call the appropriate output tool — place all written content directly in the tool arguments. Do not write prose in the message body.`;
 }
 
 export function buildExpanderUserMessage(
@@ -85,14 +101,15 @@ export function buildExpanderUserMessage(
   selectedProposal?: ProposalItem,
   userSpec?: string,
   selectedIdeas?: IdeaItem[],
+  researchBrief?: ResearchBrief,
 ): string {
   const parts: string[] = [
     `## Article: ${pkg.targetTitle}`,
     `Template type: ${pkg.targetTemplateType}`,
   ];
 
-  if (pkg.targetSummary) {
-    parts.push(`Current Introduction:\n${pkg.targetSummary}`);
+  if (pkg.targetIntroduction) {
+    parts.push(`Current Introduction:\n${pkg.targetIntroduction}`);
   }
 
   if (selectedProposal) {
@@ -102,6 +119,20 @@ export function buildExpanderUserMessage(
   if (selectedIdeas && selectedIdeas.length > 0) {
     const ideaList = selectedIdeas.map(i => `- **${i.theme}**: ${i.detail}`).join('\n');
     parts.push(`## Themes to Incorporate\n${ideaList}`);
+  }
+
+  if (researchBrief) {
+    const briefParts: string[] = [];
+    if (researchBrief.keyFacts.length > 0) {
+      briefParts.push(`**Established facts to respect:**\n${researchBrief.keyFacts.map(f => `- ${f}`).join('\n')}`);
+    }
+    if (researchBrief.warnings.length > 0) {
+      briefParts.push(`**Watch out for:**\n${researchBrief.warnings.map(w => `- ${w}`).join('\n')}`);
+    }
+    if (researchBrief.suggestedAngles.length > 0) {
+      briefParts.push(`**Angles worth developing:**\n${researchBrief.suggestedAngles.map(a => `- ${a}`).join('\n')}`);
+    }
+    if (briefParts.length > 0) parts.push(`## Research Brief\n${briefParts.join('\n\n')}`);
   }
 
   if (userSpec) {

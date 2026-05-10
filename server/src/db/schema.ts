@@ -60,6 +60,113 @@ export function runMigrations(db: Database.Database): void {
     db.exec(`UPDATE call_log SET agent_type = 'curator'      WHERE agent_type = 'taste'`);
   } catch { /* ignore — call_log may be empty or already updated */ }
 
+  // M9: name_bank — add gender, social_class, name_component columns
+  tryAlter(db, `ALTER TABLE name_bank ADD COLUMN gender TEXT NOT NULL DEFAULT 'neutral'`);
+  tryAlter(db, `ALTER TABLE name_bank ADD COLUMN social_class TEXT NOT NULL DEFAULT 'common'`);
+  tryAlter(db, `ALTER TABLE name_bank ADD COLUMN name_component TEXT NOT NULL DEFAULT 'full'`);
+
+  // M10: article_versions — add is_published for publish workflow (now in base schema, kept for old DBs)
+  tryAlter(db, `ALTER TABLE article_versions ADD COLUMN is_published INTEGER NOT NULL DEFAULT 0`);
+
+  // M11: new tables for entity mentions, article issues
+  tryAlter(db, `
+    CREATE TABLE IF NOT EXISTS entity_mentions (
+      id                TEXT PRIMARY KEY,
+      world_id          TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
+      source_article_id TEXT NOT NULL REFERENCES articles(id) ON DELETE CASCADE,
+      article_id        TEXT REFERENCES articles(id),
+      title             TEXT NOT NULL,
+      template_type     TEXT NOT NULL DEFAULT 'general',
+      summary           TEXT,
+      status            TEXT NOT NULL DEFAULT 'created',
+      created_at        INTEGER NOT NULL
+    )
+  `);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_entity_mentions_world ON entity_mentions(world_id, status)`);
+
+  tryAlter(db, `
+    CREATE TABLE IF NOT EXISTS article_issues (
+      id          TEXT PRIMARY KEY,
+      world_id    TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
+      article_id  TEXT NOT NULL REFERENCES articles(id) ON DELETE CASCADE,
+      source      TEXT NOT NULL,
+      severity    TEXT NOT NULL,
+      code        TEXT NOT NULL,
+      excerpt     TEXT,
+      explanation TEXT NOT NULL,
+      suggestion  TEXT,
+      status      TEXT NOT NULL DEFAULT 'open',
+      created_at  INTEGER NOT NULL
+    )
+  `);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_article_issues_article ON article_issues(article_id, status)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_article_issues_world ON article_issues(world_id, severity, status)`);
+
+  // M12: publish_history table
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS publish_history (
+      id           TEXT PRIMARY KEY,
+      world_id     TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
+      article_id   TEXT NOT NULL REFERENCES articles(id) ON DELETE CASCADE,
+      version_id   TEXT REFERENCES article_versions(id),
+      published_at INTEGER NOT NULL
+    )
+  `);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_publish_history_world ON publish_history(world_id, published_at DESC)`);
+
+  // M13: world_issues — persistent world-level issues from Auditor and other macro agents
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS world_issues (
+      id          TEXT PRIMARY KEY,
+      world_id    TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
+      severity    TEXT NOT NULL,
+      type        TEXT NOT NULL DEFAULT 'coherence',
+      description TEXT NOT NULL,
+      article_ids TEXT NOT NULL DEFAULT '[]',
+      source      TEXT NOT NULL DEFAULT 'auditor',
+      status      TEXT NOT NULL DEFAULT 'open',
+      created_at  INTEGER NOT NULL,
+      updated_at  INTEGER NOT NULL
+    )
+  `);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_world_issues_world ON world_issues(world_id, status)`);
+
+  // M14: article_versions — replace body/summary with introduction/description/chronology
+  {
+    const hasBody = (db.prepare(
+      `SELECT COUNT(*) AS n FROM pragma_table_info('article_versions') WHERE name = 'body'`,
+    ).get() as { n: number }).n > 0;
+
+    if (hasBody) {
+      db.exec(`PRAGMA foreign_keys = OFF`);
+      db.exec(`CREATE TABLE article_versions_new (
+        id                       TEXT PRIMARY KEY,
+        article_id               TEXT NOT NULL REFERENCES articles(id) ON DELETE CASCADE,
+        version_number           INTEGER NOT NULL,
+        introduction             TEXT NOT NULL DEFAULT '',
+        description              TEXT NOT NULL DEFAULT '',
+        chronology               TEXT NOT NULL DEFAULT '',
+        expansion_params         TEXT,
+        proposal_used            TEXT,
+        word_count               INTEGER NOT NULL DEFAULT 0,
+        is_revert                INTEGER NOT NULL DEFAULT 0,
+        is_published             INTEGER NOT NULL DEFAULT 0,
+        reverted_from_version_id TEXT,
+        created_at               INTEGER NOT NULL
+      )`);
+      // Migrate: summary → introduction; body content is discarded (test data only)
+      db.exec(`INSERT INTO article_versions_new
+        (id, article_id, version_number, introduction, description, chronology,
+         expansion_params, proposal_used, word_count, is_revert, reverted_from_version_id, created_at)
+        SELECT id, article_id, version_number, COALESCE(summary, ''), '', '',
+               expansion_params, proposal_used, word_count, is_revert, reverted_from_version_id, created_at
+        FROM article_versions`);
+      db.exec(`DROP TABLE article_versions`);
+      db.exec(`ALTER TABLE article_versions_new RENAME TO article_versions`);
+      db.exec(`PRAGMA foreign_keys = ON`);
+    }
+  }
+
   // M8: pending_drafts — change UNIQUE(article_id) to UNIQUE(article_id, pipeline_type)
   // Allows multiple concurrent drafts of different types on the same article.
   // SQLite can't ALTER constraints, so we recreate the table.
@@ -133,12 +240,14 @@ export function applySchema(db: Database.Database): void {
       id                       TEXT PRIMARY KEY,
       article_id               TEXT NOT NULL REFERENCES articles(id) ON DELETE CASCADE,
       version_number           INTEGER NOT NULL,
-      body                     TEXT NOT NULL,
-      summary                  TEXT NOT NULL,
+      introduction             TEXT NOT NULL DEFAULT '',
+      description              TEXT NOT NULL DEFAULT '',
+      chronology               TEXT NOT NULL DEFAULT '',
       expansion_params         TEXT,
       proposal_used            TEXT,
       word_count               INTEGER NOT NULL DEFAULT 0,
       is_revert                INTEGER NOT NULL DEFAULT 0,
+      is_published             INTEGER NOT NULL DEFAULT 0,
       reverted_from_version_id TEXT,
       created_at               INTEGER NOT NULL
     );
@@ -219,6 +328,19 @@ export function applySchema(db: Database.Database): void {
       daily_cap       INTEGER,
       bible_threshold INTEGER NOT NULL DEFAULT 80000
     );
+
+    CREATE TABLE IF NOT EXISTS name_bank (
+      id          TEXT PRIMARY KEY,
+      world_id    TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
+      name        TEXT NOT NULL,
+      profile_id  TEXT NOT NULL,
+      entity_type TEXT NOT NULL,
+      tags        TEXT NOT NULL DEFAULT '[]',
+      source      TEXT NOT NULL DEFAULT 'generated',
+      created_at  INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_name_bank_world ON name_bank(world_id, entity_type);
 
     -- Global singleton: one row, id always 'singleton'.
     CREATE TABLE IF NOT EXISTS provider_settings (

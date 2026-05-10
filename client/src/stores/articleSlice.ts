@@ -17,7 +17,7 @@ export interface ArticleSlice {
   selectArticle: (worldId: string, articleId: string) => Promise<void>;
   loadVersions: (worldId: string, articleId: string) => Promise<void>;
   checkDraft: (worldId: string, articleId: string) => Promise<void>;
-  manualEdit: (worldId: string, articleId: string, body: string) => Promise<void>;
+  manualEdit: (worldId: string, articleId: string, fields: { introduction?: string; description?: string; chronology?: string }) => Promise<void>;
   revertToVersion: (worldId: string, articleId: string, versionId: string) => Promise<void>;
   acceptDraft: (worldId: string, articleId: string) => Promise<void>;
   discardDraft: (worldId: string, articleId: string) => Promise<void>;
@@ -67,14 +67,8 @@ export const articleSlice: StateCreator<StoreState, [['zustand/immer', never]], 
     }
   },
 
-  manualEdit: async (worldId, articleId, body) => {
-    // Always pass the current summary so the server does not overwrite it
-    // with the first 50 words of the body (which would include markdown headings).
-    const existingSummary = get().currentArticleDetail?.version?.summary ?? '';
-    const { article, version } = await api.articles.update(worldId, articleId, {
-      body,
-      summary: existingSummary || undefined,
-    });
+  manualEdit: async (worldId, articleId, fields) => {
+    const { article, version } = await api.articles.update(worldId, articleId, fields);
     set((s) => {
       const idx = s.articles.findIndex((a) => a.id === articleId);
       if (idx !== -1) s.articles[idx] = article;

@@ -29,8 +29,8 @@ function renderContextPackage(pkg: ContextPackage): string {
 export function buildProposalSystemPrompt(worldContext: WorldContext, mode: ProposalMode): string {
   const modeDesc =
     mode === 'create_root' || mode === 'create_child'
-      ? 'You are creating a brand-new article. Propose 3 distinct creative directions for what this article could become.'
-      : 'You are expanding an existing article stub. Propose 3 distinct creative directions for its Description section.';
+      ? 'You are creating a brand-new article. Propose 3 distinct creative identities for what this entity fundamentally IS.'
+      : 'You are expanding an existing article stub. Propose 3 distinct creative identities for what this entity fundamentally IS.';
 
   return `You are the ProposalAgent for WorldArchitect, a fiction world-building tool.
 
@@ -38,11 +38,16 @@ ${buildWorldHeader(worldContext)}
 
 ${modeDesc}
 
+Each proposal defines what this entity fundamentally IS — its nature, character, essence, atmosphere, and place in the world — from a distinct creative angle. These are NOT structural focuses, writing outlines, or section breakdowns.
+
+GOOD example: "A vast ocean planet with scattered volcanic archipelagos, dominated by bioluminescent megafauna and inhabited by nomadic sea-tribes who navigate by the creatures' light patterns." — this is what the entity IS.
+BAD example: "Explore the marine ecosystem of Planet Blue Sea" — this is a writing instruction, not an identity.
+
 Each proposal must be:
-- Distinct from the others — different angles, themes, or focuses
+- A distinct creative identity — different natures, not different angles on the same nature
 - Grounded in the world's established context (no contradictions)
 - Specific, not generic
-- Expressed as: a short title (3–8 words) + a ~60-word direction description
+- Expressed as: a short title (3–8 words) + a ~60-word description of what the entity IS
 
 When you have read the world context and are ready, call submit_proposals with exactly 3 proposals.`;
 }
@@ -56,8 +61,8 @@ export function buildProposalUserMessage(
     `Template type: ${pkg.targetTemplateType}`,
   ];
 
-  if (pkg.targetSummary) {
-    parts.push(`Current Introduction:\n${pkg.targetSummary}`);
+  if (pkg.targetIntroduction) {
+    parts.push(`Current Introduction:\n${pkg.targetIntroduction}`);
   }
 
   const context = renderContextPackage(pkg);
@@ -65,7 +70,7 @@ export function buildProposalUserMessage(
 
   if (userSpec) parts.push(`## User Specification\n${userSpec}`);
 
-  parts.push('Propose 3 creative directions for this article.');
+  parts.push('Propose 3 creative identities for this entity — what it fundamentally IS, not how to write about it.');
 
   return parts.join('\n\n');
 }

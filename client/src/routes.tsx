@@ -14,6 +14,9 @@ const WorldOverviewPage = lazy(() => import('./pages/WorldOverviewPage.tsx'));
 const TimelinePage      = lazy(() => import('./pages/TimelinePage.tsx'));
 const SnapshotsPage     = lazy(() => import('./pages/SnapshotsPage.tsx'));
 const UsagePage         = lazy(() => import('./pages/UsagePage.tsx'));
+const ToolboxPage       = lazy(() => import('./pages/ToolboxPage.tsx'));
+const PublishPage       = lazy(() => import('./pages/PublishPage.tsx'));
+const InboxPage         = lazy(() => import('./pages/InboxPage.tsx'));
 
 function PageFallback() {
   return <div className="p-8 text-sm text-zinc-400">Loading…</div>;
@@ -39,6 +42,9 @@ export const router = createBrowserRouter([
           { path: 'timeline',      element: withSuspense(<TimelinePage />) },
           { path: 'snapshots',     element: withSuspense(<SnapshotsPage />) },
           { path: 'usage',         element: withSuspense(<UsagePage />) },
+          { path: 'inbox',         element: withSuspense(<InboxPage />) },
+          { path: 'toolbox',       element: withSuspense(<ToolboxPage />) },
+          { path: 'publish',       element: withSuspense(<PublishPage />) },
           { path: 'settings',      element: <WorldSettings /> },
         ],
       },

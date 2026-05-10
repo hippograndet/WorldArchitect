@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import { ArrowLeft, X, RotateCcw } from 'lucide-react';
+import { ArrowLeft, X, Sparkles } from 'lucide-react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useStore } from '../../stores/index.ts';
 import { api } from '../../lib/api.ts';
-import type { WorldStyleInspiration, VisualTheme } from '../../types/world.ts';
+import type { VisualTheme } from '../../types/world.ts';
 
 // ---------------------------------------------------------------------------
 // Appearance constants (theme previews + font size steps)
@@ -89,76 +89,6 @@ const FONT_SIZE_STEPS = [0.85, 0.925, 1, 1.1, 1.2];
 const FONT_SIZE_LABELS = ['XS', 'S', 'M', 'L', 'XL'];
 
 // ---------------------------------------------------------------------------
-// Inspiration chip with expand button
-// ---------------------------------------------------------------------------
-
-interface InspirationChipProps {
-  wid: string;
-  worldName: string;
-  worldDescription: string;
-  item: WorldStyleInspiration & { expanded: boolean };
-  onExpand: (expanded: string) => void;
-  onRemove: () => void;
-}
-
-function InspirationChip({ wid, worldName, worldDescription, item, onExpand, onRemove }: InspirationChipProps) {
-  const [expanding, setExpanding] = useState(false);
-
-  const handleExpand = async () => {
-    setExpanding(true);
-    try {
-      const { expandedDescription } = await api.worlds.promptEngineer({
-        fieldType: 'inspiration',
-        rawText: item.name,
-        worldName,
-        worldDescription,
-        wid,
-      });
-      onExpand(expandedDescription);
-    } catch (err) {
-      alert((err as Error).message);
-    } finally {
-      setExpanding(false);
-    }
-  };
-
-  return (
-    <div className={`border rounded-lg p-2.5 text-xs ${item.expanded ? 'border-purple-300 bg-purple-50' : 'border-gray-200 bg-white'}`}>
-      <div className="flex items-center justify-between gap-2 mb-1">
-        <span className="font-medium text-gray-800 truncate">{item.name}</span>
-        <div className="flex items-center gap-1 shrink-0">
-          {!item.expanded && (
-            <button
-              onClick={handleExpand}
-              disabled={expanding}
-              className="px-2 py-0.5 bg-purple-600 text-white rounded text-xs hover:bg-purple-700 disabled:opacity-50"
-            >
-              {expanding ? '…' : '✦ Expand'}
-            </button>
-          )}
-          {item.expanded && (
-            <button
-              onClick={handleExpand}
-              disabled={expanding}
-              className="px-2 py-0.5 text-purple-600 border border-purple-300 rounded text-xs hover:bg-purple-50 disabled:opacity-50 flex items-center gap-1"
-            >
-              {expanding ? '…' : <RotateCcw size={12} />}
-            </button>
-          )}
-          <button onClick={onRemove} className="text-gray-400 hover:text-red-500 px-1"><X size={14} /></button>
-        </div>
-      </div>
-      {item.expanded && (
-        <p className="text-gray-500 text-xs leading-relaxed line-clamp-3">{item.expandedDescription}</p>
-      )}
-      {!item.expanded && (
-        <p className="text-amber-600 text-xs">Needs AI expansion before saving</p>
-      )}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Main WorldSettings component
 // ---------------------------------------------------------------------------
 
@@ -176,11 +106,15 @@ export default function WorldSettings() {
   // Style fields
   const [vibe, setVibe]                   = useState(world?.styleConfig?.vibe ?? '');
   const [writingStyle, setWritingStyle]   = useState(world?.styleConfig?.writingStyle ?? '');
-  const [inspirations, setInspirations]   = useState<(WorldStyleInspiration & { expanded: boolean })[]>(
-    () => (world?.styleConfig?.inspirations ?? []).map((i) => ({ ...i, expanded: true })),
+  const [inspirations, setInspirations]   = useState<string[]>(
+    () => (world?.styleConfig?.inspirations ?? []).map((i) => i.name),
   );
   const [newInspirationName, setNewInspirationName] = useState('');
   const [expandingField, setExpandingField] = useState<'vibe' | 'writingStyle' | null>(null);
+
+  // Distill state
+  const [distilling, setDistilling]     = useState(false);
+  const [distillPatch, setDistillPatch] = useState<{ vibe_append: string; writingStyle_append: string } | null>(null);
 
   if (!world) {
     return <div className="p-8 text-sm text-gray-400">World not found.</div>;
@@ -200,17 +134,15 @@ export default function WorldSettings() {
     }
   };
 
-  const canSaveStyle = inspirations.every((i) => i.expanded);
-
   const handleSaveStyle = async () => {
-    if (!wid || !canSaveStyle || saving) return;
+    if (!wid || saving) return;
     setSaving(true);
     try {
       await updateWorld(wid, {
         styleConfig: {
           vibe,
           writingStyle,
-          inspirations: inspirations.map(({ name, expandedDescription }) => ({ name, expandedDescription })),
+          inspirations: inspirations.map((name) => ({ name })),
           constraints: world.styleConfig?.constraints,
         },
       });
@@ -228,15 +160,17 @@ export default function WorldSettings() {
     try {
       const rawText = fieldType === 'vibe' ? vibe : writingStyle;
       const apiFieldType = fieldType === 'writingStyle' ? 'writing_style' as const : 'vibe' as const;
-      const { expandedDescription } = await api.worlds.promptEngineer({
+      const result = await api.worlds.promptEngineer({
         fieldType: apiFieldType,
         rawText,
         worldName: world.name,
         worldDescription: world.description,
         wid,
       });
-      if (fieldType === 'vibe') setVibe(expandedDescription);
-      else setWritingStyle(expandedDescription);
+      if ('expandedDescription' in result) {
+        if (fieldType === 'vibe') setVibe(result.expandedDescription);
+        else setWritingStyle(result.expandedDescription);
+      }
     } catch (err) {
       addToast({ message: (err as Error).message, type: 'error' });
     } finally {
@@ -244,10 +178,41 @@ export default function WorldSettings() {
     }
   };
 
+  const handleDistill = async () => {
+    if (!wid || inspirations.length === 0) return;
+    setDistilling(true);
+    setDistillPatch(null);
+    try {
+      const result = await api.worlds.promptEngineer({
+        fieldType: 'distill',
+        rawText: inspirations.join(', '),
+        worldName: world.name,
+        worldDescription: world.description,
+        currentVibe: vibe,
+        currentWritingStyle: writingStyle,
+        wid,
+      });
+      if ('vibe_append' in result) {
+        setDistillPatch({ vibe_append: result.vibe_append, writingStyle_append: result.writingStyle_append });
+      }
+    } catch (err) {
+      addToast({ message: (err as Error).message, type: 'error' });
+    } finally {
+      setDistilling(false);
+    }
+  };
+
+  const handleApplyPatch = () => {
+    if (!distillPatch) return;
+    setVibe((v) => (v.trim() ? `${v.trim()} ${distillPatch.vibe_append}` : distillPatch.vibe_append));
+    setWritingStyle((ws) => (ws.trim() ? `${ws.trim()} ${distillPatch.writingStyle_append}` : distillPatch.writingStyle_append));
+    setDistillPatch(null);
+  };
+
   const handleAddInspiration = () => {
     const name = newInspirationName.trim();
-    if (!name || inspirations.some((i) => i.name.toLowerCase() === name.toLowerCase())) return;
-    setInspirations((prev) => [...prev, { name, expandedDescription: '', expanded: false }]);
+    if (!name || inspirations.some((n) => n.toLowerCase() === name.toLowerCase())) return;
+    setInspirations((prev) => [...prev, name]);
     setNewInspirationName('');
   };
 
@@ -412,24 +377,30 @@ export default function WorldSettings() {
         {/* Inspirations */}
         <div className="mb-5">
           <label className="text-xs font-medium text-gray-700 block mb-2">Inspirations</label>
-          <div className="flex flex-col gap-2 mb-2">
-            {inspirations.map((item, idx) => (
-              <InspirationChip
-                key={item.name}
-                wid={wid!}
-                worldName={world.name}
-                worldDescription={world.description}
-                item={item}
-                onExpand={(expanded) =>
-                  setInspirations((prev) =>
-                    prev.map((p, i) => i === idx ? { ...p, expandedDescription: expanded, expanded: true } : p),
-                  )
-                }
-                onRemove={() => setInspirations((prev) => prev.filter((_, i) => i !== idx))}
-              />
-            ))}
-          </div>
-          <div className="flex gap-2">
+
+          {/* Pill chips */}
+          {inspirations.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mb-3">
+              {inspirations.map((name, idx) => (
+                <span
+                  key={name}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 bg-purple-100 text-purple-800 rounded-full text-xs font-medium"
+                >
+                  {name}
+                  <button
+                    onClick={() => setInspirations((prev) => prev.filter((_, i) => i !== idx))}
+                    className="text-purple-400 hover:text-purple-700 ml-0.5"
+                    aria-label={`Remove ${name}`}
+                  >
+                    <X size={11} />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+
+          {/* Add input */}
+          <div className="flex gap-2 mb-3">
             <input
               type="text"
               value={newInspirationName}
@@ -446,15 +417,52 @@ export default function WorldSettings() {
               Add
             </button>
           </div>
+
+          {/* Distill button */}
+          {inspirations.length > 0 && (
+            <button
+              onClick={handleDistill}
+              disabled={distilling}
+              className="flex items-center gap-1.5 text-xs text-purple-700 border border-purple-200 bg-purple-50 px-3 py-1.5 rounded-lg hover:bg-purple-100 disabled:opacity-50 transition-colors"
+            >
+              <Sparkles size={12} />
+              {distilling ? 'Distilling…' : '✦ Distill to Style'}
+            </button>
+          )}
         </div>
 
-        {!canSaveStyle && (
-          <p className="text-xs text-amber-600 mb-3">Expand all inspirations with AI before saving.</p>
+        {/* Distill diff preview */}
+        {distillPatch && (
+          <div className="mb-5 border border-purple-200 rounded-lg bg-purple-50 p-4">
+            <p className="text-xs font-semibold text-purple-800 mb-3">Style additions from inspirations</p>
+            <div className="mb-3">
+              <p className="text-xs font-medium text-gray-600 mb-1">Vibe & Atmosphere</p>
+              <p className="text-xs text-purple-900 bg-purple-100 rounded px-2 py-1.5 leading-relaxed">+ {distillPatch.vibe_append}</p>
+            </div>
+            <div className="mb-4">
+              <p className="text-xs font-medium text-gray-600 mb-1">Writing Style</p>
+              <p className="text-xs text-purple-900 bg-purple-100 rounded px-2 py-1.5 leading-relaxed">+ {distillPatch.writingStyle_append}</p>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={handleApplyPatch}
+                className="px-3 py-1.5 text-xs bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+              >
+                Apply
+              </button>
+              <button
+                onClick={() => setDistillPatch(null)}
+                className="px-3 py-1.5 text-xs text-gray-500 border border-gray-200 rounded-lg hover:bg-gray-100 transition-colors"
+              >
+                Discard
+              </button>
+            </div>
+          </div>
         )}
 
         <button
           onClick={handleSaveStyle}
-          disabled={!canSaveStyle || saving}
+          disabled={saving}
           className="w-full py-2 text-sm font-medium bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
         >
           {saving ? 'Saving…' : 'Save Style'}

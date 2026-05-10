@@ -2,7 +2,6 @@ import type { ReactNode } from 'react';
 import { Star, ArrowUp, GitBranch, Lock, Settings, Play } from 'lucide-react';
 import { useParams } from 'react-router-dom';
 import { useStore } from '../../stores/index.ts';
-import { extractDescription } from '../../lib/sections.ts';
 
 // ---------------------------------------------------------------------------
 // Task definitions
@@ -54,7 +53,7 @@ export default function SparkConfigView() {
 
   // Prerequisite checks
   const introText = currentArticleDetail?.introduction ?? '';
-  const descText  = extractDescription(currentArticleDetail?.version?.body ?? '');
+  const descText  = currentArticleDetail?.version?.description ?? '';
   const introWords = countWords(introText);
   const descWords  = countWords(descText);
 
@@ -147,7 +146,7 @@ export default function SparkConfigView() {
           <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Description Length</p>
           <div className="flex gap-2">
             {(['short', 'medium', 'long'] as const).map((p, i) => {
-              const labels = ['3 §', '5 §', '7 §'];
+              const labels = ['Brief', 'Standard', 'Detailed'];
               return (
                 <button
                   key={p}
@@ -163,6 +162,14 @@ export default function SparkConfigView() {
               );
             })}
           </div>
+          {(() => {
+            const LENGTH_HINTS: Record<string, string> = {
+              short: '~150–200 words',
+              medium: '~300–350 words',
+              long: '~500–550 words',
+            };
+            return <p className="mt-1 text-xs text-gray-400">{LENGTH_HINTS[agentParams.wordCountPreset]}</p>;
+          })()}
         </div>
       )}
 
@@ -375,17 +382,63 @@ export default function SparkConfigView() {
               </div>
             </div>
 
+            {/* Oracle toggle */}
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={agentParams.forgeUseOracle}
+                onChange={(e) => setAgentParams({ forgeUseOracle: e.target.checked })}
+                className="accent-amber-500"
+              />
+              <span className="text-xs text-gray-700">Use Oracle idea selection</span>
+              <span className="text-xs text-gray-400">(+1 LLM call/article)</span>
+            </label>
+            {agentParams.forgeUseOracle && (
+              <p className="text-xs text-gray-400 -mt-1">
+                Oracle proposes thematic ideas after each proposal; all are auto-included for the Scribe.
+              </p>
+            )}
+
+            {/* Continuity Editor toggle */}
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={agentParams.forgeUseContinuityEditor}
+                onChange={(e) => setAgentParams({ forgeUseContinuityEditor: e.target.checked })}
+                className="accent-amber-500"
+              />
+              <span className="text-xs text-gray-700">Use Continuity Editor</span>
+              <span className="text-xs text-gray-400">(+1–2 LLM calls/article)</span>
+            </label>
+            {agentParams.forgeUseContinuityEditor && (
+              <p className="text-xs text-gray-400 -mt-1">
+                After Scribe writes, checks for factual contradictions and triggers a revision pass if needed.
+              </p>
+            )}
+
             {/* Estimated scope */}
-            <div className="bg-amber-50 border border-amber-200 rounded p-2">
-              <p className="text-xs text-amber-700">
-                <strong>Estimated scope:</strong>{' '}
-                up to {estimateForgeScope(agentParams.forgeMaxChildren, agentParams.forgeMaxDepth)} articles,{' '}
-                {estimateForgeScope(agentParams.forgeMaxChildren, agentParams.forgeMaxDepth) * 3} LLM calls.
-              </p>
-              <p className="text-xs text-amber-600 mt-0.5">
-                Fully automated — no user input during the run.
-              </p>
-            </div>
+            {(() => {
+              const articles = estimateForgeScope(agentParams.forgeMaxChildren, agentParams.forgeMaxDepth);
+              // Per article: Researcher + Muse + Curator + Scribe + Lorekeeper + Cartographer = 6 calls
+              // + Oracle = +1, + Continuity Editor = +1–2
+              const callsPerArticle =
+                6 +
+                (agentParams.forgeUseOracle ? 1 : 0) +
+                (agentParams.forgeUseContinuityEditor ? 1 : 0);
+              const totalCalls = articles * callsPerArticle;
+              const estTokensK = Math.round(totalCalls * 1.1);
+              return (
+                <div className="bg-amber-50 border border-amber-200 rounded p-2">
+                  <p className="text-xs text-amber-700">
+                    <strong>Estimated scope:</strong>{' '}
+                    up to {articles} articles, ~{totalCalls} LLM calls, ~{estTokensK}k tokens.
+                  </p>
+                  <p className="text-xs text-amber-600 mt-0.5">
+                    Fully automated — no user input during the run.
+                  </p>
+                </div>
+              );
+            })()}
           </div>
         )}
       </div>

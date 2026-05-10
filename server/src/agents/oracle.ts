@@ -6,6 +6,7 @@ import { buildOracleSystemPrompt, buildOracleUserMessage } from '../prompts/orac
 import type { WorldContext } from './director.js';
 import type { ContextPackage } from '../services/archivist.js';
 import type { ProposalItem } from './muse.js';
+import { LOOKUP_NAMES_TOOL } from '../tools/context.js';
 import type { ChatMessage } from '../providers/types.js';
 import type { Tool } from '../tools/types.js';
 
@@ -70,13 +71,13 @@ export class OracleAgent extends BaseAgent<OracleInput, OracleOutput> {
     return OUTPUT_TOOLS.submit_ideas;
   }
 
-  // No live context tools needed — ContextPackage is pre-built, but allow search for richer output
   protected getContextTools(): Tool[] {
-    return [];
+    return [LOOKUP_NAMES_TOOL];
   }
 
   protected parseOutput(input: Record<string, unknown>): OracleOutput {
-    const parsed = SubmitIdeasSchema.parse(input);
+    const normalized = Array.isArray(input) ? { ideas: input } : input;
+    const parsed = SubmitIdeasSchema.parse(normalized);
     return {
       ideas: parsed.ideas.map(idea => ({ ...idea, id: nanoid() })),
     };

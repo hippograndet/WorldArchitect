@@ -3,6 +3,7 @@ import { BaseAgent } from './base.js';
 import { OUTPUT_TOOLS } from '../tools/output.js';
 import { buildSkeletonSystemPrompt, buildSkeletonUserPrompt } from '../prompts/skeleton.js';
 import type { WorldContext } from './director.js';
+import { LOOKUP_NAMES_TOOL } from '../tools/context.js';
 import type { ChatMessage } from '../providers/types.js';
 import type { Tool } from '../tools/types.js';
 
@@ -56,7 +57,7 @@ export class ArchitectAgent extends BaseAgent<ArchitectInput, ArchitectOutput> {
   }
 
   protected getContextTools(): Tool[] {
-    return [];
+    return [LOOKUP_NAMES_TOOL];
   }
 
   protected parseOutput(input: Record<string, unknown>): ArchitectOutput {

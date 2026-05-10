@@ -4,6 +4,7 @@ import { OUTPUT_TOOLS } from '../tools/output.js';
 import { buildChildProposerSystemPrompt, buildChildProposerUserMessage } from '../prompts/childProposer.js';
 import type { WorldContext } from './director.js';
 import type { ContextPackage } from '../services/archivist.js';
+import { LOOKUP_NAMES_TOOL } from '../tools/context.js';
 import type { ChatMessage } from '../providers/types.js';
 import type { Tool } from '../tools/types.js';
 
@@ -20,7 +21,7 @@ const ChildProposalItemSchema = z.object({
 });
 
 const SubmitChildProposalsSchema = z.object({
-  proposals: z.array(ChildProposalItemSchema).min(1).max(10),
+  proposals: z.array(ChildProposalItemSchema).min(1).max(5),
 });
 
 export type ChildProposalItem = z.infer<typeof ChildProposalItemSchema>;
@@ -57,8 +58,10 @@ export class CartographerAgent extends BaseAgent<CartographerInput, Cartographer
     return OUTPUT_TOOLS.submit_child_proposals;
   }
 
+  protected getMaxTokens(): number { return 1500; }
+
   protected getContextTools(): Tool[] {
-    return [];
+    return [LOOKUP_NAMES_TOOL];
   }
 
   protected parseOutput(input: Record<string, unknown>): CartographerOutput {

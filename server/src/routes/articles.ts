@@ -2,8 +2,8 @@ import { Router } from 'express';
 import { nanoid } from 'nanoid';
 import { z } from 'zod';
 import { getDb } from '../db/index.js';
-import { splitSections, mergeSections } from '../services/sections.js';
 import { upsertEntry } from '../services/worldBible.js';
+import { runSyncRules } from '../services/syncRules.js';
 
 const router = Router({ mergeParams: true });
 
@@ -17,16 +17,18 @@ const CreateArticleSchema = z.object({
     .enum(['general', 'character', 'location', 'faction', 'historical_event'])
     .optional()
     .default('general'),
-  body: z.string().optional().default(''),
-  summary: z.string().optional().default(''),
+  introduction: z.string().optional().default(''),
+  description: z.string().optional().default(''),
+  chronology: z.string().optional().default(''),
   temporalAnchorStart: z.string().optional(),
   temporalAnchorEnd: z.string().optional(),
   isFixedPoint: z.boolean().optional().default(false),
 });
 
 const ManualEditSchema = z.object({
-  body: z.string(),
-  summary: z.string().optional(),
+  introduction: z.string().optional(),
+  description: z.string().optional(),
+  chronology: z.string().optional(),
   status: z.enum(['stub', 'draft', 'reviewed']).optional(),
   title: z.string().min(1).max(500).optional(),
   temporalAnchorStart: z.string().nullable().optional(),
@@ -94,9 +96,8 @@ const SaveDraftSchema = z.object({
 });
 
 const AcceptDraftSchema = z.object({
-  // Optional inline edit overrides — user may have edited the draft in the UI before accepting
-  bodyOverride: z.string().optional(),
-  summaryOverride: z.string().optional(),
+  descriptionOverride: z.string().optional(),
+  introductionOverride: z.string().optional(),
 });
 
 // ---------------------------------------------------------------------------
@@ -127,8 +128,9 @@ function parseVersion(row: DbRow) {
     id: row.id,
     articleId: row.article_id,
     versionNumber: row.version_number,
-    body: row.body,
-    summary: row.summary,
+    introduction: (row.introduction as string) ?? '',
+    description: (row.description as string) ?? '',
+    chronology: (row.chronology as string) ?? '',
     expansionParams: row.expansion_params
       ? JSON.parse(row.expansion_params as string)
       : null,
@@ -251,14 +253,15 @@ router.post('/', (req, res) => {
   if (!worldExists) { res.status(404).json({ error: 'World not found' }); return; }
 
   const {
-    title, templateType, body, summary,
+    title, templateType, introduction, description, chronology,
     temporalAnchorStart, temporalAnchorEnd, isFixedPoint,
   } = parse.data;
 
   const now = Date.now();
   const articleId = nanoid();
   const versionId = nanoid();
-  const status = body.trim() === '' ? 'stub' : 'draft';
+  const hasContent = description.trim() || chronology.trim() || introduction.trim();
+  const status = hasContent ? 'draft' : 'stub';
 
   db.transaction(() => {
     db.prepare(`
@@ -275,9 +278,10 @@ router.post('/', (req, res) => {
 
     db.prepare(`
       INSERT INTO article_versions
-        (id, article_id, version_number, body, summary, word_count, created_at)
-      VALUES (?, ?, 1, ?, ?, ?, ?)
-    `).run(versionId, articleId, body, summary, countWords(body), now);
+        (id, article_id, version_number, introduction, description, chronology, word_count, created_at)
+      VALUES (?, ?, 1, ?, ?, ?, ?, ?)
+    `).run(versionId, articleId, introduction, description, chronology,
+           countWords(introduction + ' ' + description + ' ' + chronology), now);
   })();
 
   const article = db.prepare('SELECT * FROM articles WHERE id = ?').get(articleId) as DbRow;
@@ -342,11 +346,20 @@ router.patch('/:aid', (req, res) => {
   const versionId = nanoid();
   const versionNumber = getNextVersionNumber(req.params.aid);
 
-  const { body, summary, status, title, temporalAnchorStart, temporalAnchorEnd, isFixedPoint } = parse.data;
+  const { introduction, description, chronology, status, title, temporalAnchorStart, temporalAnchorEnd, isFixedPoint } = parse.data;
 
-  // Derive summary from body if not provided
-  const effectiveSummary = summary ?? body.trim().split(/\s+/).slice(0, 50).join(' ');
-  const effectiveStatus = status ?? (body.trim() === '' ? 'stub' : 'draft');
+  // Fetch current version to merge only the provided fields
+  const current = article.current_version_id
+    ? (db.prepare('SELECT introduction, description, chronology FROM article_versions WHERE id = ?')
+        .get(article.current_version_id) as { introduction: string; description: string; chronology: string } | undefined)
+    : undefined;
+
+  const newIntroduction = introduction  ?? current?.introduction  ?? '';
+  const newDescription  = description  ?? current?.description   ?? '';
+  const newChronology   = chronology   ?? current?.chronology    ?? '';
+
+  const hasContent = newDescription.trim() || newChronology.trim() || newIntroduction.trim();
+  const effectiveStatus = status ?? (hasContent ? 'draft' : 'stub');
 
   const articleFields: string[] = ['updated_at = ?', 'current_version_id = ?', 'status = ?'];
   const articleValues: unknown[] = [now, versionId, effectiveStatus];
@@ -359,13 +372,17 @@ router.patch('/:aid', (req, res) => {
   db.transaction(() => {
     db.prepare(`
       INSERT INTO article_versions
-        (id, article_id, version_number, body, summary, word_count, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(versionId, req.params.aid, versionNumber, body, effectiveSummary, countWords(body), now);
+        (id, article_id, version_number, introduction, description, chronology, word_count, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(versionId, req.params.aid, versionNumber, newIntroduction, newDescription, newChronology,
+           countWords(newIntroduction + ' ' + newDescription + ' ' + newChronology), now);
 
     articleValues.push(req.params.aid);
     db.prepare(`UPDATE articles SET ${articleFields.join(', ')} WHERE id = ?`).run(...articleValues);
   })();
+
+  // Run rule-based checks
+  runSyncRules((req.params as Record<string, string>).wid, req.params.aid);
 
   const updated = db.prepare('SELECT * FROM articles WHERE id = ?').get(req.params.aid) as DbRow;
   const version = db.prepare('SELECT * FROM article_versions WHERE id = ?').get(versionId) as DbRow;
@@ -431,12 +448,12 @@ router.post('/:aid/revert/:vid', (req, res) => {
   db.transaction(() => {
     db.prepare(`
       INSERT INTO article_versions
-        (id, article_id, version_number, body, summary, word_count,
+        (id, article_id, version_number, introduction, description, chronology, word_count,
          is_revert, reverted_from_version_id, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
     `).run(
       versionId, req.params.aid, versionNumber,
-      target.body, target.summary, target.word_count,
+      target.introduction, target.description, target.chronology, target.word_count,
       req.params.vid, now,
     );
 
@@ -577,6 +594,7 @@ router.post('/:aid/accept', (req, res) => {
         suggestedLinks?: Array<{ targetArticleTitle: string; targetArticleId?: string | null }>;
         temporalAnchor?: { start: string; end?: string } | null;
         retentionIssues?: Array<{ description: string; severity: 'warning' | 'critical' }>;
+        mentions?: Array<{ title: string; templateType: string; summary?: string }>;
       })
     : null;
 
@@ -589,35 +607,40 @@ router.post('/:aid/accept', (req, res) => {
   const coherenceWarnings = draftContent.coherenceWarnings ?? [];
   const suggestedLinks = draftContent.suggestedLinks ?? [];
   const temporalAnchor = draftContent.temporalAnchor ?? null;
+  const mentions = draftContent.mentions ?? [];
 
   const now = Date.now();
   const versionId = nanoid();
   const versionNumber = getNextVersionNumber(req.params.aid);
 
-  // Fetch current body to merge sections correctly
+  // Fetch current version fields
   const currentVersion = article.current_version_id
-    ? (db.prepare('SELECT body FROM article_versions WHERE id = ?').get(article.current_version_id) as DbRow | undefined)
+    ? (db.prepare('SELECT introduction, description, chronology FROM article_versions WHERE id = ?')
+        .get(article.current_version_id) as { introduction: string; description: string; chronology: string } | undefined)
     : undefined;
-  const currentBody = (currentVersion?.body as string) ?? '';
-  const { description: currentDesc, chronology: currentChron } = splitSections(currentBody);
+  const currentDescription  = currentVersion?.description  ?? '';
+  const currentChronology   = currentVersion?.chronology   ?? '';
+  const currentIntroduction = currentVersion?.introduction ?? '';
 
-  // Derive the new body and introduction based on pipeline type
-  let newBody: string;
-  let newIntroduction: string | null = null;
+  // Derive new field values based on pipeline type
+  let newDescription:  string;
+  let newChronology:   string;
+  let newIntroduction: string;
   let childArticleId: string | null = null;
 
   if (pipelineType === 'expand_chronology') {
-    const chronologySection = parse.data.bodyOverride ?? draftContent.chronologySection ?? '';
-    newBody = mergeSections(currentDesc, chronologySection);
+    newDescription  = currentDescription;
+    newChronology   = parse.data.descriptionOverride ?? draftContent.chronologySection ?? '';
+    newIntroduction = currentIntroduction;
   } else if (pipelineType === 'create_child') {
-    const childDesc = parse.data.bodyOverride ?? draftContent.childDescription ?? '';
-    newBody = mergeSections(childDesc, '');
-    newIntroduction = parse.data.summaryOverride ?? draftContent.introduction ?? null;
+    newDescription  = '';
+    newChronology   = '';
+    newIntroduction = parse.data.introductionOverride ?? draftContent.introduction ?? draftContent.childDescription ?? '';
   } else {
     // expand_description | create_root | reorganize
-    const description = parse.data.bodyOverride ?? draftContent.description ?? '';
-    newBody = mergeSections(description, currentChron);
-    newIntroduction = parse.data.summaryOverride ?? draftContent.introduction ?? null;
+    newDescription  = parse.data.descriptionOverride ?? draftContent.description ?? '';
+    newChronology   = currentChronology;
+    newIntroduction = parse.data.introductionOverride ?? draftContent.introduction ?? currentIntroduction;
   }
 
   db.transaction(() => {
@@ -642,9 +665,10 @@ router.post('/:aid/accept', (req, res) => {
 
       db.prepare(`
         INSERT INTO article_versions
-          (id, article_id, version_number, body, summary, word_count, created_at)
-        VALUES (?, ?, 1, ?, ?, ?, ?)
-      `).run(childVersionId, childId, newBody, newIntroduction ?? '', countWords(newBody), now);
+          (id, article_id, version_number, introduction, description, chronology, word_count, created_at)
+        VALUES (?, ?, 1, ?, ?, ?, ?, ?)
+      `).run(childVersionId, childId, newIntroduction, newDescription, newChronology,
+             countWords(newIntroduction + ' ' + newDescription + ' ' + newChronology), now);
 
       db.prepare(`
         INSERT OR IGNORE INTO article_links (source_article_id, target_article_id, link_type)
@@ -658,20 +682,17 @@ router.post('/:aid/accept', (req, res) => {
       if (parentUpdate?.appendText) {
         const parentVersionId = nanoid();
         const parentVersionNumber = getNextVersionNumber(req.params.aid);
-        const newParentDesc = currentDesc
-          ? `${currentDesc}\n\n${parentUpdate.appendText}`
+        const appendedDesc = currentDescription
+          ? `${currentDescription}\n\n${parentUpdate.appendText}`
           : parentUpdate.appendText;
-        const newParentBody = mergeSections(newParentDesc, currentChron);
 
         db.prepare(`
           INSERT INTO article_versions
-            (id, article_id, version_number, body, summary, word_count, created_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?)
-        `).run(parentVersionId, req.params.aid, parentVersionNumber, newParentBody,
-               (article.current_version_id
-                 ? (db.prepare('SELECT summary FROM article_versions WHERE id = ?').get(article.current_version_id) as DbRow | undefined)?.summary ?? ''
-                 : ''),
-               countWords(newParentBody), now);
+            (id, article_id, version_number, introduction, description, chronology, word_count, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(parentVersionId, req.params.aid, parentVersionNumber,
+               currentIntroduction, appendedDesc, currentChronology,
+               countWords(currentIntroduction + ' ' + appendedDesc + ' ' + currentChronology), now);
 
         db.prepare('UPDATE articles SET current_version_id = ?, updated_at = ? WHERE id = ?')
           .run(parentVersionId, now, req.params.aid);
@@ -682,15 +703,15 @@ router.post('/:aid/accept', (req, res) => {
       // Single article write
       db.prepare(`
         INSERT INTO article_versions
-          (id, article_id, version_number, body, summary,
+          (id, article_id, version_number, introduction, description, chronology,
            expansion_params, proposal_used, word_count, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         versionId, req.params.aid, versionNumber,
-        newBody, newIntroduction ?? '',
+        newIntroduction, newDescription, newChronology,
         draft.expansion_params,
         draft.selected_proposal,
-        countWords(newBody),
+        countWords(newIntroduction + ' ' + newDescription + ' ' + newChronology),
         now,
       );
 
@@ -729,8 +750,58 @@ router.post('/:aid/accept', (req, res) => {
       `).run(req.params.aid, link.targetArticleId);
     }
 
+    // Process entity mentions — create stubs for novel entities Scribe introduced
+    const sourceDepth = (article.depth as number) ?? 1;
+    const acceptedArticleId = pipelineType === 'create_child' ? childArticleId ?? req.params.aid : req.params.aid;
+    for (const mention of mentions) {
+      const existing = db.prepare(
+        `SELECT id, depth FROM articles WHERE world_id = ? AND title = ? LIMIT 1`,
+      ).get(wid, mention.title) as { id: string; depth: number } | undefined;
+
+      // Skip mentions that point to ancestors — they are parents/grandparents of the
+      // accepted article, not novel subjects it introduces.
+      if (existing && existing.depth < sourceDepth) continue;
+
+      let targetId = existing?.id;
+
+      if (!existing) {
+        targetId = nanoid();
+        const stubVersionId = nanoid();
+
+        db.prepare(`
+          INSERT INTO articles (id, world_id, title, template_type, status, depth, created_at, updated_at)
+          VALUES (?, ?, ?, ?, 'stub', ?, ?, ?)
+        `).run(targetId, wid, mention.title, mention.templateType ?? 'general', sourceDepth, now, now);
+
+        db.prepare(`
+          INSERT INTO article_versions (id, article_id, version_number, introduction, description, chronology, word_count, created_at)
+          VALUES (?, ?, 1, ?, ?, '', ?, ?)
+        `).run(stubVersionId, targetId, mention.summary ?? '', '', countWords(mention.summary ?? ''), now);
+
+        db.prepare(`UPDATE articles SET current_version_id = ? WHERE id = ?`).run(stubVersionId, targetId);
+
+        if (mention.summary) {
+          upsertEntry(wid, targetId, mention.summary);
+        }
+      }
+
+      db.prepare(`
+        INSERT OR IGNORE INTO article_links (source_article_id, target_article_id, link_type)
+        VALUES (?, ?, 'references')
+      `).run(acceptedArticleId, targetId);
+
+      db.prepare(`
+        INSERT INTO entity_mentions (id, world_id, source_article_id, article_id, title, template_type, summary, status, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'created', ?)
+      `).run(nanoid(), wid, acceptedArticleId, targetId ?? null, mention.title, mention.templateType ?? 'general', mention.summary ?? null, now);
+    }
+
     db.prepare('DELETE FROM pending_drafts WHERE article_id = ?').run(req.params.aid);
   })();
+
+  // Run rule-based checks (synchronous, silent)
+  runSyncRules(wid, req.params.aid);
+  if (childArticleId) runSyncRules(wid, childArticleId);
 
   const updatedArticle = db
     .prepare('SELECT * FROM articles WHERE id = ?')
@@ -796,7 +867,6 @@ router.post('/batch', (req, res) => {
     for (const child of parse.data.children) {
       const articleId = nanoid();
       const versionId = nanoid();
-      const body = mergeSections('', '');
 
       db.prepare(`
         INSERT INTO articles
@@ -811,9 +881,9 @@ router.post('/batch', (req, res) => {
 
       db.prepare(`
         INSERT INTO article_versions
-          (id, article_id, version_number, body, summary, word_count, created_at)
-        VALUES (?, ?, 1, ?, ?, 0, ?)
-      `).run(versionId, articleId, body, child.introduction, now);
+          (id, article_id, version_number, introduction, description, chronology, word_count, created_at)
+        VALUES (?, ?, 1, ?, '', '', 0, ?)
+      `).run(versionId, articleId, child.introduction, now);
 
       db.prepare(`
         INSERT OR IGNORE INTO article_links (source_article_id, target_article_id, link_type)
@@ -827,6 +897,181 @@ router.post('/batch', (req, res) => {
   })();
 
   res.status(201).json({ created });
+});
+
+// ---------------------------------------------------------------------------
+// Issues routes
+// ---------------------------------------------------------------------------
+
+// GET /api/worlds/:wid/articles/:aid/issues
+router.get('/:aid/issues', (req, res) => {
+  const wid = (req.params as Record<string, string>).wid;
+  const article = requireArticle(wid, req.params.aid);
+  if (!article) { res.status(404).json({ error: 'Article not found' }); return; }
+
+  const rows = getDb().prepare(
+    `SELECT * FROM article_issues WHERE article_id = ? AND status != 'dismissed' ORDER BY created_at DESC`,
+  ).all(req.params.aid) as DbRow[];
+
+  res.json(rows.map(r => ({
+    id: r.id,
+    worldId: r.world_id,
+    articleId: r.article_id,
+    source: r.source,
+    severity: r.severity,
+    code: r.code,
+    excerpt: r.excerpt ?? null,
+    explanation: r.explanation,
+    suggestion: r.suggestion ?? null,
+    status: r.status,
+    createdAt: r.created_at,
+  })));
+});
+
+// POST /api/worlds/:wid/articles/:aid/lint — trigger LLM linter manually
+import { LinterAgent } from '../agents/linter.js';
+import { fetchWorldContext } from '../agents/director.js';
+
+router.post('/:aid/lint', (req, res) => {
+  const wid = (req.params as Record<string, string>).wid;
+  const article = requireArticle(wid, req.params.aid);
+  if (!article) { res.status(404).json({ error: 'Article not found' }); return; }
+
+  const worldContext = fetchWorldContext(wid);
+  const linterAgent = new LinterAgent();
+
+  linterAgent.runAndPersist(wid, req.params.aid, worldContext)
+    .then(() => {
+      const rows = getDb().prepare(
+        `SELECT * FROM article_issues WHERE article_id = ? AND source = 'linter' ORDER BY created_at DESC`,
+      ).all(req.params.aid) as DbRow[];
+      res.json(rows.map(r => ({
+        id: r.id, worldId: r.world_id, articleId: r.article_id,
+        source: r.source, severity: r.severity, code: r.code,
+        excerpt: r.excerpt ?? null, explanation: r.explanation,
+        suggestion: r.suggestion ?? null, status: r.status, createdAt: r.created_at,
+      })));
+    })
+    .catch((err: unknown) => {
+      console.error('Linter failed:', err);
+      res.status(500).json({ error: 'Linter run failed' });
+    });
+});
+
+// PATCH /api/worlds/:wid/articles/:aid/issues/:iid — dismiss
+router.patch('/:aid/issues/:iid', (req, res) => {
+  const wid = (req.params as Record<string, string>).wid;
+  const body = req.body as { status?: string };
+  const validStatuses = ['open', 'dismissed', 'fixed'];
+
+  if (!body.status || !validStatuses.includes(body.status)) {
+    res.status(400).json({ error: 'Invalid status' });
+    return;
+  }
+
+  const db = getDb();
+  const issue = db.prepare(
+    `SELECT id FROM article_issues WHERE id = ? AND article_id = ?`,
+  ).get(req.params.iid, req.params.aid);
+
+  if (!issue) { res.status(404).json({ error: 'Issue not found' }); return; }
+
+  db.prepare(`UPDATE article_issues SET status = ? WHERE id = ?`).run(body.status, req.params.iid);
+
+  res.json({ ok: true });
+});
+
+// POST /api/worlds/:wid/articles/:aid/issues/:iid/fix — Fixer agent
+import { FixerAgent } from '../agents/fixer.js';
+
+router.post('/:aid/issues/:iid/fix', (req, res) => {
+  const wid = (req.params as Record<string, string>).wid;
+  const article = requireArticle(wid, req.params.aid);
+  if (!article) { res.status(404).json({ error: 'Article not found' }); return; }
+
+  const db = getDb();
+  const issue = db.prepare(
+    `SELECT * FROM article_issues WHERE id = ? AND article_id = ?`,
+  ).get(req.params.iid, req.params.aid) as DbRow | undefined;
+
+  if (!issue) { res.status(404).json({ error: 'Issue not found' }); return; }
+
+  const currentVersion = article.current_version_id
+    ? (db.prepare('SELECT description FROM article_versions WHERE id = ?').get(article.current_version_id) as { description: string } | undefined)
+    : undefined;
+
+  const worldContext = fetchWorldContext(wid);
+  const fixer = new FixerAgent();
+
+  fixer.run(wid, {
+    articleTitle: article.title as string,
+    articleBody: currentVersion?.description ?? '',
+    worldContext,
+    excerpt: (issue.excerpt as string) ?? '',
+    explanation: issue.explanation as string,
+    suggestion: (issue.suggestion as string) ?? '',
+  }).then(result => {
+    res.json({ rewrittenPassage: result.output.rewrittenPassage });
+  }).catch((err: unknown) => {
+    console.error('Fixer failed:', err);
+    res.status(500).json({ error: 'Fixer run failed' });
+  });
+});
+
+// POST /api/worlds/:wid/articles/:aid/issues/:iid/apply-fix
+router.post('/:aid/issues/:iid/apply-fix', (req, res) => {
+  const wid = (req.params as Record<string, string>).wid;
+  const article = requireArticle(wid, req.params.aid);
+  if (!article) { res.status(404).json({ error: 'Article not found' }); return; }
+
+  const body = req.body as { rewrittenPassage?: string; excerpt?: string };
+  if (!body.rewrittenPassage || !body.excerpt) {
+    res.status(400).json({ error: 'rewrittenPassage and excerpt are required' });
+    return;
+  }
+
+  const db = getDb();
+  const issue = db.prepare(
+    `SELECT id FROM article_issues WHERE id = ? AND article_id = ?`,
+  ).get(req.params.iid, req.params.aid);
+
+  if (!issue) { res.status(404).json({ error: 'Issue not found' }); return; }
+
+  const currentVersion = article.current_version_id
+    ? (db.prepare('SELECT introduction, description, chronology FROM article_versions WHERE id = ?')
+        .get(article.current_version_id) as { introduction: string; description: string; chronology: string } | undefined)
+    : undefined;
+  const currentDesc = currentVersion?.description ?? '';
+  const newDesc = currentDesc.replace(body.excerpt, body.rewrittenPassage);
+
+  if (newDesc === currentDesc) {
+    res.status(400).json({ error: 'Excerpt not found in article description' });
+    return;
+  }
+
+  const fixedIntro = currentVersion?.introduction ?? '';
+  const fixedChron = currentVersion?.chronology ?? '';
+  const now = Date.now();
+  const versionId = nanoid();
+  const versionNumber = getNextVersionNumber(req.params.aid);
+
+  db.transaction(() => {
+    db.prepare(`
+      INSERT INTO article_versions (id, article_id, version_number, introduction, description, chronology, word_count, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(versionId, req.params.aid, versionNumber, fixedIntro, newDesc, fixedChron,
+           countWords(fixedIntro + ' ' + newDesc + ' ' + fixedChron), now);
+
+    db.prepare(`UPDATE articles SET current_version_id = ?, updated_at = ? WHERE id = ?`).run(versionId, now, req.params.aid);
+    db.prepare(`UPDATE article_issues SET status = 'fixed' WHERE id = ?`).run(req.params.iid);
+  })();
+
+  runSyncRules(wid, req.params.aid);
+
+  const updated = db.prepare('SELECT * FROM articles WHERE id = ?').get(req.params.aid) as DbRow;
+  const version = db.prepare('SELECT * FROM article_versions WHERE id = ?').get(versionId) as DbRow;
+
+  res.status(201).json({ article: parseArticle(updated), version: parseVersion(version) });
 });
 
 export default router;

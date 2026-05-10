@@ -7,11 +7,11 @@ export function buildChildProposerSystemPrompt(worldContext: WorldContext): stri
 
 ${buildWorldHeader(worldContext)}
 
-Your task: given an existing article's Description and its current sub-articles (Subjects), propose 10 new child article concepts that would naturally belong under this article.
+Your task: given an existing article's Description and its current sub-articles (Subjects), propose 5 new child article concepts that would naturally belong under this article.
 
 Each proposal must be:
 - A title that fits the requested mode (see below)
-- A 1-paragraph Introduction that would go into the World Bible
+- A 1–2 sentence Introduction (≤40 words) that would go into the World Bible
 - The appropriate template type: general | character | location | faction
 - Distinct from existing sub-articles (do not duplicate them)
 - Consistent with the parent's established facts
@@ -33,25 +33,12 @@ export function buildChildProposerUserMessage(
     `Template type: ${pkg.targetTemplateType}`,
   ];
 
-  if (pkg.targetSummary) {
-    parts.push(`Introduction:\n${pkg.targetSummary}`);
+  if (pkg.targetIntroduction) {
+    parts.push(`Introduction:\n${pkg.targetIntroduction}`);
   }
 
-  const { description: descContent } = (() => {
-    // Extract description from body if available
-    const body = pkg.targetBody;
-    const descIdx = body.indexOf('## Description');
-    const chronIdx = body.indexOf('## Chronology');
-    if (descIdx === -1) return { description: body };
-    const after = body.slice(descIdx + '## Description'.length).trim();
-    const desc = chronIdx > descIdx
-      ? body.slice(descIdx + '## Description'.length, chronIdx).trim()
-      : after;
-    return { description: desc };
-  })();
-
-  if (descContent) {
-    parts.push(`## Description\n${descContent}`);
+  if (pkg.targetDescription) {
+    parts.push(`## Description\n${pkg.targetDescription}`);
   }
 
   if (pkg.children.length > 0) {
@@ -63,7 +50,7 @@ export function buildChildProposerUserMessage(
     parts.push(`## User Specification\n${userSpec}`);
   }
 
-  parts.push('Propose 10 new child article concepts for this parent.');
+  parts.push('Propose 5 new child article concepts for this parent.');
 
   return parts.join('\n\n');
 }

@@ -116,10 +116,11 @@ const globalWarningSchema: ToolParamSchema = {
   type: 'object',
   properties: {
     severity: { type: 'string', enum: ['warning', 'conflict'], description: 'Issue severity' },
+    type: { type: 'string', enum: ['coherence', 'gap', 'narrative', 'thematic'], description: 'Issue category: coherence (factual contradictions), gap (missing articles for recurring concepts), narrative (incomplete arcs/causality), thematic (tone/genre inconsistency)' },
     description: { type: 'string', description: 'Description of the global coherence issue' },
     involvedArticleIds: { type: 'array', items: { type: 'string' }, description: 'IDs of articles involved in this issue' },
   },
-  required: ['severity', 'description', 'involvedArticleIds'],
+  required: ['severity', 'type', 'description', 'involvedArticleIds'],
 };
 
 // ---------------------------------------------------------------------------
@@ -170,7 +171,24 @@ export const OUTPUT_TOOLS: Record<string, Tool> = {
       properties: {
         description: {
           type: 'string',
-          description: 'Full ## Description content (3–5 paragraphs, no heading)',
+          description: 'Full ## Description content (no heading)',
+        },
+        mentions: {
+          type: 'array',
+          description: 'New significant entities introduced in this description that do not yet exist as world articles. Only include genuinely novel, central entities — not passing references.',
+          items: {
+            type: 'object',
+            properties: {
+              title: { type: 'string', description: 'The entity name as it appears in the description' },
+              templateType: {
+                type: 'string',
+                enum: ['general', 'character', 'location', 'faction', 'historical_event'],
+                description: 'Entity type',
+              },
+              summary: { type: 'string', description: '1-sentence summary of this entity distilled from what you wrote' },
+            },
+            required: ['title', 'templateType'],
+          },
         },
       },
       required: ['description'],
@@ -186,11 +204,27 @@ export const OUTPUT_TOOLS: Record<string, Tool> = {
       properties: {
         childDescription: {
           type: 'string',
-          description: 'Full ## Description for the new child article (3–5 paragraphs, no heading)',
+          description: 'Full ## Description for the new child article (no heading)',
         },
         parentAppend: {
           type: 'string',
           description: 'Short paragraph (1–2 sentences) to append to the parent Description acknowledging this child',
+        },
+        mentions: {
+          type: 'array',
+          description: 'New significant entities introduced in this description that do not yet exist as world articles.',
+          items: {
+            type: 'object',
+            properties: {
+              title: { type: 'string', description: 'The entity name' },
+              templateType: {
+                type: 'string',
+                enum: ['general', 'character', 'location', 'faction', 'historical_event'],
+              },
+              summary: { type: 'string', description: '1-sentence summary' },
+            },
+            required: ['title', 'templateType'],
+          },
         },
       },
       required: ['childDescription', 'parentAppend'],
@@ -316,6 +350,58 @@ export const OUTPUT_TOOLS: Record<string, Tool> = {
     },
   },
 
+  // Stylist (distill mode): patches vibe and writingStyle from inspiration input
+  submit_style_patch: {
+    name: 'submit_style_patch',
+    description: 'Submit the style patch derived from user inspiration. Each field is 1–2 sentences that extend (not replace) the existing Vibe and Writing Style.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        vibe_append: {
+          type: 'string',
+          description: '1–2 sentences to append to the current Vibe & Atmosphere field',
+        },
+        writingStyle_append: {
+          type: 'string',
+          description: '1–2 sentences to append to the current Writing Style field',
+        },
+      },
+      required: ['vibe_append', 'writingStyle_append'],
+    },
+  },
+
+  // Stylist (article_brief mode): structured article spec from rough notes
+  submit_article_brief: {
+    name: 'submit_article_brief',
+    description: 'Submit the structured article specification derived from the user\'s rough notes.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        userSpec: {
+          type: 'string',
+          description: '2–3 paragraph structured article specification, ready to paste into Spark as the article brief',
+        },
+      },
+      required: ['userSpec'],
+    },
+  },
+
+  // Stylist (intro_seed mode): polished introduction seed from rough idea
+  submit_intro_seed: {
+    name: 'submit_intro_seed',
+    description: 'Submit the polished introduction seed derived from the user\'s rough idea.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        introduction: {
+          type: 'string',
+          description: '1–2 paragraph polished introduction suitable as a starting seed for the article\'s Introduction layer',
+        },
+      },
+      required: ['introduction'],
+    },
+  },
+
   // Condenser: bulk preview of compressed World Bible entries
   submit_compression: {
     name: 'submit_compression',
@@ -381,6 +467,103 @@ export const OUTPUT_TOOLS: Record<string, Tool> = {
         },
       },
       required: ['issues', 'overallToneMatch', 'summary'],
+    },
+  },
+
+  // Researcher: constraint brief before Scribe writes
+  submit_research_brief: {
+    name: 'submit_research_brief',
+    description: 'Submit the research brief: key established facts and constraints for this article.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        keyFacts: {
+          type: 'array',
+          items: { type: 'string' },
+          description: '5–10 established facts about this article and its context that the description MUST respect',
+        },
+        warnings: {
+          type: 'array',
+          items: { type: 'string' },
+          description: '0–3 potential contradictions or constraints to watch out for',
+        },
+        suggestedAngles: {
+          type: 'array',
+          items: { type: 'string' },
+          description: '1–3 thematic threads worth developing in the description',
+        },
+      },
+      required: ['keyFacts', 'warnings', 'suggestedAngles'],
+    },
+  },
+
+  // Continuity Editor: post-Scribe self-correction check
+  submit_continuity_check: {
+    name: 'submit_continuity_check',
+    description: 'Submit the continuity check result for the draft description.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        approved: {
+          type: 'boolean',
+          description: 'Whether the description is free of contradictions with established lore',
+        },
+        contradictions: {
+          type: 'array',
+          description: 'Specific contradictions found (empty if approved)',
+          items: {
+            type: 'object',
+            properties: {
+              excerpt:    { type: 'string', description: 'The offending sentence or phrase' },
+              issue:      { type: 'string', description: 'What established fact it contradicts' },
+              correction: { type: 'string', description: 'Suggested rewrite' },
+            },
+            required: ['excerpt', 'issue', 'correction'],
+          },
+        },
+      },
+      required: ['approved', 'contradictions'],
+    },
+  },
+
+  // Linter: semantic issue detection on saved articles
+  submit_lint_report: {
+    name: 'submit_lint_report',
+    description: 'Submit the lint report for this article.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        issues: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              severity:    { type: 'string', enum: ['blocking', 'warning'], description: 'Issue severity' },
+              excerpt:     { type: 'string', description: 'The specific passage or field with the issue' },
+              explanation: { type: 'string', description: '1–2 sentences: what is wrong and why' },
+              suggestion:  { type: 'string', description: '1 sentence: what to change' },
+            },
+            required: ['severity', 'explanation', 'suggestion'],
+          },
+        },
+      },
+      required: ['issues'],
+    },
+  },
+
+  // Fixer: targeted rewrite of a single offending passage
+  submit_fix: {
+    name: 'submit_fix',
+    description: 'Submit the rewritten passage that resolves the identified issue.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        rewritten_passage: {
+          type: 'string',
+          description: 'The corrected replacement for the offending excerpt',
+        },
+      },
+      required: ['rewritten_passage'],
     },
   },
 

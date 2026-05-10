@@ -28,15 +28,12 @@ export function buildChroniclerUserMessage(
     `Template type: ${pkg.targetTemplateType}`,
   ];
 
-  if (pkg.targetSummary) {
-    parts.push(`**Introduction:**\n${pkg.targetSummary}`);
+  if (pkg.targetIntroduction) {
+    parts.push(`**Introduction:**\n${pkg.targetIntroduction}`);
   }
 
-  // Description is in the body — extract the Description section for context
-  const descMatch = pkg.targetBody.match(/## Description\s*([\s\S]*?)(?=\n## |$)/);
-  const description = descMatch?.[1]?.trim() ?? '';
-  if (description) {
-    parts.push(`**Current Description:**\n${description}`);
+  if (pkg.targetDescription) {
+    parts.push(`**Current Description:**\n${pkg.targetDescription}`);
   }
 
   if (pkg.children.length > 0) {

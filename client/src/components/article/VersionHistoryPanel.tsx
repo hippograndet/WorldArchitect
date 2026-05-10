@@ -117,7 +117,7 @@ export default function VersionHistoryPanel({ onClose }: Props) {
               {preview?.id === v.id && (
                 <div className="px-4 pb-3">
                   <div className="text-xs text-gray-600 bg-gray-50 rounded p-2 max-h-48 overflow-y-auto whitespace-pre-wrap font-mono">
-                    {preview.body || <em className="text-gray-400">Empty body</em>}
+                    {preview.description || preview.introduction || <em className="text-gray-400">Empty</em>}
                   </div>
                 </div>
               )}

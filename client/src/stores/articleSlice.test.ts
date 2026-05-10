@@ -88,8 +88,9 @@ const version1 = {
   id: 'v1',
   articleId: 'art1',
   versionNumber: 1,
-  body: '## Description\n\nOriginal body.',
-  summary: 'Original summary.',
+  introduction: 'Original introduction.',
+  description: 'Original description.',
+  chronology: '',
   expansionParams: null,
   proposalUsed: null,
   wordCount: 3,
@@ -252,7 +253,7 @@ describe('checkDraft', () => {
 
 describe('manualEdit', () => {
   const updatedArticle = { ...article1, updatedAt: 2000 };
-  const updatedVersion = { ...version1, id: 'v2', versionNumber: 2, body: 'New body.' };
+  const updatedVersion = { ...version1, id: 'v2', versionNumber: 2, description: 'New description.' };
 
   beforeEach(() => {
     store.setState((s) => {
@@ -267,12 +268,12 @@ describe('manualEdit', () => {
   });
 
   it('updates the article in the articles list', async () => {
-    await S().manualEdit('w1', 'art1', 'New body.');
+    await S().manualEdit('w1', 'art1', { description: 'New description.' });
     expect(S().articles[0]).toEqual(updatedArticle);
   });
 
   it('updates currentArticleDetail when it matches the edited article', async () => {
-    await S().manualEdit('w1', 'art1', 'New body.');
+    await S().manualEdit('w1', 'art1', { description: 'New description.' });
     expect(S().currentArticleDetail!.article).toEqual(updatedArticle);
     expect(S().currentArticleDetail!.version).toEqual(updatedVersion);
   });
@@ -281,28 +282,18 @@ describe('manualEdit', () => {
     store.setState((s) => {
       s.currentArticleDetail = { ...articleDetail, article: { ...article1, id: 'other' } };
     });
-    await S().manualEdit('w1', 'art1', 'New body.');
-    // currentArticleDetail should still show the other article
+    await S().manualEdit('w1', 'art1', { description: 'New description.' });
     expect(S().currentArticleDetail!.article.id).toBe('other');
   });
 
-  it('passes the existing summary to the api to preserve it', async () => {
-    // currentArticleDetail has summary 'Original summary.'
-    await S().manualEdit('w1', 'art1', 'New body.');
-    expect(mockApi.articles.update).toHaveBeenCalledWith(
-      'w1', 'art1',
-      expect.objectContaining({ summary: 'Original summary.' }),
-    );
-  });
-
   it('calls loadBibleMeta after a successful edit', async () => {
-    await S().manualEdit('w1', 'art1', 'New body.');
+    await S().manualEdit('w1', 'art1', { description: 'New description.' });
     expect(mockApi.bible.getMeta).toHaveBeenCalledWith('w1');
   });
 
   it('does not call loadBibleMeta when currentWorldId is null', async () => {
     store.setState((s) => { s.currentWorldId = null; });
-    await S().manualEdit('w1', 'art1', 'New body.');
+    await S().manualEdit('w1', 'art1', { description: 'New description.' });
     expect(mockApi.bible.getMeta).not.toHaveBeenCalled();
   });
 });

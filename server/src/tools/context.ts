@@ -1,5 +1,6 @@
 import { getDb } from '../db/index.js';
 import { renderBible } from '../services/worldBible.js';
+import { listNames, type ListNamesFilter } from '../services/nameBank.js';
 import type { Tool, ToolCall } from './types.js';
 
 export const CONTEXT_TOOLS: Tool[] = [
@@ -51,6 +52,43 @@ export const CONTEXT_TOOLS: Tool[] = [
   },
 ];
 
+// Opt-in tool — NOT included in CONTEXT_TOOLS. Creative agents add this explicitly.
+export const LOOKUP_NAMES_TOOL: Tool = {
+  name: 'lookup_names',
+  description:
+    'Returns names from the world\'s name bank. Use to stay consistent with established naming conventions before inventing new names.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      entity_type: {
+        type: 'string',
+        enum: ['person', 'place', 'faction', 'concept'],
+        description: 'Filter by entity type (optional)',
+      },
+      gender: {
+        type: 'string',
+        enum: ['male', 'female', 'neutral'],
+        description: 'Filter person names by gender (optional)',
+      },
+      social_class: {
+        type: 'string',
+        enum: ['common', 'noble'],
+        description: 'Filter by social class (optional)',
+      },
+      name_component: {
+        type: 'string',
+        enum: ['full', 'first', 'family'],
+        description: 'Filter by name component — use "family" to retrieve canonical family names (optional)',
+      },
+      tags: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Filter by tags, e.g. region or faction name (optional)',
+      },
+    },
+  },
+};
+
 export function executeContextTool(worldId: string, call: ToolCall): string {
   const db = getDb();
 
@@ -63,7 +101,7 @@ export function executeContextTool(worldId: string, call: ToolCall): string {
       const row = db
         .prepare(
           `SELECT a.id, a.title, a.template_type, a.temporal_anchor_start, a.temporal_anchor_end,
-                  a.is_fixed_point, av.body, av.summary
+                  a.is_fixed_point, av.introduction, av.description, av.chronology
            FROM articles a
            LEFT JOIN article_versions av ON av.id = a.current_version_id
            WHERE a.id = ? AND a.world_id = ?`,
@@ -77,8 +115,9 @@ export function executeContextTool(worldId: string, call: ToolCall): string {
         temporalAnchorStart: row.temporal_anchor_start ?? null,
         temporalAnchorEnd: row.temporal_anchor_end ?? null,
         isFixedPoint: row.is_fixed_point === 1,
-        summary: (row.summary as string) ?? '',
-        body: (row.body as string) ?? '',
+        introduction: (row.introduction as string) ?? '',
+        description: (row.description as string) ?? '',
+        chronology: (row.chronology as string) ?? '',
       });
     }
 
@@ -86,15 +125,15 @@ export function executeContextTool(worldId: string, call: ToolCall): string {
       const { query } = call.input as { query: string };
       const rows = db
         .prepare(
-          `SELECT a.id, a.title, av.summary
+          `SELECT a.id, a.title, av.introduction
            FROM articles a
            LEFT JOIN article_versions av ON av.id = a.current_version_id
-           WHERE a.world_id = ? AND (a.title LIKE ? OR av.body LIKE ?)
+           WHERE a.world_id = ? AND (a.title LIKE ? OR av.description LIKE ?)
            LIMIT 10`,
         )
         .all(worldId, `%${query}%`, `%${query}%`) as Record<string, unknown>[];
       return JSON.stringify(
-        rows.map((r) => ({ id: r.id, title: r.title, summary: (r.summary as string) ?? '' })),
+        rows.map((r) => ({ id: r.id, title: r.title, introduction: (r.introduction as string) ?? '' })),
       );
     }
 
@@ -136,6 +175,24 @@ export function executeContextTool(worldId: string, call: ToolCall): string {
         )
         .all(articleId) as Record<string, unknown>[];
       return JSON.stringify({ outgoing, incoming });
+    }
+
+    case 'lookup_names': {
+      const { entity_type, gender, social_class, name_component, tags } = call.input as {
+        entity_type?: string; gender?: string; social_class?: string; name_component?: string; tags?: string[];
+      };
+      const filter: ListNamesFilter = {
+        entityType:    entity_type as ListNamesFilter['entityType'],
+        gender:        gender as ListNamesFilter['gender'],
+        socialClass:   social_class as ListNamesFilter['socialClass'],
+        nameComponent: name_component as ListNamesFilter['nameComponent'],
+        tags,
+      };
+      const entries = listNames(worldId, filter);
+      return JSON.stringify(entries.map((e) => ({
+        name: e.name, entityType: e.entityType,
+        gender: e.gender, socialClass: e.socialClass, nameComponent: e.nameComponent, tags: e.tags,
+      })));
     }
 
     default:

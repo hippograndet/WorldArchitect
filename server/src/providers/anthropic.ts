@@ -32,6 +32,7 @@ export class AnthropicProvider implements LLMProvider {
         ...(systemMsg ? { system: systemMsg.content } : {}),
         messages: apiMessages,
         ...(anthropicTools?.length ? { tools: anthropicTools } : {}),
+        ...(anthropicTools?.length && options?.toolChoice === 'required' ? { tool_choice: { type: 'any' as const } } : {}),
       });
     } catch (err) {
       // Surface failed_generation from Anthropic 400 tool-call errors

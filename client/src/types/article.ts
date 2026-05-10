@@ -20,8 +20,9 @@ export interface ArticleVersion {
   id: string;
   articleId: string;
   versionNumber: number;
-  body: string;
-  summary: string;
+  introduction: string;
+  description: string;
+  chronology: string;
   expansionParams: Record<string, unknown> | null;
   proposalUsed: Record<string, unknown> | null;
   wordCount: number;

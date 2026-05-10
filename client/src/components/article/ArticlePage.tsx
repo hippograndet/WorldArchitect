@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { Pencil, Plus, Settings } from 'lucide-react';
 import { useParams, Link } from 'react-router-dom';
 import { useStore } from '../../stores/index.ts';
-import { extractDescription, extractChronology, mergeDescription } from '../../lib/sections.ts';
 import { api } from '../../lib/api.ts';
 import InlineDescriptionEditor from './InlineDescriptionEditor.tsx';
 import ChronologyEditor from './ChronologyEditor.tsx';
@@ -10,7 +9,7 @@ import VersionHistoryPanel from './VersionHistoryPanel.tsx';
 import AddSubsectionDialog from './AddSubsectionDialog.tsx';
 import DraftCrashRecovery from './DraftCrashRecovery.tsx';
 import ArticleInfoSidebar from './ArticleInfoSidebar.tsx';
-import { mergeChronology } from '../../lib/sections.ts';
+import ArticleIssuesPanel from './ArticleIssuesPanel.tsx';
 
 function SectionHeader({
   title,
@@ -79,8 +78,8 @@ export default function ArticlePage() {
   }
 
   const { article, version, introduction, links, openWarnings } = currentArticleDetail;
-  const description = version ? extractDescription(version.body) : '';
-  const chronology  = version ? extractChronology(version.body) : '';
+  const description = version?.description ?? '';
+  const chronology  = version?.chronology  ?? '';
 
   // ---------------------------------------------------------------------------
   // Panel mutual exclusion
@@ -108,9 +107,9 @@ export default function ArticlePage() {
   // ---------------------------------------------------------------------------
 
   const handleSaveDescription = async (newMarkdown: string) => {
-    if (!wid || !aid || !version) return;
+    if (!wid || !aid) return;
     try {
-      await manualEdit(wid, aid, mergeDescription(version.body, newMarkdown));
+      await manualEdit(wid, aid, { description: newMarkdown });
       setEditingSection(null);
       if (wid) loadTree(wid).catch(console.error);
       addToast({ message: 'Description saved.', type: 'success' });
@@ -120,9 +119,9 @@ export default function ArticlePage() {
   };
 
   const handleSaveChronology = async (newMarkdown: string) => {
-    if (!wid || !aid || !version) return;
+    if (!wid || !aid) return;
     try {
-      await manualEdit(wid, aid, mergeChronology(version.body, newMarkdown));
+      await manualEdit(wid, aid, { chronology: newMarkdown });
       setEditingSection(null);
       addToast({ message: 'Chronology saved.', type: 'success' });
     } catch (err) {
@@ -203,7 +202,7 @@ export default function ArticlePage() {
         </div>
       </div>
 
-      {/* Coherence warnings */}
+      {/* Legacy coherence warnings (pre-v5 — shown if present) */}
       {openWarnings.length > 0 && (
         <div className="mb-6 p-3 bg-amber-50 border border-amber-200 rounded-lg">
           <p className="text-xs font-semibold text-amber-800 mb-1">Coherence warnings</p>
@@ -313,6 +312,9 @@ export default function ArticlePage() {
           <p className="text-sm text-gray-400 italic">No chronology yet. Click ✏ to write one.</p>
         )}
       </section>
+
+      {/* Article issues + world notes */}
+      {wid && aid && <ArticleIssuesPanel wid={wid} aid={aid} />}
 
       {/* Panels */}
       {showHistory && <VersionHistoryPanel onClose={() => setShowHistory(false)} />}

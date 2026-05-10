@@ -8,6 +8,7 @@ import {
 } from '../prompts/proposal.js';
 import type { WorldContext } from './director.js';
 import type { ContextPackage } from '../services/archivist.js';
+import { LOOKUP_NAMES_TOOL } from '../tools/context.js';
 import type { ChatMessage } from '../providers/types.js';
 import type { Tool } from '../tools/types.js';
 
@@ -60,7 +61,7 @@ export class MuseAgent extends BaseAgent<MuseInput, MuseOutput> {
   }
 
   protected getContextTools(): Tool[] {
-    return [];
+    return [LOOKUP_NAMES_TOOL];
   }
 
   protected parseOutput(input: Record<string, unknown>): MuseOutput {

@@ -60,6 +60,8 @@ export interface AgentParams {
   forgeMode: 'breadth' | 'depth';
   forgeMaxDepth: number;    // 1–3 extra levels below start node
   forgeMaxChildren: number; // 0 = all, otherwise take top N
+  forgeUseOracle: boolean;          // run Oracle idea-selection step in the Forge loop
+  forgeUseContinuityEditor: boolean; // run Continuity Editor self-correction pass after Scribe
 }
 
 const defaultParams: AgentParams = {
@@ -77,6 +79,8 @@ const defaultParams: AgentParams = {
   forgeMode:            'breadth',
   forgeMaxDepth:        2,
   forgeMaxChildren:     5,
+  forgeUseOracle:             false,
+  forgeUseContinuityEditor:   false,
 };
 
 // Pipelines that save a pending_draft on the server and commit via POST /accept
@@ -535,6 +539,7 @@ export const agentSlice: StateCreator<StoreState, [['zustand/immer', never]], []
             userSpec:              agentParams.userSpec || undefined,
             contextDepth:          agentParams.contextDepth,
             selectedIdeas:         agentPipelineType === 'forge_expand' ? agentSelectedIdeas : undefined,
+            wordCountPreset:       agentParams.wordCountPreset,
           });
           set((s) => {
             s.agentDraftResult = {

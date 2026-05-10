@@ -1,5 +1,4 @@
 import { getDb } from '../db/index.js';
-import { splitSections } from './sections.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -16,8 +15,9 @@ export interface ContextPackage {
   targetId: string;
   targetTitle: string;
   targetTemplateType: string;
-  targetBody: string;
-  targetSummary: string;
+  targetDescription: string;
+  targetChronology: string;
+  targetIntroduction: string;
   parents: ContextArticle[];
   siblings: ContextArticle[];
   children: ContextArticle[];
@@ -87,7 +87,7 @@ export function buildContextPackage(
   const target = db
     .prepare(
       `SELECT a.id, a.title, a.template_type, a.temporal_anchor_start,
-              av.body, av.summary
+              av.introduction, av.description, av.chronology
        FROM articles a
        LEFT JOIN article_versions av ON av.id = a.current_version_id
        WHERE a.id = ? AND a.world_id = ?`,
@@ -96,16 +96,17 @@ export function buildContextPackage(
 
   if (!target) throw new Error(`Article ${articleId} not found in world ${worldId}`);
 
-  const targetBody = (target.body as string) ?? '';
-  const targetSummary = (target.summary as string) ?? '';
+  const targetDescription = (target.description as string) ?? '';
+  const targetChronology  = (target.chronology as string) ?? '';
+  const targetIntroduction = (target.introduction as string) ?? '';
   const targetTitle = target.title as string;
   const targetTemplateType = target.template_type as string;
   const targetAnchor = (target.temporal_anchor_start as string | null) ?? null;
 
   let budget = maxTokens;
 
-  // reorganize: full body is a read-only constraint and counts against budget
-  if (mode === 'reorganize') budget -= est(targetBody);
+  // reorganize: full description+chronology count against budget as read-only constraint
+  if (mode === 'reorganize') budget -= est(targetDescription) + est(targetChronology);
 
   const parents: ContextArticle[] = [];
   const siblings: ContextArticle[] = [];
@@ -116,10 +117,13 @@ export function buildContextPackage(
 
   const fetchDescription = (articleRowId: string): string => {
     const ver = db
-      .prepare(`SELECT av.body FROM articles a LEFT JOIN article_versions av ON av.id = a.current_version_id WHERE a.id = ?`)
-      .get(articleRowId) as { body: string } | undefined;
-    return ver ? splitSections(ver.body ?? '').description : '';
+      .prepare(`SELECT av.description FROM articles a LEFT JOIN article_versions av ON av.id = a.current_version_id WHERE a.id = ?`)
+      .get(articleRowId) as { description: string } | undefined;
+    return ver?.description ?? '';
   };
+
+  // Status ordering: published > reviewed > draft > stub (anything else last)
+  const STATUS_ORDER = `CASE a.status WHEN 'published' THEN 0 WHEN 'reviewed' THEN 1 WHEN 'draft' THEN 2 ELSE 3 END`;
 
   const fillParents = (): void => {
     if (contextDepth === 'shallow') {
@@ -131,6 +135,7 @@ export function buildContextPackage(
            JOIN articles a ON a.id = al.source_article_id
            LEFT JOIN world_bible_entries wbe ON wbe.article_id = a.id
            WHERE al.target_article_id = ? AND al.link_type = 'hierarchical'
+           ORDER BY ${STATUS_ORDER}, a.title
            LIMIT 2`,
         )
         .all(articleId) as Record<string, unknown>[];
@@ -152,6 +157,7 @@ export function buildContextPackage(
          JOIN articles a ON a.id = al.source_article_id
          LEFT JOIN world_bible_entries wbe ON wbe.article_id = a.id
          WHERE al.target_article_id = ? AND al.link_type = 'hierarchical'
+         ORDER BY ${STATUS_ORDER}, a.title
          LIMIT 4`,
       )
       .all(articleId) as Record<string, unknown>[];
@@ -186,7 +192,7 @@ export function buildContextPackage(
          LEFT JOIN world_bible_entries wbe ON wbe.article_id = a.id
          WHERE a.world_id = ? AND a.temporal_anchor_start IS NOT NULL
            AND a.temporal_anchor_start < ? AND a.id != ?
-         ORDER BY a.temporal_anchor_start DESC LIMIT 3`,
+         ORDER BY a.temporal_anchor_start DESC, ${STATUS_ORDER} LIMIT 3`,
       )
       .all(worldId, anchor, articleId) as Record<string, unknown>[];
 
@@ -197,7 +203,7 @@ export function buildContextPackage(
          LEFT JOIN world_bible_entries wbe ON wbe.article_id = a.id
          WHERE a.world_id = ? AND a.temporal_anchor_start IS NOT NULL
            AND a.temporal_anchor_start > ? AND a.id != ?
-         ORDER BY a.temporal_anchor_start ASC LIMIT 3`,
+         ORDER BY a.temporal_anchor_start ASC, ${STATUS_ORDER} LIMIT 3`,
       )
       .all(worldId, anchor, articleId) as Record<string, unknown>[];
 
@@ -225,6 +231,7 @@ export function buildContextPackage(
          JOIN articles a ON a.id = al.target_article_id
          LEFT JOIN world_bible_entries wbe ON wbe.article_id = a.id
          WHERE al.source_article_id = ? AND al.link_type = 'hierarchical'
+         ORDER BY ${STATUS_ORDER}, a.title
          LIMIT 12`,
       )
       .all(articleId) as Record<string, unknown>[];
@@ -269,6 +276,7 @@ export function buildContextPackage(
          LEFT JOIN world_bible_entries wbe ON wbe.article_id = a.id
          WHERE al.source_article_id IN (${placeholders})
            AND al.link_type = 'hierarchical' AND a.id != ?
+         ORDER BY ${STATUS_ORDER}, a.title
          LIMIT 6`,
       )
       .all(...parents.map((p) => p.id), articleId) as Record<string, unknown>[];
@@ -305,6 +313,7 @@ export function buildContextPackage(
          FROM articles a
          LEFT JOIN world_bible_entries wbe ON wbe.article_id = a.id
          WHERE a.world_id = ? AND a.is_fixed_point = 1 AND a.id != ?
+         ORDER BY ${STATUS_ORDER}, a.title
          LIMIT 10`,
       )
       .all(worldId, articleId) as Record<string, unknown>[];
@@ -342,8 +351,9 @@ export function buildContextPackage(
     targetId: articleId,
     targetTitle,
     targetTemplateType,
-    targetBody,
-    targetSummary,
+    targetDescription,
+    targetChronology,
+    targetIntroduction,
     parents,
     siblings,
     children,

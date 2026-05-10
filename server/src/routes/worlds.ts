@@ -15,8 +15,7 @@ const StyleConfigSchema = z.object({
   vibe:         z.string().optional().default(''),
   writingStyle: z.string().optional().default(''),
   inspirations: z.array(z.object({
-    name:                z.string(),
-    expandedDescription: z.string(),
+    name: z.string(),
   })).optional().default([]),
   constraints:  z.string().optional(),
 }).optional();
@@ -70,8 +69,7 @@ router.post('/', asyncHandler(async (req, res) => {
   const worldId = nanoid();
   const articleId = nanoid();
   const versionId = nanoid();
-  const articleBody = `## Description\n\n${description}`;
-  const wordCount = articleBody.split(/\s+/).filter(Boolean).length;
+  const wordCount = description.split(/\s+/).filter(Boolean).length;
   const styleConfigJson = JSON.stringify(styleConfig ?? {});
 
   db.transaction(() => {
@@ -96,9 +94,9 @@ router.post('/', asyncHandler(async (req, res) => {
     `).run(articleId, worldId, name, now, now);
 
     db.prepare(`
-      INSERT INTO article_versions (id, article_id, version_number, body, summary, word_count, created_at)
-      VALUES (?, ?, 1, ?, ?, ?, ?)
-    `).run(versionId, articleId, articleBody, description, wordCount, now);
+      INSERT INTO article_versions (id, article_id, version_number, introduction, description, chronology, word_count, created_at)
+      VALUES (?, ?, 1, '', ?, '', ?, ?)
+    `).run(versionId, articleId, description, wordCount, now);
 
     db.prepare(`UPDATE articles SET current_version_id = ? WHERE id = ?`).run(versionId, articleId);
 
@@ -214,10 +212,15 @@ router.delete('/:wid', (req, res) => {
 // ---------------------------------------------------------------------------
 
 const PromptEngineerSchema = z.object({
-  fieldType:        z.enum(['inspiration', 'vibe', 'writing_style']),
-  rawText:          z.string().min(1),
-  worldName:        z.string().min(1),
-  worldDescription: z.string().min(1),
+  fieldType:           z.enum(['vibe', 'writing_style', 'distill', 'article_brief', 'intro_seed', 'prompt_lab']),
+  rawText:             z.string().min(1),
+  worldName:           z.string().min(1),
+  worldDescription:    z.string().min(1),
+  currentVibe:         z.string().optional(),
+  currentWritingStyle: z.string().optional(),
+  articleTitle:        z.string().optional(),
+  articleType:         z.string().optional(),
+  focus:               z.string().optional(),
 });
 
 const handlePromptEngineer = asyncHandler(async (req, res) => {
@@ -227,9 +230,7 @@ const handlePromptEngineer = asyncHandler(async (req, res) => {
     return;
   }
 
-  const { fieldType, rawText, worldName, worldDescription } = parse.data;
-
-  // Use a placeholder worldId for logging — PromptEngineer doesn't need DB context
+  const { fieldType, rawText, worldName, worldDescription, currentVibe, currentWritingStyle, articleTitle, articleType, focus } = parse.data;
   const worldId = (req.params as Record<string, string>).wid ?? 'wizard';
 
   const agent = new StylistAgent();
@@ -238,8 +239,22 @@ const handlePromptEngineer = asyncHandler(async (req, res) => {
     rawText,
     worldName,
     worldDescription,
+    currentVibe,
+    currentWritingStyle,
+    articleTitle,
+    articleType,
+    focus,
   });
-  res.json({ expandedDescription: result.output.expandedDescription });
+
+  if (result.output.mode === 'distill') {
+    res.json({ vibe_append: result.output.vibe_append, writingStyle_append: result.output.writingStyle_append });
+  } else if (result.output.mode === 'article_brief') {
+    res.json({ userSpec: result.output.userSpec });
+  } else if (result.output.mode === 'intro_seed') {
+    res.json({ introduction: result.output.introduction });
+  } else {
+    res.json({ expandedDescription: result.output.expandedDescription });
+  }
 });
 
 router.post('/prompt-engineer', requireLLM, handlePromptEngineer);

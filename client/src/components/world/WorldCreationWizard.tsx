@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ArrowLeft, ArrowRight, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, X, Sparkles } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../../stores/index.ts';
 import { api } from '../../lib/api.ts';
@@ -44,12 +44,6 @@ const PRESETS: { key: string; label: string; emoji: string; vibe: string; writin
   },
 ];
 
-interface Inspiration {
-  name: string;
-  expandedDescription: string;
-  expanding: boolean;
-}
-
 // ---------------------------------------------------------------------------
 // Wizard
 // ---------------------------------------------------------------------------
@@ -72,10 +66,12 @@ export default function WorldCreationWizard() {
   const [selectedPreset, setSelectedPreset] = useState<string>('');
   const [vibe, setVibe]               = useState('');
   const [writingStyle, setWritingStyle] = useState('');
-  const [inspirations, setInspirations] = useState<Inspiration[]>([]);
+  const [inspirations, setInspirations] = useState<WorldStyleInspiration[]>([]);
   const [inspirationInput, setInspirationInput] = useState('');
   const [expandingVibe, setExpandingVibe] = useState(false);
   const [expandingStyle, setExpandingStyle] = useState(false);
+  const [distilling, setDistilling]   = useState(false);
+  const [distillPatch, setDistillPatch] = useState<{ vibe_append: string; writingStyle_append: string } | null>(null);
   const [savingStyle, setSavingStyle]   = useState(false);
 
   const [step, setStep] = useState<1 | 2>(1);
@@ -85,7 +81,6 @@ export default function WorldCreationWizard() {
   // ---------------------------------------------------------------------------
 
   const step1Valid = name.trim().length > 0 && description.trim().length >= 20;
-  const inspirationsReady = inspirations.every((i) => i.expandedDescription.length > 0 && !i.expanding);
   const step2HasStyle = vibe.trim().length > 0 || selectedPreset !== '';
 
   // ---------------------------------------------------------------------------
@@ -122,60 +117,63 @@ export default function WorldCreationWizard() {
     setWritingStyle(preset.writingStyle);
   };
 
-  const callPromptEngineer = async (
-    fieldType: 'vibe' | 'writing_style' | 'inspiration',
-    rawText: string,
-  ): Promise<string> => {
-    const result = await api.worlds.promptEngineer({
-      fieldType,
-      rawText,
-      worldName: name.trim(),
-      worldDescription: description.trim(),
-      wid: worldId ?? undefined,
-    });
-    return result.expandedDescription;
-  };
-
   const handleExpandVibe = async () => {
     if (!vibe.trim()) return;
     setExpandingVibe(true);
-    try { setVibe(await callPromptEngineer('vibe', vibe)); }
-    catch (err) { addToast({ message: (err as Error).message, type: 'error' }); }
+    try {
+      const result = await api.worlds.promptEngineer({
+        fieldType: 'vibe', rawText: vibe,
+        worldName: name.trim(), worldDescription: description.trim(),
+        wid: worldId ?? undefined,
+      });
+      if ('expandedDescription' in result) setVibe(result.expandedDescription);
+    } catch (err) { addToast({ message: (err as Error).message, type: 'error' }); }
     finally { setExpandingVibe(false); }
   };
 
   const handleExpandStyle = async () => {
     if (!writingStyle.trim()) return;
     setExpandingStyle(true);
-    try { setWritingStyle(await callPromptEngineer('writing_style', writingStyle)); }
-    catch (err) { addToast({ message: (err as Error).message, type: 'error' }); }
+    try {
+      const result = await api.worlds.promptEngineer({
+        fieldType: 'writing_style', rawText: writingStyle,
+        worldName: name.trim(), worldDescription: description.trim(),
+        wid: worldId ?? undefined,
+      });
+      if ('expandedDescription' in result) setWritingStyle(result.expandedDescription);
+    } catch (err) { addToast({ message: (err as Error).message, type: 'error' }); }
     finally { setExpandingStyle(false); }
   };
 
   const handleAddInspiration = () => {
     const trimmed = inspirationInput.trim();
     if (!trimmed) return;
-    setInspirations((prev) => [...prev, { name: trimmed, expandedDescription: '', expanding: false }]);
+    setInspirations((prev) => [...prev, { name: trimmed }]);
     setInspirationInput('');
   };
 
-  const handleExpandInspiration = async (idx: number) => {
-    const ins = inspirations[idx];
-    if (!ins || ins.expanding) return;
-    setInspirations((prev) => prev.map((i, j) => j === idx ? { ...i, expanding: true } : i));
+  const handleDistill = async () => {
+    if (!inspirations.length || distilling) return;
+    setDistilling(true);
+    setDistillPatch(null);
     try {
-      const expanded = await callPromptEngineer('inspiration', ins.name);
-      setInspirations((prev) => prev.map((i, j) =>
-        j === idx ? { ...i, expandedDescription: expanded, expanding: false } : i,
-      ));
-    } catch (err) {
-      addToast({ message: (err as Error).message, type: 'error' });
-      setInspirations((prev) => prev.map((i, j) => j === idx ? { ...i, expanding: false } : i));
-    }
+      const rawText = inspirations.map((i) => i.name).join(', ');
+      const result = await api.worlds.promptEngineer({
+        fieldType: 'distill', rawText,
+        worldName: name.trim(), worldDescription: description.trim(),
+        currentVibe: vibe, currentWritingStyle: writingStyle,
+        wid: worldId ?? undefined,
+      });
+      if ('vibe_append' in result) setDistillPatch(result);
+    } catch (err) { addToast({ message: (err as Error).message, type: 'error' }); }
+    finally { setDistilling(false); }
   };
 
-  const handleRemoveInspiration = (idx: number) => {
-    setInspirations((prev) => prev.filter((_, j) => j !== idx));
+  const handleApplyPatch = () => {
+    if (!distillPatch) return;
+    if (distillPatch.vibe_append) setVibe((v) => v ? `${v} ${distillPatch.vibe_append}` : distillPatch.vibe_append);
+    if (distillPatch.writingStyle_append) setWritingStyle((s) => s ? `${s} ${distillPatch.writingStyle_append}` : distillPatch.writingStyle_append);
+    setDistillPatch(null);
   };
 
   // ---------------------------------------------------------------------------
@@ -188,16 +186,14 @@ export default function WorldCreationWizard() {
   };
 
   const handleFinish = async () => {
-    if (!worldId || !inspirationsReady || savingStyle) return;
+    if (!worldId || savingStyle) return;
     setSavingStyle(true);
 
     const styleConfig: Partial<WorldStyleConfig> = {
       preset: selectedPreset || undefined,
       vibe: vibe.trim(),
       writingStyle: writingStyle.trim(),
-      inspirations: inspirations
-        .filter((i) => i.expandedDescription.length > 0)
-        .map((i): WorldStyleInspiration => ({ name: i.name, expandedDescription: i.expandedDescription })),
+      inspirations: inspirations,
     };
 
     try {
@@ -375,8 +371,9 @@ export default function WorldCreationWizard() {
             {/* Inspirations */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Inspirations <span className="text-gray-400 font-normal">(optional — expand each before finishing)</span>
+                Inspirations <span className="text-gray-400 font-normal">(optional)</span>
               </label>
+              <p className="text-xs text-gray-400 mb-2">Add works that inspired this world. Use "Distill to Style" to absorb their feel into your Vibe & Writing Style fields.</p>
               <div className="flex gap-2 mb-2">
                 <input
                   value={inspirationInput}
@@ -394,44 +391,75 @@ export default function WorldCreationWizard() {
                   Add
                 </button>
               </div>
+
               {inspirations.length > 0 && (
-                <div className="flex flex-col gap-2">
+                <div className="flex flex-wrap gap-1.5 mb-3">
                   {inspirations.map((ins, idx) => (
-                    <div
+                    <span
                       key={idx}
-                      className={`p-2 rounded-lg border text-xs ${ins.expandedDescription ? 'border-green-200 bg-green-50' : 'border-gray-200 bg-gray-50'}`}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-purple-50 border border-purple-200 text-xs text-purple-800"
                     >
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="font-medium text-gray-800">{ins.name}</span>
-                        <button type="button" onClick={() => handleRemoveInspiration(idx)} className="text-gray-400 hover:text-gray-700"><X size={14} /></button>
-                      </div>
-                      {ins.expandedDescription
-                        ? <p className="text-gray-600 leading-relaxed line-clamp-3">{ins.expandedDescription}</p>
-                        : (
-                          <button
-                            type="button"
-                            disabled={ins.expanding}
-                            onClick={() => handleExpandInspiration(idx)}
-                            className="text-blue-600 hover:text-blue-800 disabled:opacity-40"
-                          >
-                            {ins.expanding ? 'Expanding…' : '✦ Expand with AI (required before saving)'}
-                          </button>
-                        )
-                      }
-                    </div>
+                      {ins.name}
+                      <button type="button" onClick={() => setInspirations((p) => p.filter((_, j) => j !== idx))} className="hover:text-purple-500 ml-0.5">
+                        <X size={11} />
+                      </button>
+                    </span>
                   ))}
                 </div>
               )}
+
+              {inspirations.length > 0 && (
+                <button
+                  type="button"
+                  disabled={distilling}
+                  onClick={handleDistill}
+                  className="flex items-center gap-1.5 text-xs px-3 py-1.5 bg-purple-50 border border-purple-200 text-purple-700 rounded-lg hover:bg-purple-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <Sparkles size={12} />
+                  {distilling ? 'Distilling…' : '✦ Distill to Style'}
+                </button>
+              )}
             </div>
 
-            {!inspirationsReady && inspirations.length > 0 && (
-              <p className="text-xs text-amber-600 -mt-2">Expand all inspirations before finishing.</p>
+            {/* Distill patch preview */}
+            {distillPatch && (
+              <div className="rounded-lg border border-purple-200 bg-purple-50 p-4 flex flex-col gap-3 text-xs">
+                <p className="font-medium text-purple-800">Style additions — review before applying</p>
+                {distillPatch.vibe_append && (
+                  <div>
+                    <p className="text-purple-600 uppercase tracking-wide font-medium mb-1">Vibe addition</p>
+                    <p className="text-gray-700 leading-relaxed">{distillPatch.vibe_append}</p>
+                  </div>
+                )}
+                {distillPatch.writingStyle_append && (
+                  <div>
+                    <p className="text-purple-600 uppercase tracking-wide font-medium mb-1">Writing Style addition</p>
+                    <p className="text-gray-700 leading-relaxed">{distillPatch.writingStyle_append}</p>
+                  </div>
+                )}
+                <div className="flex gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={handleApplyPatch}
+                    className="px-3 py-1.5 bg-purple-600 text-white rounded-lg hover:bg-purple-700 text-xs font-medium"
+                  >
+                    Apply
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDistillPatch(null)}
+                    className="px-3 py-1.5 text-gray-500 hover:text-gray-700 text-xs"
+                  >
+                    Discard
+                  </button>
+                </div>
+              </div>
             )}
 
             <div className="flex flex-col gap-2 pt-1">
               <button
                 type="button"
-                disabled={!inspirationsReady || savingStyle}
+                disabled={savingStyle}
                 onClick={handleFinish}
                 className="w-full py-2.5 bg-blue-600 text-white rounded-lg font-medium text-sm hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >

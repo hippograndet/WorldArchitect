@@ -4,6 +4,7 @@ import { OUTPUT_TOOLS } from '../tools/output.js';
 import { buildChroniclerSystemPrompt, buildChroniclerUserMessage } from '../prompts/chronicler.js';
 import type { WorldContext } from './director.js';
 import type { ContextPackage } from '../services/archivist.js';
+import { CONTEXT_TOOLS, LOOKUP_NAMES_TOOL } from '../tools/context.js';
 import type { ChatMessage } from '../providers/types.js';
 import type { Tool } from '../tools/types.js';
 
@@ -42,6 +43,10 @@ export class ChroniclerAgent extends BaseAgent<ChroniclerInput, ChroniclerOutput
         content: buildChroniclerUserMessage(input.contextPackage, input.userSpec),
       },
     ];
+  }
+
+  protected getContextTools(): Tool[] {
+    return [...CONTEXT_TOOLS, LOOKUP_NAMES_TOOL];
   }
 
   protected buildOutputTool(): Tool {

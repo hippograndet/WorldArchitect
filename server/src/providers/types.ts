@@ -18,6 +18,8 @@ export interface CompletionOptions {
   temperature?: number;
   /** Hint to enforce JSON output where the provider supports it natively */
   jsonMode?: boolean;
+  /** Force the model to call a tool rather than respond with free text */
+  toolChoice?: 'required';
 }
 
 export interface CompletionResult {
