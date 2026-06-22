@@ -38,6 +38,26 @@ export interface ArticleLink {
   linkType: 'hierarchical' | 'references';
 }
 
+export interface ArticleGraphNode {
+  id: string;
+  title: string;
+  status: ArticleStatus;
+  templateType: TemplateType;
+  depth: number;
+  introduction: string;
+}
+
+export interface ArticleGraphEdge {
+  source: string;
+  target: string;
+  linkType: 'hierarchical' | 'references';
+}
+
+export interface ArticleGraph {
+  nodes: ArticleGraphNode[];
+  edges: ArticleGraphEdge[];
+}
+
 export interface CoherenceWarning {
   id: string;
   articleId: string;

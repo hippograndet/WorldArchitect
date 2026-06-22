@@ -4,15 +4,20 @@ WorldArchitect is built around one core idea: a fictional world should become a 
 
 The app gives each world its own local encyclopedia. You create articles, group them by category, connect them through parent-child relationships and references, and track chronology when events have a place in time.
 
+![WorldArchitect worlds menu](assets/Screenshot_Worlds_Menu.png)
+
 ## The Main Surfaces
 
 - **World list** - create and reopen local worlds.
 - **World creation wizard** - define a world premise, categories, and writing style.
 - **World overview** - see article counts, World Bible status, and world-level tools.
 - **Article page** - read, edit, expand, organize, and review an article.
+- **Graph** - inspect the world as connected articles, with hierarchy rings and reference links.
 - **Timeline** - browse temporally anchored articles in chronological order.
 - **Snapshots** - create and restore named checkpoints of an entire world.
 - **Usage and settings** - manage provider settings, call logs, and cost controls.
+
+![World overview dashboard](assets/Screenshot_World_Home_Page.png)
 
 ## Article Model
 
@@ -29,6 +34,16 @@ Each article is more than a text file. It can carry:
 - Issues or warnings found by review tools
 
 This structure lets the app behave like a lightweight world wiki while still supporting normal prose writing.
+
+![Article reading and editing view](assets/Screenshot_Document_Text.png)
+
+## Graph View
+
+The graph view turns a world into a navigable map. The head article sits at the center, hierarchical children move outward by depth, and reference edges show cross-links that do not necessarily imply parentage.
+
+You can select a node to see its exact article introduction, open the article, or add new hierarchy and reference edges. This makes the structure of a world easier to inspect as it grows beyond a simple tree.
+
+![World graph view](assets/Screenshot_World_Graph.png)
 
 ## The World Bible
 

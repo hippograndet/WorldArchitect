@@ -8,4 +8,10 @@ These documents are for people evaluating or using WorldArchitect. They explain 
 - [Multi-Agent System Overview](mas-overview.md) - what the agent system does and how users stay in control.
 - [Local-First Data And Privacy](local-first.md) - what is stored locally, what can call an LLM, and how export works.
 
+## Visual Tour
+
+![WorldArchitect world list](assets/Screenshot_Worlds_Menu.png)
+
+![WorldArchitect graph view](assets/Screenshot_World_Graph.png)
+
 Developer planning notes, old design sketches, and implementation-specific references are kept outside this public docs folder.

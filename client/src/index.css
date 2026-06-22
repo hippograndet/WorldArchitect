@@ -79,6 +79,114 @@ body {
 [data-theme="obsidian_codex"] { --slider-track: #261e48; --slider-thumb: #9b72cf; --slider-bg: #0b0810; }
 [data-theme="verdant_atlas"]  { --slider-track: #b8ccb8; --slider-thumb: #2e6b42; --slider-bg: #f2f5ee; }
 
+/* ── Graph view tokens ── */
+:root {
+  --graph-canvas: #f8fafc;
+  --graph-grid: rgba(15, 23, 42, 0.08);
+  --graph-node-fill: #ffffff;
+  --graph-node-stroke: #cbd5e1;
+  --graph-node-text: #0f172a;
+  --graph-node-muted: #64748b;
+  --graph-selected: #f59e0b;
+  --graph-edge-reference: #2563eb;
+  --graph-edge-hierarchy: #7c3aed;
+  --graph-arrow: #64748b;
+  --graph-stub: #94a3b8;
+  --graph-draft: #3b82f6;
+  --graph-reviewed: #10b981;
+}
+
+.wa-graph {
+  background-color: var(--graph-canvas);
+  color: var(--ink);
+}
+
+.wa-graph-canvas {
+  background-color: var(--graph-canvas);
+  background-image: radial-gradient(circle at 1px 1px, var(--graph-grid) 1px, transparent 0);
+  background-size: 22px 22px;
+}
+
+[data-theme="arcane_scroll"] {
+  --graph-canvas: #efe0c2;
+  --graph-grid: rgba(139, 69, 19, 0.13);
+  --graph-node-fill: #fbf0dc;
+  --graph-node-stroke: #c9a96e;
+  --graph-node-text: #3d2b1f;
+  --graph-node-muted: #7b5636;
+  --graph-selected: #8b4513;
+  --graph-edge-reference: #9b5523;
+  --graph-edge-hierarchy: #6f3f1f;
+  --graph-arrow: #8b6348;
+  --graph-stub: #ad8c62;
+  --graph-draft: #9b6b2f;
+  --graph-reviewed: #5f7a3a;
+}
+
+[data-theme="data_link"] {
+  --graph-canvas: #070b14;
+  --graph-grid: rgba(0, 212, 255, 0.12);
+  --graph-node-fill: #0f1726;
+  --graph-node-stroke: #1e2d4a;
+  --graph-node-text: #e0eeff;
+  --graph-node-muted: #6a82aa;
+  --graph-selected: #00d4ff;
+  --graph-edge-reference: #00a8ff;
+  --graph-edge-hierarchy: #00ff88;
+  --graph-arrow: #4a82aa;
+  --graph-stub: #4a6288;
+  --graph-draft: #00a8ff;
+  --graph-reviewed: #00ff88;
+}
+
+[data-theme="dossier"] {
+  --graph-canvas: #ebe4d5;
+  --graph-grid: rgba(92, 79, 58, 0.12);
+  --graph-node-fill: #faf6ed;
+  --graph-node-stroke: #c5b89a;
+  --graph-node-text: #2c2416;
+  --graph-node-muted: #7a6a52;
+  --graph-selected: #8b6914;
+  --graph-edge-reference: #4b6f8f;
+  --graph-edge-hierarchy: #8b6914;
+  --graph-arrow: #7a6a52;
+  --graph-stub: #9a8a72;
+  --graph-draft: #4b6f8f;
+  --graph-reviewed: #3f7a4d;
+}
+
+[data-theme="obsidian_codex"] {
+  --graph-canvas: #08060d;
+  --graph-grid: rgba(155, 114, 207, 0.14);
+  --graph-node-fill: #120f1c;
+  --graph-node-stroke: #302858;
+  --graph-node-text: #ede8ff;
+  --graph-node-muted: #8a7ab0;
+  --graph-selected: #d4a84b;
+  --graph-edge-reference: #9b72cf;
+  --graph-edge-hierarchy: #d4a84b;
+  --graph-arrow: #8a7ab0;
+  --graph-stub: #6a5890;
+  --graph-draft: #9b72cf;
+  --graph-reviewed: #4db6a6;
+}
+
+[data-theme="verdant_atlas"] {
+  --graph-canvas: #e8ede3;
+  --graph-grid: rgba(46, 107, 66, 0.13);
+  --graph-node-fill: #f8faf5;
+  --graph-node-stroke: #b8ccb8;
+  --graph-node-text: #1c3a1c;
+  --graph-node-muted: #607a60;
+  --graph-selected: #2e6b42;
+  --graph-edge-reference: #3f7f8f;
+  --graph-edge-hierarchy: #2e6b42;
+  --graph-arrow: #607a60;
+  --graph-stub: #80a080;
+  --graph-draft: #3f7f8f;
+  --graph-reviewed: #2e8f4f;
+}
+
 /* ============================================================
    ARCANE SCROLL — Parchment fantasy
    ============================================================ */

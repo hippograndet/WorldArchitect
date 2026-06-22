@@ -9,7 +9,9 @@ interface ArticleExportRow {
   temporal_anchor_start: string | null;
   temporal_anchor_end: string | null;
   category_name: string;
-  body: string;
+  introduction: string;
+  description: string;
+  chronology: string;
   summary: string;
 }
 
@@ -38,15 +40,26 @@ function buildMarkdown(row: ArticleExportRow): string {
 
   lines.push('');
 
-  if (row.summary) {
+  const introduction = row.introduction || row.summary;
+
+  if (introduction) {
     lines.push('## Introduction');
     lines.push('');
-    lines.push(row.summary);
+    lines.push(introduction);
     lines.push('');
   }
 
-  if (row.body) {
-    lines.push(row.body);
+  if (row.description) {
+    lines.push('## Description');
+    lines.push('');
+    lines.push(row.description);
+    lines.push('');
+  }
+
+  if (row.chronology) {
+    lines.push('## Chronology');
+    lines.push('');
+    lines.push(row.chronology);
   }
 
   return lines.join('\n');
@@ -71,7 +84,9 @@ export async function buildWorldZip(worldId: string): Promise<Buffer> {
          a.temporal_anchor_start,
          a.temporal_anchor_end,
          c.name AS category_name,
-         COALESCE(av.body, '')    AS body,
+         COALESCE(av.introduction, '') AS introduction,
+         COALESCE(av.description, '')  AS description,
+         COALESCE(av.chronology, '')   AS chronology,
          COALESCE(wbe.summary, '') AS summary
        FROM articles a
        JOIN categories c ON c.id = a.category_id

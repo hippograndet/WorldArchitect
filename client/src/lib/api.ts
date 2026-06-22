@@ -1,6 +1,6 @@
 import type { World, CreateWorldInput, BibleMeta, WorldIssue } from '../types/world.ts';
 import type { FlatArticle } from './tree.ts';
-import type { Article, ArticleDetail, ArticleVersion, PendingDraft, CoherenceWarning } from '../types/article.ts';
+import type { Article, ArticleDetail, ArticleGraph, ArticleGraphEdge, ArticleVersion, PendingDraft, CoherenceWarning } from '../types/article.ts';
 import type { ContextDepth, IdeaItem, EdgeProposal, GlobalWarning, StyleWardenResult } from '../types/agent.ts';
 
 const BASE = '/api';
@@ -29,6 +29,12 @@ const get  = <T>(path: string)                 => request<T>('GET',    path);
 const post = <T>(path: string, body?: unknown) => request<T>('POST',   path, body);
 const patch = <T>(path: string, body: unknown) => request<T>('PATCH',  path, body);
 const del  = (path: string)                    => request<void>('DELETE', path);
+
+function parseDownloadFilename(contentDisposition: string | null): string | null {
+  if (!contentDisposition) return null;
+  const match = contentDisposition.match(/filename="([^"]+)"/i) ?? contentDisposition.match(/filename=([^;]+)/i);
+  return match?.[1]?.trim() ?? null;
+}
 
 export const api = {
   worlds: {
@@ -68,6 +74,7 @@ export const api = {
 
   articles: {
     tree:   (wid: string)                 => get<FlatArticle[]>(`/worlds/${wid}/articles/tree`),
+    graph:  (wid: string)                 => get<ArticleGraph>(`/worlds/${wid}/articles/graph`),
     list:   (wid: string, params?: { status?: string; q?: string }) => {
       const qs = new URLSearchParams();
       if (params?.status) qs.set('status', params.status);
@@ -81,6 +88,12 @@ export const api = {
     update: (wid: string, aid: string, input: { introduction?: string; description?: string; chronology?: string; status?: string; title?: string }) =>
       patch<{ article: Article; version: ArticleVersion }>(`/worlds/${wid}/articles/${aid}`, input),
     delete: (wid: string, aid: string)    => del(`/worlds/${wid}/articles/${aid}`),
+    createLink: (wid: string, input: ArticleGraphEdge) =>
+      post<ArticleGraphEdge>(`/worlds/${wid}/articles/links`, {
+        sourceArticleId: input.source,
+        targetArticleId: input.target,
+        linkType: input.linkType,
+      }),
 
     versions: {
       list:   (wid: string, aid: string)              => get<ArticleVersion[]>(`/worlds/${wid}/articles/${aid}/versions`),
@@ -202,6 +215,19 @@ export const api = {
 
   export: {
     downloadUrl: (wid: string) => `${BASE}/worlds/${wid}/export`,
+    download: async (wid: string) => {
+      const res = await fetch(`${BASE}/worlds/${wid}/export`);
+      if (!res.ok) {
+        const data = await res.json().catch(() => null) as { error?: unknown } | null;
+        const raw = data?.error ?? `HTTP ${res.status}`;
+        const msg = typeof raw === 'string' ? raw : JSON.stringify(raw);
+        throw new Error(msg);
+      }
+      return {
+        blob: await res.blob(),
+        filename: parseDownloadFilename(res.headers.get('Content-Disposition')) ?? 'worldarchitect-export.zip',
+      };
+    },
   },
 
   names: {

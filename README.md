@@ -4,6 +4,8 @@ WorldArchitect is a local-first fiction worldbuilding app for writers, game mast
 
 The app is fully usable without an LLM. When you do connect a provider, WorldArchitect adds a multi-agent creative system that can propose ideas, expand articles, check continuity, create child entries, and help maintain a coherent World Bible while keeping you in control of what gets accepted.
 
+![WorldArchitect world dashboard](docs/assets/Screenshot_World_Home_Page.png)
+
 ## Why WorldArchitect?
 
 - **Own your world locally.** Your encyclopedia is stored in a local SQLite database. No account, cloud sync, or hosted backend required.
@@ -18,6 +20,7 @@ The app is fully usable without an LLM. When you do connect a provider, WorldArc
 - World creation wizard with configurable categories and style settings
 - Wikipedia-style article browser with sidebar search
 - Article layers for introduction, description, subjects, and chronology
+- Graph view for navigating article hierarchy and references
 - Manual editing with TipTap and Markdown-oriented article content
 - Version history, non-destructive reverts, and named world snapshots
 - Timeline view for temporally anchored articles
@@ -26,6 +29,14 @@ The app is fully usable without an LLM. When you do connect a provider, WorldArc
 - Provider support for Anthropic, OpenAI-compatible APIs, Groq, and Ollama
 - Cost controls, call logs, daily caps, and provider settings
 - ZIP export of the world as Markdown files
+
+## Screenshots
+
+![World list with local projects](docs/assets/Screenshot_Worlds_Menu.png)
+
+![Article editing and reading view](docs/assets/Screenshot_Document_Text.png)
+
+![World graph view](docs/assets/Screenshot_World_Graph.png)
 
 ## Quick Start
 

@@ -1,10 +1,33 @@
+import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useStore } from '../stores/index.ts';
 import StatusBadge from '../components/shared/StatusBadge.tsx';
 
 export default function TimelinePage() {
   const { wid } = useParams<{ wid: string }>();
-  const { articles } = useStore();
+  const { articles, loadArticles, addToast } = useStore();
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!wid) return;
+
+    let cancelled = false;
+    setLoading(true);
+
+    loadArticles(wid)
+      .catch((err) => {
+        if (!cancelled) {
+          addToast({ message: (err as Error).message, type: 'error' });
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [wid, loadArticles, addToast]);
 
   const dated = articles
     .filter((a) => a.temporalAnchorStart)
@@ -13,7 +36,7 @@ export default function TimelinePage() {
 
   const undated = articles.filter((a) => !a.temporalAnchorStart);
 
-  if (articles.length === 0) {
+  if (loading) {
     return (
       <div className="p-8 text-sm text-gray-400">Loading…</div>
     );
@@ -23,7 +46,13 @@ export default function TimelinePage() {
     <div className="max-w-3xl mx-auto py-8 px-6">
       <h1 className="text-2xl font-bold text-gray-900 mb-8">Timeline</h1>
 
-      {dated.length === 0 && (
+      {articles.length === 0 && (
+        <p className="text-sm text-gray-400 italic">
+          No articles yet. Create articles first, then add date ranges to place them on the timeline.
+        </p>
+      )}
+
+      {articles.length > 0 && dated.length === 0 && (
         <p className="text-sm text-gray-400 italic mb-8">
           No articles have a temporal anchor yet. Edit an article and set its date range to see it here.
         </p>

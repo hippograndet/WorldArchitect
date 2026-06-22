@@ -110,6 +110,18 @@ export default function WorldOverviewPage() {
         <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">World Tools</h2>
         <div className="border border-gray-200 rounded-xl overflow-hidden divide-y divide-gray-200">
           <button
+            onClick={() => wid && navigate(`/worlds/${wid}/graph`)}
+            className="w-full flex items-start gap-4 p-4 hover:bg-gray-50 transition-colors text-left"
+          >
+            <span className="text-xl leading-none mt-0.5">◎</span>
+            <div>
+              <p className="text-sm font-semibold text-gray-800">Graph View</p>
+              <p className="text-xs text-gray-500 mt-0.5">
+                Navigate articles and shape their relationships.
+              </p>
+            </div>
+          </button>
+          <button
             onClick={handleAudit}
             disabled={agentPanelOpen}
             className="w-full flex items-start gap-4 p-4 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-left"

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ArrowLeft, Settings } from 'lucide-react';
+import { ArrowLeft, Download, Settings } from 'lucide-react';
 import { Link, useParams, useLocation } from 'react-router-dom';
 import { useStore } from '../../stores/index.ts';
 import WorldBibleMeter from './WorldBibleMeter.tsx';
@@ -7,6 +7,7 @@ import { api } from '../../lib/api.ts';
 
 const NAV_LINKS = [
   { label: 'Timeline', path: 'timeline' },
+  { label: 'Graph',    path: 'graph' },
   { label: 'Usage',    path: 'usage' },
   { label: 'Inbox',    path: 'inbox' },
   { label: 'Toolbox',  path: 'toolbox' },
@@ -18,6 +19,7 @@ export default function TopBar() {
   const location = useLocation();
   const { worlds, addToast } = useStore();
   const [inboxCount, setInboxCount] = useState(0);
+  const [exporting, setExporting] = useState(false);
 
   const world = worlds.find((w) => w.id === wid);
 
@@ -28,10 +30,26 @@ export default function TopBar() {
       .catch(() => {});
   }, [wid, location.pathname]);
 
-  const handleExport = () => {
-    if (!wid) return;
-    window.location.href = api.export.downloadUrl(wid);
-    addToast({ message: 'Export started…', type: 'info' });
+  const handleExport = async () => {
+    if (!wid || exporting) return;
+    setExporting(true);
+
+    try {
+      const { blob, filename } = await api.export.download(wid);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      addToast({ message: 'Export downloaded.', type: 'success' });
+    } catch (err) {
+      addToast({ message: (err as Error).message, type: 'error' });
+    } finally {
+      setExporting(false);
+    }
   };
 
   return (
@@ -78,9 +96,11 @@ export default function TopBar() {
         <WorldBibleMeter />
         <button
           onClick={handleExport}
-          className="px-3 py-1 text-xs rounded-md border border-gray-300 text-gray-600 hover:bg-gray-50"
+          disabled={!wid || exporting}
+          className="inline-flex items-center gap-1.5 px-3 py-1 text-xs rounded-md border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          Export
+          <Download size={13} />
+          {exporting ? 'Exporting…' : 'Export'}
         </button>
         <Link
           to={`/worlds/${wid ?? ''}/snapshots`}
