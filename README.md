@@ -21,6 +21,12 @@ curl -X PATCH http://localhost:3001/api/settings \
 
 ---
 
+## License
+
+MIT License. See [LICENSE](LICENSE).
+
+---
+
 ## Multi-Agent System
 
 The MAS is composed of **14 specialized agents — The Council** — accessed through three distinct UI entry points. Every agent call is user-initiated; no pipeline auto-advances without explicit approval at each step (unless the optional Forge automation is enabled).
