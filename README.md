@@ -73,10 +73,9 @@ The browser talks only to the local server. The server owns the database, export
 
 Public, reader-friendly docs live in [`docs/`](docs/):
 
-- [How WorldArchitect Works](docs/architecture.md)
+- [How WorldArchitect Works](docs/how-it-works.md)
 - [Multi-Agent System Overview](docs/mas-overview.md)
 - [Local-First Data And Privacy](docs/local-first.md)
-- [Roadmap](docs/roadmap.md)
 
 Developer notes and older design documents are kept locally in `dev-docs/` and are intentionally ignored by Git.
 
