@@ -6,7 +6,7 @@
 __pycache__/
 *.pyc
 
-# Claude Code
+# Local tooling & editor
 .claude/
 CLAUDE.md
 
