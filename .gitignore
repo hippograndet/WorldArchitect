@@ -11,7 +11,7 @@ __pycache__/
 CLAUDE.md
 
 # Internal docs (local only)
-docs/
+dev-docs/
 README_DEV.md
 
 # Node
