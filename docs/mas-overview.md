@@ -24,6 +24,16 @@ Spark is the creation flow on an article. It can:
 
 Spark is best when you want help growing an article while still choosing the direction.
 
+![Spark inception flow](assets/Screenshot_Spark_Inception.png)
+
+Spark usually starts by asking what kind of work you want to do. For a new or empty article, inception can help establish a usable foundation. For an existing article, Spark can propose expansion directions so you can pick the creative angle before any draft is written.
+
+![Spark expansion direction selection](assets/Screenshot_Spark_Expansion_Direction_Selection.png)
+
+Spark can also propose child subjects when an article should branch into a richer hierarchy. This is useful for turning a broad concept into connected people, places, factions, events, or ideas while preserving user review.
+
+![Spark branching suggestions](assets/Screenshot_Spark_Branching.png)
+
 ### Solidify
 
 Solidify is for cleanup and review. It can:

@@ -36,7 +36,11 @@ The app is fully usable without an LLM. When you do connect a provider, WorldArc
 
 ![Article editing and reading view](docs/assets/Screenshot_Document_Text.png)
 
+![Spark proposal selection](docs/assets/Screenshot_Spark_Expansion_Direction_Selection.png)
+
 ![World graph view](docs/assets/Screenshot_World_Graph.png)
+
+![Toolbox utilities](docs/assets/Screenshot_Toolbox.png)
 
 ## Quick Start
 

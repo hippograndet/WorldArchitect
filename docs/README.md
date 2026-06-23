@@ -12,6 +12,10 @@ These documents are for people evaluating or using WorldArchitect. They explain 
 
 ![WorldArchitect world list](assets/Screenshot_Worlds_Menu.png)
 
+![WorldArchitect Spark workflow](assets/Screenshot_Spark_Inception.png)
+
 ![WorldArchitect graph view](assets/Screenshot_World_Graph.png)
+
+![WorldArchitect toolbox](assets/Screenshot_Toolbox.png)
 
 Developer planning notes, old design sketches, and implementation-specific references are kept outside this public docs folder.

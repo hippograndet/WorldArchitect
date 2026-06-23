@@ -13,6 +13,7 @@ The app gives each world its own local encyclopedia. You create articles, group 
 - **World overview** - see article counts, World Bible status, and world-level tools.
 - **Article page** - read, edit, expand, organize, and review an article.
 - **Graph** - inspect the world as connected articles, with hierarchy rings and reference links.
+- **Toolbox** - generate and manage reusable worldbuilding material such as names.
 - **Timeline** - browse temporally anchored articles in chronological order.
 - **Snapshots** - create and restore named checkpoints of an entire world.
 - **Usage and settings** - manage provider settings, call logs, and cost controls.
@@ -44,6 +45,12 @@ The graph view turns a world into a navigable map. The head article sits at the 
 You can select a node to see its exact article introduction, open the article, or add new hierarchy and reference edges. This makes the structure of a world easier to inspect as it grows beyond a simple tree.
 
 ![World graph view](assets/Screenshot_World_Graph.png)
+
+## Toolbox
+
+The Toolbox collects focused utilities that support worldbuilding without forcing them into the article editor. It is useful when you need reusable material, such as name generation and saved name banks, while keeping the encyclopedia itself organized.
+
+![Toolbox utilities](assets/Screenshot_Toolbox.png)
 
 ## The World Bible
 
