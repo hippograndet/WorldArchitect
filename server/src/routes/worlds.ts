@@ -7,6 +7,7 @@ import { PipelineCoordinator } from '../agents/director.js';
 import { StylistAgent } from '../agents/stylist.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
 import type { PromptEngineerFieldType } from '../prompts/promptEngineer.js';
+import { tenantIdFor, worldBelongsToTenant } from '../tenant.js';
 
 const router = Router();
 
@@ -70,6 +71,7 @@ router.post('/', asyncHandler(async (req, res) => {
 
   const { name, description, tags, tone, originPoint, styleConfig, generateStubs } = parse.data;
   const db = getDb();
+  const ownerId = tenantIdFor(req);
   const now = Date.now();
   const worldId = nanoid();
   const articleId = nanoid();
@@ -79,9 +81,9 @@ router.post('/', asyncHandler(async (req, res) => {
 
   db.transaction(() => {
     db.prepare(`
-      INSERT INTO worlds (id, name, description, tags, tone, origin_point, style_config, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(worldId, name, description, JSON.stringify(tags), tone, originPoint ?? null, styleConfigJson, now, now);
+      INSERT INTO worlds (id, owner_id, name, description, tags, tone, origin_point, style_config, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(worldId, ownerId, name, description, JSON.stringify(tags), tone, originPoint ?? null, styleConfigJson, now, now);
 
     db.prepare(`
       INSERT INTO cost_settings (world_id, daily_cap, bible_threshold)
@@ -118,7 +120,7 @@ router.post('/', asyncHandler(async (req, res) => {
     `).run(nanoid(), worldId, articleId, description, now);
   })();
 
-  const world = db.prepare('SELECT * FROM worlds WHERE id = ?').get(worldId) as Record<string, unknown>;
+  const world = db.prepare('SELECT * FROM worlds WHERE id = ? AND owner_id = ?').get(worldId, ownerId) as Record<string, unknown>;
   const categories = db
     .prepare('SELECT id, name, sort_order AS sortOrder FROM categories WHERE world_id = ? ORDER BY sort_order')
     .all(worldId);
@@ -139,11 +141,11 @@ router.post('/', asyncHandler(async (req, res) => {
 }));
 
 // GET /api/worlds — list all worlds
-router.get('/', (_req, res) => {
+router.get('/', (req, res) => {
   const db = getDb();
   const rows = db
-    .prepare('SELECT * FROM worlds ORDER BY updated_at DESC')
-    .all() as Record<string, unknown>[];
+    .prepare('SELECT * FROM worlds WHERE owner_id = ? ORDER BY updated_at DESC')
+    .all(tenantIdFor(req)) as Record<string, unknown>[];
   res.json(rows.map(parseWorld));
 });
 
@@ -151,8 +153,8 @@ router.get('/', (_req, res) => {
 router.get('/:wid', (req, res) => {
   const db = getDb();
   const row = db
-    .prepare('SELECT * FROM worlds WHERE id = ?')
-    .get(req.params.wid) as Record<string, unknown> | undefined;
+    .prepare('SELECT * FROM worlds WHERE id = ? AND owner_id = ?')
+    .get(req.params.wid, tenantIdFor(req)) as Record<string, unknown> | undefined;
 
   if (!row) {
     res.status(404).json({ error: 'World not found' });
@@ -172,8 +174,8 @@ router.patch('/:wid', (req, res) => {
 
   const db = getDb();
   const existing = db
-    .prepare('SELECT * FROM worlds WHERE id = ?')
-    .get(req.params.wid) as Record<string, unknown> | undefined;
+    .prepare('SELECT * FROM worlds WHERE id = ? AND owner_id = ?')
+    .get(req.params.wid, tenantIdFor(req)) as Record<string, unknown> | undefined;
 
   if (!existing) {
     res.status(404).json({ error: 'World not found' });
@@ -199,12 +201,13 @@ router.patch('/:wid', (req, res) => {
   fields.push('updated_at = ?');
   values.push(Date.now());
   values.push(req.params.wid);
+  values.push(tenantIdFor(req));
 
-  db.prepare(`UPDATE worlds SET ${fields.join(', ')} WHERE id = ?`).run(...values);
+  db.prepare(`UPDATE worlds SET ${fields.join(', ')} WHERE id = ? AND owner_id = ?`).run(...values);
 
   const updated = db
-    .prepare('SELECT * FROM worlds WHERE id = ?')
-    .get(req.params.wid) as Record<string, unknown>;
+    .prepare('SELECT * FROM worlds WHERE id = ? AND owner_id = ?')
+    .get(req.params.wid, tenantIdFor(req)) as Record<string, unknown>;
 
   res.json(parseWorld(updated));
 });
@@ -212,12 +215,12 @@ router.patch('/:wid', (req, res) => {
 // DELETE /api/worlds/:wid
 router.delete('/:wid', (req, res) => {
   const db = getDb();
-  const existing = db.prepare('SELECT id FROM worlds WHERE id = ?').get(req.params.wid);
+  const existing = db.prepare('SELECT id FROM worlds WHERE id = ? AND owner_id = ?').get(req.params.wid, tenantIdFor(req));
   if (!existing) {
     res.status(404).json({ error: 'World not found' });
     return;
   }
-  db.prepare('DELETE FROM worlds WHERE id = ?').run(req.params.wid);
+  db.prepare('DELETE FROM worlds WHERE id = ? AND owner_id = ?').run(req.params.wid, tenantIdFor(req));
   res.status(204).send();
 });
 
@@ -247,6 +250,10 @@ const handlePromptEngineer = asyncHandler(async (req, res) => {
 
   const { fieldType, rawText, worldName, worldDescription, currentVibe, currentWritingStyle, articleTitle, articleType, focus } = parse.data;
   const worldId = (req.params as Record<string, string>).wid ?? 'wizard';
+  if (worldId !== 'wizard' && !worldBelongsToTenant(worldId, tenantIdFor(req))) {
+    res.status(404).json({ error: 'World not found', code: 'NOT_FOUND' });
+    return;
+  }
 
   const agent = new StylistAgent();
   const result = await agent.run(worldId, {

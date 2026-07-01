@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import { LOCAL_USER_ID } from '../config.js';
 
 function tryAlter(db: Database.Database, sql: string): void {
   try {
@@ -7,6 +8,93 @@ function tryAlter(db: Database.Database, sql: string): void {
     const msg = (err as Error).message ?? '';
     if (!msg.includes('already exists') && !msg.includes('duplicate column name')) throw err;
   }
+}
+
+function addOwnerColumn(db: Database.Database, table: string): void {
+  tryAlter(db, `ALTER TABLE ${table} ADD COLUMN owner_id TEXT NOT NULL DEFAULT '${LOCAL_USER_ID}'`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_${table}_owner ON ${table}(owner_id)`);
+}
+
+function addWorldOwnerTrigger(db: Database.Database, table: string, keyPredicate: string): void {
+  db.exec(`
+    CREATE TRIGGER IF NOT EXISTS trg_${table}_owner_from_world
+    AFTER INSERT ON ${table}
+    WHEN NEW.owner_id = '${LOCAL_USER_ID}'
+    BEGIN
+      UPDATE ${table}
+      SET owner_id = COALESCE((SELECT owner_id FROM worlds WHERE id = NEW.world_id), '${LOCAL_USER_ID}')
+      WHERE ${keyPredicate};
+    END
+  `);
+}
+
+function addArticleOwnerTrigger(db: Database.Database, table: string, keyPredicate: string): void {
+  db.exec(`
+    CREATE TRIGGER IF NOT EXISTS trg_${table}_owner_from_article
+    AFTER INSERT ON ${table}
+    WHEN NEW.owner_id = '${LOCAL_USER_ID}'
+    BEGIN
+      UPDATE ${table}
+      SET owner_id = COALESCE((SELECT owner_id FROM articles WHERE id = NEW.article_id), '${LOCAL_USER_ID}')
+      WHERE ${keyPredicate};
+    END
+  `);
+}
+
+function addOwnerColumnsAndTriggers(db: Database.Database): void {
+  [
+    'worlds',
+    'articles',
+    'categories',
+    'article_versions',
+    'article_links',
+    'coherence_warnings',
+    'world_bible_entries',
+    'world_bible_meta',
+    'world_snapshots',
+    'call_log',
+    'pending_drafts',
+    'cost_settings',
+    'name_bank',
+    'auditor_edge_proposals',
+    'entity_mentions',
+    'article_issues',
+    'publish_history',
+    'world_issues',
+  ].forEach((table) => addOwnerColumn(db, table));
+
+  [
+    ['articles', 'id = NEW.id'],
+    ['categories', 'id = NEW.id'],
+    ['world_bible_entries', 'id = NEW.id'],
+    ['world_bible_meta', 'world_id = NEW.world_id'],
+    ['world_snapshots', 'id = NEW.id'],
+    ['call_log', 'id = NEW.id'],
+    ['cost_settings', 'world_id = NEW.world_id'],
+    ['name_bank', 'id = NEW.id'],
+    ['auditor_edge_proposals', 'id = NEW.id'],
+    ['entity_mentions', 'id = NEW.id'],
+    ['article_issues', 'id = NEW.id'],
+    ['publish_history', 'id = NEW.id'],
+    ['world_issues', 'id = NEW.id'],
+  ].forEach(([table, predicate]) => addWorldOwnerTrigger(db, table, predicate));
+
+  [
+    ['article_versions', 'id = NEW.id'],
+    ['pending_drafts', 'id = NEW.id'],
+    ['coherence_warnings', 'id = NEW.id'],
+  ].forEach(([table, predicate]) => addArticleOwnerTrigger(db, table, predicate));
+
+  db.exec(`
+    CREATE TRIGGER IF NOT EXISTS trg_article_links_owner_from_source
+    AFTER INSERT ON article_links
+    WHEN NEW.owner_id = '${LOCAL_USER_ID}'
+    BEGIN
+      UPDATE article_links
+      SET owner_id = COALESCE((SELECT owner_id FROM articles WHERE id = NEW.source_article_id), '${LOCAL_USER_ID}')
+      WHERE source_article_id = NEW.source_article_id AND target_article_id = NEW.target_article_id;
+    END
+  `);
 }
 
 export function runMigrations(db: Database.Database): void {
@@ -219,12 +307,16 @@ export function runMigrations(db: Database.Database): void {
       db.exec(`ALTER TABLE pending_drafts_new RENAME TO pending_drafts`);
     })();
   }
+
+  // M15: hosted multi-tenancy ownership columns and inheritance triggers.
+  addOwnerColumnsAndTriggers(db);
 }
 
 export function applySchema(db: Database.Database): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS worlds (
       id           TEXT PRIMARY KEY,
+      owner_id     TEXT NOT NULL DEFAULT 'local-user',
       name         TEXT NOT NULL,
       description  TEXT NOT NULL,
       tags         TEXT NOT NULL DEFAULT '[]',
@@ -237,6 +329,7 @@ export function applySchema(db: Database.Database): void {
 
     CREATE TABLE IF NOT EXISTS articles (
       id                    TEXT PRIMARY KEY,
+      owner_id              TEXT NOT NULL DEFAULT 'local-user',
       world_id              TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
       category_id           TEXT REFERENCES categories(id) ON DELETE SET NULL,
       title                 TEXT NOT NULL,
@@ -253,6 +346,7 @@ export function applySchema(db: Database.Database): void {
 
     CREATE TABLE IF NOT EXISTS categories (
       id         TEXT PRIMARY KEY,
+      owner_id   TEXT NOT NULL DEFAULT 'local-user',
       world_id   TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
       name       TEXT NOT NULL,
       sort_order INTEGER NOT NULL DEFAULT 0,
@@ -263,6 +357,7 @@ export function applySchema(db: Database.Database): void {
 
     CREATE TABLE IF NOT EXISTS article_versions (
       id                       TEXT PRIMARY KEY,
+      owner_id                 TEXT NOT NULL DEFAULT 'local-user',
       article_id               TEXT NOT NULL REFERENCES articles(id) ON DELETE CASCADE,
       version_number           INTEGER NOT NULL,
       introduction             TEXT NOT NULL DEFAULT '',
@@ -280,6 +375,7 @@ export function applySchema(db: Database.Database): void {
     CREATE TABLE IF NOT EXISTS article_links (
       source_article_id TEXT NOT NULL REFERENCES articles(id) ON DELETE CASCADE,
       target_article_id TEXT NOT NULL REFERENCES articles(id) ON DELETE CASCADE,
+      owner_id          TEXT NOT NULL DEFAULT 'local-user',
       link_type         TEXT NOT NULL DEFAULT 'references',
       PRIMARY KEY (source_article_id, target_article_id)
     );
@@ -289,6 +385,7 @@ export function applySchema(db: Database.Database): void {
 
     CREATE TABLE IF NOT EXISTS coherence_warnings (
       id                TEXT PRIMARY KEY,
+      owner_id          TEXT NOT NULL DEFAULT 'local-user',
       article_id        TEXT NOT NULL REFERENCES articles(id) ON DELETE CASCADE,
       source_article_id TEXT REFERENCES articles(id),
       severity          TEXT NOT NULL,
@@ -301,6 +398,7 @@ export function applySchema(db: Database.Database): void {
     -- Summaries are set by agents or derived from article body on manual save.
     CREATE TABLE IF NOT EXISTS world_bible_entries (
       id         TEXT PRIMARY KEY,
+      owner_id   TEXT NOT NULL DEFAULT 'local-user',
       world_id   TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
       article_id TEXT NOT NULL UNIQUE REFERENCES articles(id) ON DELETE CASCADE,
       summary    TEXT NOT NULL,
@@ -310,12 +408,14 @@ export function applySchema(db: Database.Database): void {
 
     CREATE TABLE IF NOT EXISTS world_bible_meta (
       world_id    TEXT PRIMARY KEY REFERENCES worlds(id) ON DELETE CASCADE,
+      owner_id    TEXT NOT NULL DEFAULT 'local-user',
       token_count INTEGER NOT NULL DEFAULT 0,
       updated_at  INTEGER NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS world_snapshots (
       id         TEXT PRIMARY KEY,
+      owner_id   TEXT NOT NULL DEFAULT 'local-user',
       world_id   TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
       name       TEXT NOT NULL,
       data       TEXT NOT NULL,
@@ -324,6 +424,7 @@ export function applySchema(db: Database.Database): void {
 
     CREATE TABLE IF NOT EXISTS call_log (
       id            TEXT PRIMARY KEY,
+      owner_id      TEXT NOT NULL DEFAULT 'local-user',
       world_id      TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
       agent_type    TEXT NOT NULL,
       article_id    TEXT REFERENCES articles(id),
@@ -336,6 +437,7 @@ export function applySchema(db: Database.Database): void {
 
     CREATE TABLE IF NOT EXISTS pending_drafts (
       id                TEXT PRIMARY KEY,
+      owner_id          TEXT NOT NULL DEFAULT 'local-user',
       article_id        TEXT NOT NULL REFERENCES articles(id) ON DELETE CASCADE,
       pipeline_type     TEXT NOT NULL DEFAULT 'expand_description',
       selected_proposal TEXT NOT NULL DEFAULT '{}',
@@ -351,12 +453,14 @@ export function applySchema(db: Database.Database): void {
 
     CREATE TABLE IF NOT EXISTS cost_settings (
       world_id        TEXT PRIMARY KEY REFERENCES worlds(id) ON DELETE CASCADE,
+      owner_id        TEXT NOT NULL DEFAULT 'local-user',
       daily_cap       INTEGER,
       bible_threshold INTEGER NOT NULL DEFAULT 80000
     );
 
     CREATE TABLE IF NOT EXISTS name_bank (
       id          TEXT PRIMARY KEY,
+      owner_id    TEXT NOT NULL DEFAULT 'local-user',
       world_id    TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
       name        TEXT NOT NULL,
       profile_id  TEXT NOT NULL,

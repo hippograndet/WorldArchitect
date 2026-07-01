@@ -11,6 +11,7 @@ import {
 import { redactErrorMessage } from '../security/redaction.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
 import type { ProviderName, ProviderConfig } from '../providers/index.js';
+import { tenantIdFor } from '../tenant.js';
 
 const router = Router();
 
@@ -35,8 +36,8 @@ const UpdateCostSettingsSchema = z.object({
 // Global provider settings  GET /api/settings
 // ---------------------------------------------------------------------------
 
-router.get('/', (_req, res) => {
-  const { provider, config, sources, localOnly } = readEffectiveProviderSettings();
+router.get('/', (req, res) => {
+  const { provider, config, sources, localOnly } = readEffectiveProviderSettings(tenantIdFor(req));
 
   res.json({
     provider,
@@ -77,7 +78,8 @@ router.patch('/', (req, res) => {
   }
 
   const { provider, apiKey, model, ollamaUrl, localOnly } = parse.data;
-  const { config: existing } = readProviderSettings();
+  const userId = tenantIdFor(req);
+  const { config: existing } = readProviderSettings(userId);
 
   // Merge — only overwrite the fields relevant to the selected provider.
   const updated: ProviderConfig = { ...existing };
@@ -100,9 +102,9 @@ router.patch('/', (req, res) => {
     updated.localOnly = localOnly;
   }
 
-  writeProviderSettings(provider as ProviderName | 'none', updated);
+  writeProviderSettings(provider as ProviderName | 'none', updated, userId);
 
-  const effective = readEffectiveProviderSettings();
+  const effective = readEffectiveProviderSettings(userId);
   res.json({ ok: true, provider, localOnly: effective.localOnly });
 });
 
@@ -146,8 +148,8 @@ export const worldSettingsRouter = Router({ mergeParams: true });
 
 worldSettingsRouter.get('/', (req, res) => {
   const settings = getDb()
-    .prepare('SELECT * FROM cost_settings WHERE world_id = ?')
-    .get((req.params as Record<string, string>).wid) as { daily_cap: number | null; bible_threshold: number } | undefined;
+    .prepare('SELECT * FROM cost_settings WHERE world_id = ? AND owner_id = ?')
+    .get((req.params as Record<string, string>).wid, tenantIdFor(req)) as { daily_cap: number | null; bible_threshold: number } | undefined;
 
   if (!settings) {
     res.status(404).json({ error: 'World not found' });
@@ -168,8 +170,8 @@ worldSettingsRouter.patch('/', (req, res) => {
   }
 
   const existing = getDb()
-    .prepare('SELECT * FROM cost_settings WHERE world_id = ?')
-    .get((req.params as Record<string, string>).wid) as { daily_cap: number | null; bible_threshold: number } | undefined;
+    .prepare('SELECT * FROM cost_settings WHERE world_id = ? AND owner_id = ?')
+    .get((req.params as Record<string, string>).wid, tenantIdFor(req)) as { daily_cap: number | null; bible_threshold: number } | undefined;
 
   if (!existing) {
     res.status(404).json({ error: 'World not found' });
@@ -185,14 +187,15 @@ worldSettingsRouter.patch('/', (req, res) => {
 
   if (fields.length > 0) {
     values.push((req.params as Record<string, string>).wid);
+    values.push(tenantIdFor(req));
     getDb()
-      .prepare(`UPDATE cost_settings SET ${fields.join(', ')} WHERE world_id = ?`)
+      .prepare(`UPDATE cost_settings SET ${fields.join(', ')} WHERE world_id = ? AND owner_id = ?`)
       .run(...values);
   }
 
   const updated = getDb()
-    .prepare('SELECT * FROM cost_settings WHERE world_id = ?')
-    .get((req.params as Record<string, string>).wid) as { daily_cap: number | null; bible_threshold: number };
+    .prepare('SELECT * FROM cost_settings WHERE world_id = ? AND owner_id = ?')
+    .get((req.params as Record<string, string>).wid, tenantIdFor(req)) as { daily_cap: number | null; bible_threshold: number };
 
   res.json({ dailyCap: updated.daily_cap, bibleThreshold: updated.bible_threshold });
 });

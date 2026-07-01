@@ -1,5 +1,8 @@
 import { getDb } from '../db/index.js';
+import { getAppMode, LOCAL_USER_ID } from '../config.js';
+import { getContextUserId } from '../requestContext.js';
 import { maskSecret } from '../security/redaction.js';
+import { decryptSecret, encryptSecret } from '../security/secrets.js';
 import { AnthropicProvider } from './anthropic.js';
 import { OpenAICompatibleProvider } from './openai.js';
 import { ProviderSafetyError } from './safety.js';
@@ -35,10 +38,30 @@ export interface EffectiveProviderSettings {
 function parseConfig(raw: string | undefined): ProviderConfig {
   if (!raw) return {};
   try {
-    return JSON.parse(raw) as ProviderConfig;
+    const parsed = JSON.parse(raw) as ProviderConfig;
+    return {
+      ...parsed,
+      anthropicKey: decryptSecret(parsed.anthropicKey),
+      openaiKey: decryptSecret(parsed.openaiKey),
+      groqKey: decryptSecret(parsed.groqKey),
+    };
   } catch {
     return {};
   }
+}
+
+function serializeConfig(config: ProviderConfig): string {
+  return JSON.stringify({
+    ...config,
+    anthropicKey: config.anthropicKey ? encryptSecret(config.anthropicKey) : undefined,
+    openaiKey: config.openaiKey ? encryptSecret(config.openaiKey) : undefined,
+    groqKey: config.groqKey ? encryptSecret(config.groqKey) : undefined,
+  });
+}
+
+function providerSettingsId(userId?: string): string {
+  if (getAppMode() === 'local') return 'singleton';
+  return userId ?? getContextUserId() ?? LOCAL_USER_ID;
 }
 
 function sourceFor(envValue: string | undefined, storedValue: string | undefined): ConfigSource {
@@ -51,10 +74,11 @@ function withV1(url: string): string {
   return url.replace(/\/+$/, '').endsWith('/v1') ? url.replace(/\/+$/, '') : `${url.replace(/\/+$/, '')}/v1`;
 }
 
-export function readProviderSettings(): { provider: ProviderName | 'none'; config: ProviderConfig } {
+export function readProviderSettings(userId?: string): { provider: ProviderName | 'none'; config: ProviderConfig } {
+  const id = providerSettingsId(userId);
   const row = getDb()
-    .prepare("SELECT provider, config FROM provider_settings WHERE id = 'singleton'")
-    .get() as RawSettings | undefined;
+    .prepare('SELECT provider, config FROM provider_settings WHERE id = ?')
+    .get(id) as RawSettings | undefined;
 
   return {
     provider: (row?.provider ?? 'none') as ProviderName | 'none',
@@ -65,18 +89,23 @@ export function readProviderSettings(): { provider: ProviderName | 'none'; confi
 export function writeProviderSettings(
   provider: ProviderName | 'none',
   config: ProviderConfig,
+  userId?: string,
 ): void {
+  const id = providerSettingsId(userId);
   getDb()
     .prepare(`
-      UPDATE provider_settings
-      SET provider = ?, config = ?, updated_at = ?
-      WHERE id = 'singleton'
+      INSERT INTO provider_settings (id, provider, config, updated_at)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        provider = excluded.provider,
+        config = excluded.config,
+        updated_at = excluded.updated_at
     `)
-    .run(provider, JSON.stringify(config), Date.now());
+    .run(id, provider, serializeConfig(config), Date.now());
 }
 
-export function readEffectiveProviderSettings(): EffectiveProviderSettings {
-  const { provider, config: storedConfig } = readProviderSettings();
+export function readEffectiveProviderSettings(userId?: string): EffectiveProviderSettings {
+  const { provider, config: storedConfig } = readProviderSettings(userId);
   const anthropicKey = process.env.ANTHROPIC_API_KEY;
   const openaiKey = process.env.OPENAI_API_KEY;
   const groqKey = process.env.GROQ_API_KEY;
