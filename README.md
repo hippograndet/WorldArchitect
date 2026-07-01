@@ -73,7 +73,9 @@ curl -X PATCH http://localhost:3001/api/settings \
   -d '{"provider":"anthropic","apiKey":"sk-ant-..."}'
 ```
 
-API keys are stored locally and are never returned unmasked to the client.
+API keys can be entered in the app Settings screen or supplied as environment overrides. They are stored locally when entered in the app and are never returned unmasked to the client.
+
+Set `WORLDARCHITECT_LOCAL_ONLY=1` to force Ollama-only operation and block hosted provider egress. Local-only mode can also be enabled in Settings.
 
 ## How The App Is Organized
 
