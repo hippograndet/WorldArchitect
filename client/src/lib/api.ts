@@ -30,6 +30,16 @@ const post = <T>(path: string, body?: unknown) => request<T>('POST',   path, bod
 const patch = <T>(path: string, body: unknown) => request<T>('PATCH',  path, body);
 const del  = (path: string)                    => request<void>('DELETE', path);
 
+export interface ProviderSettingsResponse {
+  provider: 'none' | 'anthropic' | 'openai' | 'groq' | 'ollama';
+  isConfigured: boolean;
+  localOnly: { enabled: boolean; forcedByEnv: boolean };
+  anthropic: { keySet: boolean; keyMasked?: string; keySource: 'app' | 'env' | 'unset'; model: string };
+  openai: { keySet: boolean; keyMasked?: string; keySource: 'app' | 'env' | 'unset'; model: string };
+  groq: { keySet: boolean; keyMasked?: string; keySource: 'app' | 'env' | 'unset'; model: string };
+  ollama: { url: string; urlSource: 'app' | 'env' | 'unset'; model: string };
+}
+
 function parseDownloadFilename(contentDisposition: string | null): string | null {
   if (!contentDisposition) return null;
   const match = contentDisposition.match(/filename="([^"]+)"/i) ?? contentDisposition.match(/filename=([^;]+)/i);
@@ -200,8 +210,9 @@ export const api = {
   },
 
   settings: {
-    get:         ()                    => get<{ provider: string; config: Record<string, string> }>('/settings'),
-    update:      (input: { provider?: string; apiKey?: string; model?: string }) => patch<{ provider: string }>('/settings', input),
+    get:         ()                    => get<ProviderSettingsResponse>('/settings'),
+    update:      (input: { provider?: string; apiKey?: string; model?: string; ollamaUrl?: string; localOnly?: boolean }) =>
+      patch<{ provider: string; localOnly: { enabled: boolean; forcedByEnv: boolean } }>('/settings', input),
     test:        ()                    => post<{ ok: boolean; provider: string }>('/settings/test'),
     worldGet:    (wid: string)         => get<{ dailyCap: number | null; bibleThreshold: number }>(`/worlds/${wid}/settings`),
     worldUpdate: (wid: string, input: { dailyCap?: number | null; bibleThreshold?: number }) =>

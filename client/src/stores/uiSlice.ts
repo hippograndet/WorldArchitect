@@ -40,14 +40,18 @@ export interface UISlice {
 
 let toastSeq = 0;
 
+function storage(): Storage | null {
+  return typeof localStorage === 'undefined' ? null : localStorage;
+}
+
 export const uiSlice: StateCreator<StoreState, [['zustand/immer', never]], [], UISlice> = (set) => ({
   toasts: [],
   confirmDialog: null,
   sidebarOpen: true,
   activeView: 'encyclopedia',
   searchQuery: '',
-  globalTheme: (localStorage.getItem('wa-theme') as VisualTheme) || 'default',
-  fontSize: Number(localStorage.getItem('wa-font-scale')) || 1,
+  globalTheme: (storage()?.getItem('wa-theme') as VisualTheme) || 'default',
+  fontSize: Number(storage()?.getItem('wa-font-scale')) || 1,
 
   addToast: (toast) => {
     const id = String(++toastSeq);
@@ -80,12 +84,12 @@ export const uiSlice: StateCreator<StoreState, [['zustand/immer', never]], [], U
   },
 
   setGlobalTheme: (theme) => {
-    localStorage.setItem('wa-theme', theme);
+    storage()?.setItem('wa-theme', theme);
     set((s) => { s.globalTheme = theme; });
   },
 
   setFontSize: (size) => {
-    localStorage.setItem('wa-font-scale', String(size));
+    storage()?.setItem('wa-font-scale', String(size));
     set((s) => { s.fontSize = size; });
   },
 });

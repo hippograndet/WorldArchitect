@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ArrowLeft, X, Sparkles } from 'lucide-react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useStore } from '../../stores/index.ts';
 import { api } from '../../lib/api.ts';
+import type { ProviderSettingsResponse } from '../../lib/api.ts';
 import type { VisualTheme } from '../../types/world.ts';
 
 // ---------------------------------------------------------------------------
@@ -115,6 +116,26 @@ export default function WorldSettings() {
   // Distill state
   const [distilling, setDistilling]     = useState(false);
   const [distillPatch, setDistillPatch] = useState<{ vibe_append: string; writingStyle_append: string } | null>(null);
+  const [providerSettings, setProviderSettings] = useState<ProviderSettingsResponse | null>(null);
+  const [provider, setProvider] = useState<ProviderSettingsResponse['provider']>('none');
+  const [apiKey, setApiKey] = useState('');
+  const [model, setModel] = useState('');
+  const [ollamaUrl, setOllamaUrl] = useState('');
+  const [localOnly, setLocalOnly] = useState(false);
+  const [savingProvider, setSavingProvider] = useState(false);
+
+  useEffect(() => {
+    api.settings.get()
+      .then((settings) => {
+        setProviderSettings(settings);
+        setProvider(settings.provider);
+        setLocalOnly(settings.localOnly.enabled);
+        const active = settings[settings.provider as keyof ProviderSettingsResponse] as { model?: string; url?: string } | undefined;
+        setModel(active?.model ?? '');
+        setOllamaUrl(settings.ollama.url);
+      })
+      .catch((err) => addToast({ message: (err as Error).message, type: 'error' }));
+  }, [addToast]);
 
   if (!world) {
     return <div className="p-8 text-sm text-gray-400">World not found.</div>;
@@ -214,6 +235,28 @@ export default function WorldSettings() {
     if (!name || inspirations.some((n) => n.toLowerCase() === name.toLowerCase())) return;
     setInspirations((prev) => [...prev, name]);
     setNewInspirationName('');
+  };
+
+  const handleSaveProvider = async () => {
+    setSavingProvider(true);
+    try {
+      const input: { provider: string; apiKey?: string; model?: string; ollamaUrl?: string; localOnly?: boolean } = {
+        provider,
+        localOnly,
+      };
+      if (apiKey.trim() && provider !== 'none' && provider !== 'ollama') input.apiKey = apiKey.trim();
+      if (model.trim() && provider !== 'none') input.model = model.trim();
+      if (ollamaUrl.trim() && provider === 'ollama') input.ollamaUrl = ollamaUrl.trim();
+      await api.settings.update(input);
+      const refreshed = await api.settings.get();
+      setProviderSettings(refreshed);
+      setApiKey('');
+      addToast({ message: 'Provider settings saved.', type: 'success' });
+    } catch (err) {
+      addToast({ message: (err as Error).message, type: 'error' });
+    } finally {
+      setSavingProvider(false);
+    }
   };
 
   return (
@@ -466,6 +509,88 @@ export default function WorldSettings() {
           className="w-full py-2 text-sm font-medium bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
         >
           {saving ? 'Saving…' : 'Save Style'}
+        </button>
+      </section>
+
+      {/* Provider settings */}
+      <section className="mb-10 border border-gray-200 rounded-xl p-5">
+        <h2 className="text-sm font-semibold text-gray-800 mb-1">AI Provider</h2>
+        <p className="text-xs text-gray-400 mb-5">Global settings for optional AI tools.</p>
+
+        <div className="mb-4">
+          <label className="text-xs font-medium text-gray-700 block mb-1.5">Provider</label>
+          <select
+            value={provider}
+            onChange={(e) => setProvider(e.target.value as ProviderSettingsResponse['provider'])}
+            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-purple-300"
+          >
+            <option value="none">None</option>
+            <option value="anthropic">Anthropic</option>
+            <option value="openai">OpenAI</option>
+            <option value="groq">Groq</option>
+            <option value="ollama">Ollama</option>
+          </select>
+        </div>
+
+        {provider !== 'none' && provider !== 'ollama' && (
+          <div className="mb-4">
+            <label className="text-xs font-medium text-gray-700 block mb-1.5">API key</label>
+            <input
+              type="password"
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              placeholder={providerSettings?.[provider]?.keyMasked ?? 'Paste API key'}
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-300"
+            />
+            <p className="text-xs text-gray-400 mt-1">
+              Current source: {providerSettings?.[provider]?.keySource ?? 'unset'}
+            </p>
+          </div>
+        )}
+
+        {provider === 'ollama' && (
+          <div className="mb-4">
+            <label className="text-xs font-medium text-gray-700 block mb-1.5">Ollama URL</label>
+            <input
+              type="url"
+              value={ollamaUrl}
+              onChange={(e) => setOllamaUrl(e.target.value)}
+              placeholder="http://localhost:11434"
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-300"
+            />
+          </div>
+        )}
+
+        {provider !== 'none' && (
+          <div className="mb-4">
+            <label className="text-xs font-medium text-gray-700 block mb-1.5">Model</label>
+            <input
+              type="text"
+              value={model}
+              onChange={(e) => setModel(e.target.value)}
+              placeholder="Model name"
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-300"
+            />
+          </div>
+        )}
+
+        <label className="mb-5 flex items-center gap-2 text-sm text-gray-700">
+          <input
+            type="checkbox"
+            checked={localOnly}
+            disabled={providerSettings?.localOnly.forcedByEnv}
+            onChange={(e) => setLocalOnly(e.target.checked)}
+          />
+          Local-only mode
+          {providerSettings?.localOnly.forcedByEnv && <span className="text-xs text-gray-400">forced by env</span>}
+        </label>
+
+        <button
+          onClick={handleSaveProvider}
+          disabled={savingProvider}
+          className="w-full py-2 text-sm font-medium bg-gray-900 text-white rounded-lg hover:bg-gray-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+        >
+          {savingProvider ? 'Saving…' : 'Save Provider'}
         </button>
       </section>
 
