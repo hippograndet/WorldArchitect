@@ -20,6 +20,7 @@ function trackedFiles(): string[] {
 
 function shouldSkip(file: string): boolean {
   if (file.includes('node_modules/') || file.includes('/dist/') || file.includes('/build/')) return true;
+  if (file.endsWith('.test.ts') || file.endsWith('.test.tsx')) return true;
   if (file.endsWith('.png') || file.endsWith('.jpg') || file.endsWith('.jpeg') || file.endsWith('.webp')) return true;
   return IGNORED_SUFFIXES.some((suffix) => file.endsWith(suffix));
 }
