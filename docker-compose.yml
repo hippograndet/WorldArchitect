@@ -1,0 +1,34 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: worldarchitect
+      POSTGRES_PASSWORD: worldarchitect
+      POSTGRES_DB: worldarchitect
+    ports:
+      - "5432:5432"
+    volumes:
+      - worldarchitect-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U worldarchitect -d worldarchitect"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "3001:3001"
+    environment:
+      APP_MODE: hosted
+      STORAGE_DRIVER: postgres
+      DATABASE_URL: postgres://worldarchitect:worldarchitect@postgres:5432/worldarchitect
+      PUBLIC_BASE_URL: http://localhost:3001
+      ALLOW_DEV_AUTH_HEADER: "1"
+      PROVIDER_SETTINGS_ENCRYPTION_KEY: local-compose-development-key
+
+volumes:
+  worldarchitect-postgres:

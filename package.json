@@ -13,7 +13,8 @@
     "lint": "npm run typecheck",
     "typecheck": "npm run typecheck -w server && npm run typecheck -w client",
     "build": "npm run build -w server && npm run build -w client",
-    "test": "npm test -w server && npm test -w client"
+    "test": "npm test -w server && npm test -w client",
+    "docker:build": "docker build -t worldarchitect ."
   },
   "devDependencies": {
     "concurrently": "^9.1.2"

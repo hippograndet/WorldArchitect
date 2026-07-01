@@ -1,7 +1,10 @@
 import express from 'express';
 import { z } from 'zod';
 import { nanoid as _nanoid } from 'nanoid';
+import { existsSync } from 'fs';
+import { resolve } from 'path';
 import { getDb, DB_PATH } from './db/index.js';
+import { getStorageAdapter } from './db/storage.js';
 import { authMiddleware } from './auth.js';
 import { getAppMode, getPublicBaseUrl } from './config.js';
 import { requireWorldTenant, tenantIdFor } from './tenant.js';
@@ -44,17 +47,14 @@ app.use('/api', (req, res, next) => {
 });
 app.use('/api', requestContextMiddleware);
 
-app.get('/health', (_req, res) => {
-  const db = getDb();
-  const tables = db
-    .prepare(`SELECT name FROM sqlite_master WHERE type='table' ORDER BY name`)
-    .all() as { name: string }[];
-
+app.get('/health', async (_req, res) => {
+  const storage = getStorageAdapter();
+  const health = await storage.health();
   res.json({
-    status: 'ok',
+    status: health.ok ? 'ok' : 'degraded',
     mode: getAppMode(),
+    storage: health,
     db: DB_PATH,
-    tables: tables.map((t) => t.name),
   });
 });
 
@@ -164,7 +164,19 @@ app.get('/api/worlds/:wid/articles/:aid/world-issues', requireWorldTenant, (req,
   })));
 });
 
-getDb();
+const staticDir = process.env.STATIC_DIR;
+if (staticDir && existsSync(staticDir)) {
+  app.use(express.static(staticDir));
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api/') || req.path === '/health') {
+      next();
+      return;
+    }
+    res.sendFile(resolve(staticDir, 'index.html'));
+  });
+}
+
+await getStorageAdapter().migrate();
 
 app.use(errorMiddleware);
 
