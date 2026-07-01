@@ -1,6 +1,7 @@
 import OpenAI from 'openai';
 import type { ChatMessage, CompletionOptions, CompletionResult, LLMProvider, ProviderName } from './types.js';
 import type { Tool, ToolCall } from '../tools/types.js';
+import { assertTokenBudget, runProviderRequest } from './safety.js';
 
 const DEFAULTS: Record<string, string> = {
   openai: 'gpt-4o',
@@ -35,6 +36,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
   }
 
   async complete(messages: ChatMessage[], options?: CompletionOptions, tools?: Tool[]): Promise<CompletionResult> {
+    assertTokenBudget(messages, options);
     const openAIMessages = this.buildApiMessages(messages);
 
     const openAITools = tools?.map((t) => ({
@@ -46,18 +48,21 @@ export class OpenAICompatibleProvider implements LLMProvider {
       },
     }));
 
-    const response = await this.client.chat.completions.create({
-      model: this.model,
-      max_tokens: options?.maxTokens ?? 4096,
-      temperature: options?.temperature,
-      messages: openAIMessages,
-      ...(openAITools?.length ? { tools: openAITools } : {}),
-      ...(openAITools?.length && options?.toolChoice === 'required' ? { tool_choice: 'required' as const } : {}),
-      // json_object mode is supported by OpenAI and Groq; skip for Ollama (varies by model)
-      ...(options?.jsonMode && this.name !== 'ollama' && !openAITools?.length
-        ? { response_format: { type: 'json_object' as const } }
-        : {}),
-    });
+    const response = await runProviderRequest(
+      () => this.client.chat.completions.create({
+        model: this.model,
+        max_tokens: options?.maxTokens ?? 4096,
+        temperature: options?.temperature,
+        messages: openAIMessages,
+        ...(openAITools?.length ? { tools: openAITools } : {}),
+        ...(openAITools?.length && options?.toolChoice === 'required' ? { tool_choice: 'required' as const } : {}),
+        // json_object mode is supported by OpenAI and Groq; skip for Ollama (varies by model)
+        ...(options?.jsonMode && this.name !== 'ollama' && !openAITools?.length
+          ? { response_format: { type: 'json_object' as const } }
+          : {}),
+      }),
+      options,
+    );
 
     const choice = response.choices[0];
     const rawToolCalls = choice.message.tool_calls;

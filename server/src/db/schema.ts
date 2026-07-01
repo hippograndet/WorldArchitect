@@ -10,6 +10,20 @@ function tryAlter(db: Database.Database, sql: string): void {
 }
 
 export function runMigrations(db: Database.Database): void {
+  // M0 compatibility: categories were introduced before migrations were formalised.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS categories (
+      id         TEXT PRIMARY KEY,
+      world_id   TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
+      name       TEXT NOT NULL,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL
+    )
+  `);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_categories_world ON categories(world_id, sort_order)`);
+  tryAlter(db, `ALTER TABLE articles ADD COLUMN category_id TEXT REFERENCES categories(id) ON DELETE SET NULL`);
+  tryAlter(db, `ALTER TABLE world_bible_entries ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0`);
+
   // M1: add link_type to article_links
   tryAlter(db, `ALTER TABLE article_links ADD COLUMN link_type TEXT NOT NULL DEFAULT 'references'`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_article_links_target ON article_links(target_article_id, link_type)`);
@@ -224,6 +238,7 @@ export function applySchema(db: Database.Database): void {
     CREATE TABLE IF NOT EXISTS articles (
       id                    TEXT PRIMARY KEY,
       world_id              TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
+      category_id           TEXT REFERENCES categories(id) ON DELETE SET NULL,
       title                 TEXT NOT NULL,
       status                TEXT NOT NULL DEFAULT 'stub',
       template_type         TEXT NOT NULL DEFAULT 'general',
@@ -235,6 +250,16 @@ export function applySchema(db: Database.Database): void {
       created_at            INTEGER NOT NULL,
       updated_at            INTEGER NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS categories (
+      id         TEXT PRIMARY KEY,
+      world_id   TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
+      name       TEXT NOT NULL,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_categories_world ON categories(world_id, sort_order);
 
     CREATE TABLE IF NOT EXISTS article_versions (
       id                       TEXT PRIMARY KEY,
@@ -279,6 +304,7 @@ export function applySchema(db: Database.Database): void {
       world_id   TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
       article_id TEXT NOT NULL UNIQUE REFERENCES articles(id) ON DELETE CASCADE,
       summary    TEXT NOT NULL,
+      sort_order INTEGER NOT NULL DEFAULT 0,
       updated_at INTEGER NOT NULL
     );
 

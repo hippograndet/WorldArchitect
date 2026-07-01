@@ -1,6 +1,6 @@
 import type { WorldContext } from '../agents/director.js';
 import type { ContextPackage } from '../services/archivist.js';
-import { buildWorldHeader } from './shared.js';
+import { buildWorldHeader, dataBlock } from './shared.js';
 
 export type ProposalMode = 'expand_description' | 'create_root' | 'create_child';
 
@@ -8,19 +8,19 @@ function renderContextPackage(pkg: ContextPackage): string {
   const parts: string[] = [];
 
   if (pkg.parents.length > 0) {
-    parts.push('## Parent Articles\n' + pkg.parents.map(p => `### ${p.title}\n${p.summary}`).join('\n\n'));
+    parts.push('## Parent Articles\n' + dataBlock('context.parents', pkg.parents));
   }
   if (pkg.siblings.length > 0) {
-    parts.push('## Sibling Articles\n' + pkg.siblings.map(s => `- **${s.title}**: ${s.summary}`).join('\n'));
+    parts.push('## Sibling Articles\n' + dataBlock('context.siblings', pkg.siblings));
   }
   if (pkg.children.length > 0) {
-    parts.push('## Existing Sub-Articles\n' + pkg.children.map(c => `- **${c.title}**: ${c.summary}`).join('\n'));
+    parts.push('## Existing Sub-Articles\n' + dataBlock('context.children', pkg.children));
   }
   if (pkg.fixedPoints.length > 0) {
-    parts.push('## Fixed Points (World Constants)\n' + pkg.fixedPoints.map(f => `### ${f.title}\n${f.summary}`).join('\n\n'));
+    parts.push('## Fixed Points (World Constants)\n' + dataBlock('context.fixedPoints', pkg.fixedPoints));
   }
   if (pkg.temporalNeighbors.length > 0) {
-    parts.push('## Temporal Neighbours\n' + pkg.temporalNeighbors.map(t => `- **${t.title}** (${t.temporalAnchorStart}): ${t.summary}`).join('\n'));
+    parts.push('## Temporal Neighbours\n' + dataBlock('context.temporalNeighbors', pkg.temporalNeighbors));
   }
 
   return parts.join('\n\n');
@@ -62,13 +62,13 @@ export function buildProposalUserMessage(
   ];
 
   if (pkg.targetIntroduction) {
-    parts.push(`Current Introduction:\n${pkg.targetIntroduction}`);
+    parts.push(`Current Introduction:\n${dataBlock('target.introduction', pkg.targetIntroduction)}`);
   }
 
   const context = renderContextPackage(pkg);
   if (context) parts.push(`## World Context\n${context}`);
 
-  if (userSpec) parts.push(`## User Specification\n${userSpec}`);
+  if (userSpec) parts.push(`## User Specification\n${dataBlock('userSpec', userSpec)}`);
 
   parts.push('Propose 3 creative identities for this entity — what it fundamentally IS, not how to write about it.');
 

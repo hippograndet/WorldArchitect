@@ -1,5 +1,6 @@
 import { nanoid } from 'nanoid';
 import { getDb } from '../db/index.js';
+import { redactSecrets } from '../security/redaction.js';
 
 export interface CallLogEntry {
   worldId: string;
@@ -26,7 +27,7 @@ export function logCall(entry: CallLogEntry): void {
       entry.tokensIn ?? null,
       entry.tokensOut ?? null,
       entry.status,
-      entry.errorMessage ?? null,
+      entry.errorMessage ? String(redactSecrets(entry.errorMessage)) : null,
       Date.now(),
     );
 }

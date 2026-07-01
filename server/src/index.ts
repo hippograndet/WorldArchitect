@@ -14,9 +14,13 @@ import nameBankRoutes from './routes/nameBank.js';
 import entityMentionsRoutes from './routes/entityMentions.js';
 import { errorMiddleware } from './middleware/errorHandler.js';
 import publishRoutes from './routes/publish.js';
+import { assertNoCommittedSecrets } from './security/secretScan.js';
+import { logger } from './observability/logger.js';
 
 const app = express();
 const PORT = 3001;
+
+assertNoCommittedSecrets();
 
 app.use(express.json({ limit: '2mb' }));
 
@@ -155,6 +159,9 @@ getDb();
 app.use(errorMiddleware);
 
 app.listen(PORT, () => {
-  console.log(`WorldArchitect server running at http://localhost:${PORT}`);
-  console.log(`Database: ${DB_PATH}`);
+  logger.info('server.started', {
+    url: `http://localhost:${PORT}`,
+    db: DB_PATH,
+    sentryConfigured: !!process.env.SENTRY_DSN,
+  });
 });

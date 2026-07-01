@@ -12,6 +12,7 @@ const router = Router({ mergeParams: true });
 // ---------------------------------------------------------------------------
 
 const CreateArticleSchema = z.object({
+  categoryId: z.string().min(1).optional(),
   title: z.string().min(1).max(500),
   templateType: z
     .enum(['general', 'character', 'location', 'faction', 'historical_event'])
@@ -20,12 +21,14 @@ const CreateArticleSchema = z.object({
   introduction: z.string().optional().default(''),
   description: z.string().optional().default(''),
   chronology: z.string().optional().default(''),
+  body: z.string().optional(),
   temporalAnchorStart: z.string().optional(),
   temporalAnchorEnd: z.string().optional(),
   isFixedPoint: z.boolean().optional().default(false),
 });
 
 const ManualEditSchema = z.object({
+  body: z.string().optional(),
   introduction: z.string().optional(),
   description: z.string().optional(),
   chronology: z.string().optional(),
@@ -52,6 +55,28 @@ const TemporalAnchorSchema = z
   .nullable()
   .optional();
 
+const MentionSchema = z.object({
+  title: z.string().min(1).max(500),
+  templateType: z.enum(['general', 'character', 'location', 'faction', 'historical_event']).default('general'),
+  summary: z.string().optional(),
+});
+
+const GeneratedDraftContentSchema = z.object({
+  description: z.string().optional(),
+  introduction: z.string().optional(),
+  chronologySection: z.string().optional(),
+  childDescription: z.string().optional(),
+  parentAppend: z.string().optional(),
+  coherenceWarnings: z.array(CoherenceWarningSchema).optional().default([]),
+  suggestedLinks: z.array(SuggestedLinkSchema).optional().default([]),
+  temporalAnchor: TemporalAnchorSchema,
+  retentionIssues: z
+    .array(z.object({ description: z.string(), severity: z.enum(['warning', 'critical']) }))
+    .optional()
+    .default([]),
+  mentions: z.array(MentionSchema).optional().default([]),
+});
+
 const SaveDraftSchema = z.object({
   // selectedProposal: stores the Phase 1 proposal chosen by user { title, direction }
   selectedProposal: z.record(z.unknown()).optional(),
@@ -73,26 +98,7 @@ const SaveDraftSchema = z.object({
     .object({ articleId: z.string(), appendText: z.string() })
     .optional(),
   // draftContent: flexible JSON blob stored by the Director; shape depends on pipelineType
-  draftContent: z
-    .object({
-      // expand_description / create_root / reorganize
-      description: z.string().optional(),
-      introduction: z.string().optional(),
-      // expand_chronology
-      chronologySection: z.string().optional(),
-      // create_child
-      childDescription: z.string().optional(),
-      parentAppend: z.string().optional(),
-      // shared
-      coherenceWarnings: z.array(CoherenceWarningSchema).optional().default([]),
-      suggestedLinks: z.array(SuggestedLinkSchema).optional().default([]),
-      temporalAnchor: TemporalAnchorSchema,
-      retentionIssues: z
-        .array(z.object({ description: z.string(), severity: z.enum(['warning', 'critical']) }))
-        .optional()
-        .default([]),
-    })
-    .optional(),
+  draftContent: GeneratedDraftContentSchema.optional(),
 });
 
 const AcceptDraftSchema = z.object({
@@ -130,13 +136,25 @@ function parseArticle(row: DbRow) {
 }
 
 function parseVersion(row: DbRow) {
+  const introduction = (row.introduction as string) ?? '';
+  const description = (row.description as string) ?? '';
+  const chronology = (row.chronology as string) ?? '';
+  const body = [
+    introduction ? `## Introduction\n\n${introduction}` : '',
+    description ? `## Description\n\n${description}` : '',
+    chronology ? `## Chronology\n\n${chronology}` : '',
+  ].filter(Boolean).join('\n\n');
+  const summary = introduction || description.split(/\s+/).filter(Boolean).slice(0, 50).join(' ');
+
   return {
     id: row.id,
     articleId: row.article_id,
     versionNumber: row.version_number,
-    introduction: (row.introduction as string) ?? '',
-    description: (row.description as string) ?? '',
-    chronology: (row.chronology as string) ?? '',
+    introduction,
+    description,
+    chronology,
+    body,
+    summary,
     expansionParams: row.expansion_params
       ? JSON.parse(row.expansion_params as string)
       : null,
@@ -180,6 +198,14 @@ function parseDraft(row: DbRow) {
 
 function countWords(text: string): number {
   return text.trim() === '' ? 0 : text.trim().split(/\s+/).length;
+}
+
+function bodyToDescription(body: string | undefined, fallback?: string): string | undefined {
+  if (body === undefined) return fallback;
+  return body
+    .replace(/^##\s+Description\s*/i, '')
+    .replace(/^##\s+Introduction\s*[\s\S]*?##\s+Description\s*/i, '')
+    .trim();
 }
 
 function getNextVersionNumber(articleId: string): number {
@@ -396,13 +422,14 @@ router.post('/links', (req, res) => {
 // GET /api/worlds/:wid/articles?status=:s&q=:query
 router.get('/', (req, res) => {
   const db = getDb();
-  const { status, q } = req.query as Record<string, string | undefined>;
+  const { status, q, category } = req.query as Record<string, string | undefined>;
 
   let sql = 'SELECT * FROM articles WHERE world_id = ?';
   const params: unknown[] = [(req.params as Record<string, string>).wid];
 
   if (status) { sql += ' AND status = ?';   params.push(status); }
   if (q)      { sql += ' AND title LIKE ?'; params.push(`%${q}%`); }
+  if (category) { sql += ' AND category_id = ?'; params.push(category); }
 
   sql += ' ORDER BY updated_at DESC';
 
@@ -424,9 +451,16 @@ router.post('/', (req, res) => {
   if (!worldExists) { res.status(404).json({ error: 'World not found' }); return; }
 
   const {
-    title, templateType, introduction, description, chronology,
+    categoryId, title, templateType, introduction, body, chronology,
     temporalAnchorStart, temporalAnchorEnd, isFixedPoint,
   } = parse.data;
+  const description = bodyToDescription(body, parse.data.description) ?? '';
+
+  if (!categoryId) { res.status(400).json({ error: { categoryId: ['Required'] } }); return; }
+  const categoryExists = db
+    .prepare('SELECT id FROM categories WHERE id = ? AND world_id = ?')
+    .get(categoryId, (req.params as Record<string, string>).wid);
+  if (!categoryExists) { res.status(404).json({ error: 'Category not found' }); return; }
 
   const now = Date.now();
   const articleId = nanoid();
@@ -437,12 +471,12 @@ router.post('/', (req, res) => {
   db.transaction(() => {
     db.prepare(`
       INSERT INTO articles
-        (id, world_id, title, status, template_type,
+        (id, world_id, category_id, title, status, template_type,
          temporal_anchor_start, temporal_anchor_end, is_fixed_point,
          current_version_id, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
-      articleId, (req.params as Record<string, string>).wid, title, status, templateType,
+      articleId, (req.params as Record<string, string>).wid, categoryId, title, status, templateType,
       temporalAnchorStart ?? null, temporalAnchorEnd ?? null, isFixedPoint ? 1 : 0,
       versionId, now, now,
     );
@@ -517,7 +551,22 @@ router.patch('/:aid', (req, res) => {
   const versionId = nanoid();
   const versionNumber = getNextVersionNumber(req.params.aid);
 
-  const { introduction, description, chronology, status, title, temporalAnchorStart, temporalAnchorEnd, isFixedPoint } = parse.data;
+  const { body, introduction, chronology, status, title, temporalAnchorStart, temporalAnchorEnd, isFixedPoint } = parse.data;
+  const description = bodyToDescription(body, parse.data.description);
+
+  if (
+    body === undefined &&
+    parse.data.description === undefined &&
+    introduction === undefined &&
+    chronology === undefined &&
+    title === undefined &&
+    temporalAnchorStart === undefined &&
+    temporalAnchorEnd === undefined &&
+    isFixedPoint === undefined
+  ) {
+    res.status(400).json({ error: 'No editable article fields provided' });
+    return;
+  }
 
   // Fetch current version to merge only the provided fields
   const current = article.current_version_id
@@ -754,20 +803,20 @@ router.post('/:aid/accept', (req, res) => {
 
   if (!draft) { res.status(400).json({ error: 'No pending draft to accept' }); return; }
 
-  const draftContent = draft.draft_content
-    ? (JSON.parse(draft.draft_content as string) as {
-        description?: string;
-        introduction?: string;
-        chronologySection?: string;
-        childDescription?: string;
-        parentAppend?: string;
-        coherenceWarnings?: Array<{ sourceArticleId?: string | null; severity: 'warning' | 'conflict'; description: string }>;
-        suggestedLinks?: Array<{ targetArticleTitle: string; targetArticleId?: string | null }>;
-        temporalAnchor?: { start: string; end?: string } | null;
-        retentionIssues?: Array<{ description: string; severity: 'warning' | 'critical' }>;
-        mentions?: Array<{ title: string; templateType: string; summary?: string }>;
-      })
+  const draftContentParse = draft.draft_content
+    ? GeneratedDraftContentSchema.safeParse(JSON.parse(draft.draft_content as string))
     : null;
+
+  if (draftContentParse && !draftContentParse.success) {
+    res.status(400).json({
+      error: 'Generated draft failed validation and was not accepted.',
+      code: 'GENERATED_DRAFT_INVALID',
+      details: draftContentParse.error.flatten().fieldErrors,
+    });
+    return;
+  }
+
+  const draftContent = draftContentParse?.data ?? null;
 
   if (!draftContent) {
     res.status(400).json({ error: 'Draft has no content yet (Phase 2 not run)' });

@@ -7,6 +7,8 @@ export interface BibleEntry {
   articleTitle: string;
   summary: string;
   updatedAt: number;
+  categoryName: string | null;
+  sortOrder: number;
 }
 
 /**
@@ -20,14 +22,23 @@ export function upsertEntry(
 ): void {
   const db = getDb();
   const now = Date.now();
+  const article = db.prepare(`
+    SELECT a.id, COALESCE(c.sort_order, 9999) AS sort_order
+    FROM articles a
+    LEFT JOIN categories c ON c.id = a.category_id
+    WHERE a.id = ? AND a.world_id = ?
+  `).get(articleId, worldId) as { id: string; sort_order: number } | undefined;
+
+  if (!article) throw new Error(`Article ${articleId} not found in world ${worldId}`);
 
   db.prepare(`
-    INSERT INTO world_bible_entries (id, world_id, article_id, summary, updated_at)
-    VALUES (?, ?, ?, ?, ?)
+    INSERT INTO world_bible_entries (id, world_id, article_id, summary, sort_order, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?)
     ON CONFLICT(article_id) DO UPDATE SET
       summary    = excluded.summary,
+      sort_order = excluded.sort_order,
       updated_at = excluded.updated_at
-  `).run(nanoid(), worldId, articleId, summary, now);
+  `).run(nanoid(), worldId, articleId, summary, article.sort_order, now);
 
   refreshTokenCount(worldId);
 }
@@ -38,11 +49,13 @@ export function upsertEntry(
 export function getEntries(worldId: string): BibleEntry[] {
   const db = getDb();
   const rows = db.prepare(`
-    SELECT wbe.id, wbe.article_id, wbe.summary, wbe.updated_at, a.title AS article_title
+    SELECT wbe.id, wbe.article_id, wbe.summary, wbe.updated_at, wbe.sort_order,
+           a.title AS article_title, c.name AS category_name
     FROM world_bible_entries wbe
     JOIN articles a ON a.id = wbe.article_id
+    LEFT JOIN categories c ON c.id = a.category_id
     WHERE wbe.world_id = ?
-    ORDER BY a.title
+    ORDER BY wbe.sort_order, c.name, a.title
   `).all(worldId) as Array<Record<string, unknown>>;
 
   return rows.map((r) => ({
@@ -51,6 +64,8 @@ export function getEntries(worldId: string): BibleEntry[] {
     articleTitle: r.article_title as string,
     summary:      r.summary as string,
     updatedAt:    r.updated_at as number,
+    categoryName: (r.category_name as string | null) ?? null,
+    sortOrder:    r.sort_order as number,
   }));
 }
 
@@ -62,9 +77,16 @@ export function renderBible(worldId: string): string {
   const entries = getEntries(worldId);
   if (entries.length === 0) return '';
 
-  return entries
-    .map((e) => `### ${e.articleTitle}\n${e.summary}`)
-    .join('\n\n');
+  const parts: string[] = [];
+  let currentCategory: string | null = null;
+  for (const entry of entries) {
+    if (entry.categoryName !== currentCategory) {
+      currentCategory = entry.categoryName;
+      if (currentCategory) parts.push(`## ${currentCategory}`);
+    }
+    parts.push(`### ${entry.articleTitle}\n${entry.summary}`);
+  }
+  return parts.join('\n\n');
 }
 
 export function getBibleMeta(worldId: string): { tokenCount: number; threshold: number } {

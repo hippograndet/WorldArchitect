@@ -3,10 +3,12 @@ import { z } from 'zod';
 import { getDb } from '../db/index.js';
 import {
   readProviderSettings,
+  readEffectiveProviderSettings,
   writeProviderSettings,
   getProvider,
   maskKey,
 } from '../providers/index.js';
+import { redactErrorMessage } from '../security/redaction.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
 import type { ProviderName, ProviderConfig } from '../providers/index.js';
 
@@ -21,6 +23,7 @@ const UpdateProviderSchema = z.object({
   apiKey: z.string().optional(),       // key for the selected provider
   model: z.string().optional(),        // model override for the selected provider
   ollamaUrl: z.string().url().optional(),
+  localOnly: z.boolean().optional(),
 });
 
 const UpdateCostSettingsSchema = z.object({
@@ -33,28 +36,33 @@ const UpdateCostSettingsSchema = z.object({
 // ---------------------------------------------------------------------------
 
 router.get('/', (_req, res) => {
-  const { provider, config } = readProviderSettings();
+  const { provider, config, sources, localOnly } = readEffectiveProviderSettings();
 
   res.json({
     provider,
     isConfigured: provider !== 'none',
+    localOnly,
     anthropic: {
       keySet: !!config.anthropicKey,
       keyMasked: maskKey(config.anthropicKey),
+      keySource: sources.anthropicKey,
       model: config.anthropicModel ?? 'claude-sonnet-4-6',
     },
     openai: {
       keySet: !!config.openaiKey,
       keyMasked: maskKey(config.openaiKey),
+      keySource: sources.openaiKey,
       model: config.openaiModel ?? 'gpt-4o',
     },
     groq: {
       keySet: !!config.groqKey,
       keyMasked: maskKey(config.groqKey),
+      keySource: sources.groqKey,
       model: config.groqModel ?? 'llama-3.3-70b-versatile',
     },
     ollama: {
       url: config.ollamaUrl ?? 'http://localhost:11434',
+      urlSource: sources.ollamaUrl,
       model: config.ollamaModel ?? 'llama3',
     },
   });
@@ -68,7 +76,7 @@ router.patch('/', (req, res) => {
     return;
   }
 
-  const { provider, apiKey, model, ollamaUrl } = parse.data;
+  const { provider, apiKey, model, ollamaUrl, localOnly } = parse.data;
   const { config: existing } = readProviderSettings();
 
   // Merge — only overwrite the fields relevant to the selected provider.
@@ -88,9 +96,14 @@ router.patch('/', (req, res) => {
     if (model)     updated.ollamaModel = model;
   }
 
+  if (localOnly !== undefined && process.env.WORLDARCHITECT_LOCAL_ONLY !== '1') {
+    updated.localOnly = localOnly;
+  }
+
   writeProviderSettings(provider as ProviderName | 'none', updated);
 
-  res.json({ ok: true, provider });
+  const effective = readEffectiveProviderSettings();
+  res.json({ ok: true, provider, localOnly: effective.localOnly });
 });
 
 // POST /api/settings/test — fire a minimal completion to verify the key works
@@ -103,14 +116,14 @@ router.post('/test', asyncHandler(async (_req, res) => {
     );
     res.json({ ok: true, provider: provider.name, response: result.content.trim() });
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unknown error';
+    const message = redactErrorMessage(err);
     res.status(400).json({ ok: false, error: message });
   }
 }));
 
 // GET /api/settings/ollama/models — list models available in the local Ollama daemon
 router.get('/ollama/models', asyncHandler(async (_req, res) => {
-  const { config } = readProviderSettings();
+  const { config } = readEffectiveProviderSettings();
   const base = (config.ollamaUrl ?? 'http://localhost:11434').replace(/\/v1\/?$/, '');
 
   try {
@@ -119,7 +132,7 @@ router.get('/ollama/models', asyncHandler(async (_req, res) => {
     const data = (await response.json()) as { models?: Array<{ name: string }> };
     res.json({ models: (data.models ?? []).map((m) => m.name) });
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Cannot reach Ollama';
+    const message = redactErrorMessage(err, 'Cannot reach Ollama');
     res.status(503).json({ error: message, hint: 'Is Ollama running on your machine?' });
   }
 }));

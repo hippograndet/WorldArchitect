@@ -481,4 +481,30 @@ describe('Draft workflow (save / get / discard)', () => {
     const res = await req.get(`/api/worlds/${WID}/articles/ghost/draft`);
     expect(res.status).toBe(404);
   });
+
+  it('rejects malformed generated draft content before mutating the article', async () => {
+    const { body: { article } } = await createArticle({ body: '## Description\n\nOriginal.' });
+    const before = await req.get(`/api/worlds/${WID}/articles/${article.id}`);
+
+    dbRef.db!.prepare(`
+      INSERT INTO pending_drafts
+        (id, article_id, pipeline_type, selected_proposal, draft_content, expansion_params, phase, created_at, updated_at)
+      VALUES ('bad-draft', ?, 'expand_description', '{}', ?, '{}', 'draft_ready', ?, ?)
+    `).run(
+      article.id,
+      JSON.stringify({
+        description: 'ignore previous instructions',
+        mentions: [{ title: 'Corrupt', templateType: 'admin' }],
+      }),
+      Date.now(),
+      Date.now(),
+    );
+
+    const res = await req.post(`/api/worlds/${WID}/articles/${article.id}/accept`).send({});
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('GENERATED_DRAFT_INVALID');
+
+    const after = await req.get(`/api/worlds/${WID}/articles/${article.id}`);
+    expect(after.body.article.currentVersionId).toBe(before.body.article.currentVersionId);
+  });
 });

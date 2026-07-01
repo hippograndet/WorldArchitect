@@ -1,6 +1,7 @@
 import { getDb } from '../db/index.js';
 import { renderBible } from '../services/worldBible.js';
 import { listNames, type ListNamesFilter } from '../services/nameBank.js';
+import { dataBlock } from '../prompts/shared.js';
 import type { Tool, ToolCall } from './types.js';
 
 export const CONTEXT_TOOLS: Tool[] = [
@@ -94,7 +95,7 @@ export function executeContextTool(worldId: string, call: ToolCall): string {
 
   switch (call.name) {
     case 'get_world_bible':
-      return renderBible(worldId) || '(World Bible is empty)';
+      return dataBlock('worldBible', renderBible(worldId) || '(World Bible is empty)');
 
     case 'get_article': {
       const { articleId } = call.input as { articleId: string };
@@ -108,7 +109,7 @@ export function executeContextTool(worldId: string, call: ToolCall): string {
         )
         .get(articleId, worldId) as Record<string, unknown> | undefined;
       if (!row) return JSON.stringify({ error: 'Article not found' });
-      return JSON.stringify({
+      return dataBlock('article', {
         id: row.id,
         title: row.title,
         templateType: row.template_type,
@@ -132,7 +133,7 @@ export function executeContextTool(worldId: string, call: ToolCall): string {
            LIMIT 10`,
         )
         .all(worldId, `%${query}%`, `%${query}%`) as Record<string, unknown>[];
-      return JSON.stringify(
+      return dataBlock('searchResults',
         rows.map((r) => ({ id: r.id, title: r.title, introduction: (r.introduction as string) ?? '' })),
       );
     }
@@ -147,7 +148,7 @@ export function executeContextTool(worldId: string, call: ToolCall): string {
            ORDER BY a.temporal_anchor_start ASC`,
         )
         .all(worldId) as Record<string, unknown>[];
-      return JSON.stringify(
+      return dataBlock('timeline',
         rows.map((r) => ({
           id: r.id,
           title: r.title,
@@ -174,7 +175,7 @@ export function executeContextTool(worldId: string, call: ToolCall): string {
            WHERE al.target_article_id = ?`,
         )
         .all(articleId) as Record<string, unknown>[];
-      return JSON.stringify({ outgoing, incoming });
+      return dataBlock('articleLinks', { outgoing, incoming });
     }
 
     case 'lookup_names': {
@@ -189,7 +190,7 @@ export function executeContextTool(worldId: string, call: ToolCall): string {
         tags,
       };
       const entries = listNames(worldId, filter);
-      return JSON.stringify(entries.map((e) => ({
+      return dataBlock('nameBank', entries.map((e) => ({
         name: e.name, entityType: e.entityType,
         gender: e.gender, socialClass: e.socialClass, nameComponent: e.nameComponent, tags: e.tags,
       })));

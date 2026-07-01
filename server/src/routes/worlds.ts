@@ -30,6 +30,11 @@ const CreateWorldSchema = z.object({
   generateStubs: z.boolean().optional().default(false),
 });
 
+const DEFAULT_CATEGORIES = [
+  'Religion', 'Technology', 'Politics', 'Economy',
+  'Culture', 'Geography', 'History', 'Notable Figures',
+];
+
 const UpdateWorldSchema = z.object({
   name:        z.string().min(1).max(200).optional(),
   description: z.string().min(20).optional(),
@@ -88,6 +93,13 @@ router.post('/', asyncHandler(async (req, res) => {
       VALUES (?, 0, ?)
     `).run(worldId, now);
 
+    DEFAULT_CATEGORIES.forEach((categoryName, index) => {
+      db.prepare(`
+        INSERT INTO categories (id, world_id, name, sort_order, created_at)
+        VALUES (?, ?, ?, ?, ?)
+      `).run(nanoid(), worldId, categoryName, index, now);
+    });
+
     db.prepare(`
       INSERT INTO articles (id, world_id, title, status, template_type, depth, created_at, updated_at)
       VALUES (?, ?, ?, 'draft', 'general', 1, ?, ?)
@@ -107,20 +119,23 @@ router.post('/', asyncHandler(async (req, res) => {
   })();
 
   const world = db.prepare('SELECT * FROM worlds WHERE id = ?').get(worldId) as Record<string, unknown>;
+  const categories = db
+    .prepare('SELECT id, name, sort_order AS sortOrder FROM categories WHERE world_id = ? ORDER BY sort_order')
+    .all(worldId);
 
   if (generateStubs && isLLMConfigured()) {
     try {
       const seedText = [description, originPoint].filter(Boolean).join('\n\n');
       const director = new PipelineCoordinator();
       const skeletonResult = await director.createWorld(worldId, seedText);
-      res.status(201).json({ world: parseWorld(world), rootArticleId: articleId, stubs: skeletonResult.stubs });
+      res.status(201).json({ world: parseWorld(world), rootArticleId: articleId, categories, stubs: skeletonResult.stubs });
       return;
     } catch {
       // SkeletonAgent failure must not block world creation
     }
   }
 
-  res.status(201).json({ world: parseWorld(world), rootArticleId: articleId });
+  res.status(201).json({ world: parseWorld(world), rootArticleId: articleId, categories });
 }));
 
 // GET /api/worlds — list all worlds

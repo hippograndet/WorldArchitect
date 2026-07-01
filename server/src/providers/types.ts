@@ -20,6 +20,12 @@ export interface CompletionOptions {
   jsonMode?: boolean;
   /** Force the model to call a tool rather than respond with free text */
   toolChoice?: 'required';
+  /** Per-request timeout in milliseconds. Defaults to WORLDARCHITECT_LLM_TIMEOUT_MS or 60000. */
+  timeoutMs?: number;
+  /** Retry transient provider failures with exponential backoff. */
+  retry?: { attempts?: number; baseDelayMs?: number };
+  /** Hard ceiling for estimated input + requested output tokens. */
+  maxTotalTokens?: number;
 }
 
 export interface CompletionResult {
@@ -46,4 +52,7 @@ export interface ProviderConfig {
   groqModel?: string;
   ollamaUrl?: string;
   ollamaModel?: string;
+  localOnly?: boolean;
 }
+
+export type ConfigSource = 'app' | 'env' | 'unset';

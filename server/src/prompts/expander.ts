@@ -3,7 +3,7 @@ import type { ContextPackage } from '../services/archivist.js';
 import type { ProposalItem } from '../agents/muse.js';
 import type { IdeaItem } from '../agents/oracle.js';
 import type { ResearchBrief } from '../agents/scribe.js';
-import { buildWorldHeader } from './shared.js';
+import { buildWorldHeader, dataBlock } from './shared.js';
 
 export type ExpanderMode = 'expand_description' | 'create_root' | 'create_child' | 'reorganize';
 
@@ -11,24 +11,24 @@ function renderContextPackage(pkg: ContextPackage, mode: ExpanderMode): string {
   const parts: string[] = [];
 
   if (mode === 'reorganize') {
-    if (pkg.targetDescription) parts.push(`## Current Description (read-only constraint)\n${pkg.targetDescription}`);
-    if (pkg.targetChronology)  parts.push(`## Current Chronology (read-only constraint)\n${pkg.targetChronology}`);
+    if (pkg.targetDescription) parts.push(`## Current Description (read-only constraint)\n${dataBlock('target.description', pkg.targetDescription)}`);
+    if (pkg.targetChronology)  parts.push(`## Current Chronology (read-only constraint)\n${dataBlock('target.chronology', pkg.targetChronology)}`);
   }
 
   if (pkg.parents.length > 0) {
-    parts.push('## Parent Articles\n' + pkg.parents.map(p => `### ${p.title}\n${p.summary}`).join('\n\n'));
+    parts.push('## Parent Articles\n' + dataBlock('context.parents', pkg.parents));
   }
   if (pkg.siblings.length > 0) {
-    parts.push('## Sibling Articles\n' + pkg.siblings.map(s => `- **${s.title}**: ${s.summary}`).join('\n'));
+    parts.push('## Sibling Articles\n' + dataBlock('context.siblings', pkg.siblings));
   }
   if (pkg.children.length > 0) {
-    parts.push('## Existing Sub-Articles\n' + pkg.children.map(c => `- **${c.title}**: ${c.summary}`).join('\n'));
+    parts.push('## Existing Sub-Articles\n' + dataBlock('context.children', pkg.children));
   }
   if (pkg.fixedPoints.length > 0) {
-    parts.push('## Fixed Points (World Constants)\n' + pkg.fixedPoints.map(f => `### ${f.title}\n${f.summary}`).join('\n\n'));
+    parts.push('## Fixed Points (World Constants)\n' + dataBlock('context.fixedPoints', pkg.fixedPoints));
   }
   if (pkg.temporalNeighbors.length > 0) {
-    parts.push('## Temporal Neighbours\n' + pkg.temporalNeighbors.map(t => `- **${t.title}** (${t.temporalAnchorStart}): ${t.summary}`).join('\n'));
+    parts.push('## Temporal Neighbours\n' + dataBlock('context.temporalNeighbors', pkg.temporalNeighbors));
   }
   if (pkg.referencedArticles.length > 0) {
     parts.push('## Referenced Articles\n' + pkg.referencedArticles.map(r => `- ${r.title}`).join('\n'));
@@ -109,16 +109,15 @@ export function buildExpanderUserMessage(
   ];
 
   if (pkg.targetIntroduction) {
-    parts.push(`Current Introduction:\n${pkg.targetIntroduction}`);
+    parts.push(`Current Introduction:\n${dataBlock('target.introduction', pkg.targetIntroduction)}`);
   }
 
   if (selectedProposal) {
-    parts.push(`## Selected Creative Direction\n**${selectedProposal.title}**\n${selectedProposal.direction}`);
+    parts.push(`## Selected Creative Direction\n${dataBlock('selectedProposal', selectedProposal)}`);
   }
 
   if (selectedIdeas && selectedIdeas.length > 0) {
-    const ideaList = selectedIdeas.map(i => `- **${i.theme}**: ${i.detail}`).join('\n');
-    parts.push(`## Themes to Incorporate\n${ideaList}`);
+    parts.push(`## Themes to Incorporate\n${dataBlock('selectedIdeas', selectedIdeas)}`);
   }
 
   if (researchBrief) {
@@ -136,7 +135,7 @@ export function buildExpanderUserMessage(
   }
 
   if (userSpec) {
-    parts.push(`## User Specification\n${userSpec}`);
+    parts.push(`## User Specification\n${dataBlock('userSpec', userSpec)}`);
   }
 
   const context = renderContextPackage(pkg, mode);

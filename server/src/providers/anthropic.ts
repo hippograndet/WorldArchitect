@@ -1,6 +1,8 @@
 import Anthropic from '@anthropic-ai/sdk';
+import { redactSecrets } from '../security/redaction.js';
 import type { ChatMessage, CompletionOptions, CompletionResult, LLMProvider } from './types.js';
 import type { Tool, ToolCall } from '../tools/types.js';
+import { assertTokenBudget, runProviderRequest } from './safety.js';
 
 const DEFAULT_MODEL = 'claude-sonnet-4-6';
 
@@ -15,6 +17,7 @@ export class AnthropicProvider implements LLMProvider {
   }
 
   async complete(messages: ChatMessage[], options?: CompletionOptions, tools?: Tool[]): Promise<CompletionResult> {
+    assertTokenBudget(messages, options);
     const systemMsg = messages.find((m) => m.role === 'system');
     const apiMessages = this.buildApiMessages(messages.filter((m) => m.role !== 'system'));
 
@@ -26,21 +29,24 @@ export class AnthropicProvider implements LLMProvider {
 
     let response: Awaited<ReturnType<typeof this.client.messages.create>>;
     try {
-      response = await this.client.messages.create({
-        model: this.model,
-        max_tokens: options?.maxTokens ?? 4096,
-        ...(systemMsg ? { system: systemMsg.content } : {}),
-        messages: apiMessages,
-        ...(anthropicTools?.length ? { tools: anthropicTools } : {}),
-        ...(anthropicTools?.length && options?.toolChoice === 'required' ? { tool_choice: { type: 'any' as const } } : {}),
-      });
+      response = await runProviderRequest(
+        () => this.client.messages.create({
+          model: this.model,
+          max_tokens: options?.maxTokens ?? 4096,
+          ...(systemMsg ? { system: systemMsg.content } : {}),
+          messages: apiMessages,
+          ...(anthropicTools?.length ? { tools: anthropicTools } : {}),
+          ...(anthropicTools?.length && options?.toolChoice === 'required' ? { tool_choice: { type: 'any' as const } } : {}),
+        }),
+        options,
+      );
     } catch (err) {
       // Surface failed_generation from Anthropic 400 tool-call errors
       const raw = err as Record<string, unknown>;
       const body = (raw?.error ?? raw?.body) as Record<string, unknown> | undefined;
       const failedGen = (body?.failed_generation ?? (body?.error as Record<string, unknown> | undefined)?.failed_generation) as string | undefined;
       if (failedGen) {
-        throw new Error(`${(err as Error).message}\n\nFailed generation (truncated):\n${failedGen.slice(0, 500)}`);
+        throw new Error(`${redactSecrets((err as Error).message)}\n\nFailed generation (truncated):\n${redactSecrets(failedGen.slice(0, 500))}`);
       }
       throw err;
     }

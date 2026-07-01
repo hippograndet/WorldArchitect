@@ -1,4 +1,7 @@
 import type { Request, Response, NextFunction, RequestHandler } from 'express';
+import { redactErrorMessage, redactSecrets } from '../security/redaction.js';
+import { logger } from '../observability/logger.js';
+import { captureException } from '../observability/errorTracker.js';
 
 // ---------------------------------------------------------------------------
 // AppError — typed, intentional application error
@@ -55,20 +58,22 @@ export function errorMiddleware(
 
   if (err instanceof AppError) {
     if (err.statusCode >= 500) {
-      console.error(`[${err.code}]`, err.message, err.details ?? '');
+      logger.error('app_error', { code: err.code, message: redactErrorMessage(err), details: err.details ?? '' });
+      captureException(err, { code: err.code });
     }
     res.status(err.statusCode).json({
-      error: err.message,
+      error: redactErrorMessage(err),
       code: err.code,
-      ...(err.details !== undefined ? { details: err.details } : {}),
+      ...(err.details !== undefined ? { details: redactSecrets(err.details) } : {}),
     });
     return;
   }
 
   // Unhandled / unexpected error — always log with stack for debuggability
-  console.error('[UNHANDLED_ERROR]', err);
+  logger.error('unhandled_error', { error: redactSecrets(err.stack ?? err.message) });
+  captureException(err, { code: 'INTERNAL_ERROR' });
   res.status(500).json({
-    error: (err as Error).message ?? 'Internal server error',
+    error: redactErrorMessage(err, 'Internal server error'),
     code: 'INTERNAL_ERROR',
   });
 }
