@@ -1,7 +1,13 @@
 {
   "name": "worldarchitect",
   "version": "0.5.0",
+  "description": "Local-first fiction worldbuilding app with an optional multi-agent AI system.",
   "private": true,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hippograndet/WorldArchitect.git"
+  },
   "workspaces": [
     "client",
     "server"

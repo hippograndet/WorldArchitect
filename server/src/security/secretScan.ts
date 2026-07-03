@@ -5,6 +5,12 @@ const SCAN_PATTERNS: Array<{ name: string; pattern: RegExp }> = [
   { name: 'Anthropic API key', pattern: /sk-ant-[A-Za-z0-9_-]{16,}/ },
   { name: 'OpenAI API key', pattern: /sk-(?:proj-)?[A-Za-z0-9_-]{24,}/ },
   { name: 'Groq API key', pattern: /gsk_[A-Za-z0-9_-]{16,}/ },
+  { name: 'AWS access key ID', pattern: /AKIA[0-9A-Z]{16}/ },
+  { name: 'Google API key', pattern: /AIza[0-9A-Za-z_-]{35}/ },
+  { name: 'GitHub token', pattern: /gh[pousr]_[A-Za-z0-9]{36,}/ },
+  { name: 'Stripe API key', pattern: /sk_live_[A-Za-z0-9]{24,}/ },
+  { name: 'Slack token', pattern: /xox[baprs]-[A-Za-z0-9-]{10,}/ },
+  { name: 'Private key block', pattern: /-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----/ },
 ];
 
 const IGNORED_SUFFIXES = [

@@ -1,7 +1,9 @@
 {
   "name": "worldarchitect-client",
   "version": "0.5.0",
+  "description": "WorldArchitect React client.",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "vite",

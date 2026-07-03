@@ -14,7 +14,6 @@ The app gives each world its own local encyclopedia. You create articles, group 
 - **Article page** - read, edit, expand, organize, and review an article.
 - **Graph** - inspect the world as connected articles, with hierarchy rings and reference links.
 - **Toolbox** - generate and manage reusable worldbuilding material such as names.
-- **Timeline** - browse temporally anchored articles in chronological order.
 - **Snapshots** - create and restore named checkpoints of an entire world.
 - **Usage and settings** - manage provider settings, call logs, and cost controls.
 
