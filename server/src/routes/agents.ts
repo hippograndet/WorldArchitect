@@ -6,7 +6,8 @@ import { renderBible, getBibleMeta } from '../services/worldBible.js';
 import { checkDailyCap } from '../services/callLogger.js';
 import { PipelineCoordinator } from '../agents/director.js';
 import { AppError, asyncHandler } from '../middleware/errorHandler.js';
-import { getDb } from '../db/index.js';
+import { getDbClient } from '../db/client.js';
+import { tenantIdFor } from '../tenant.js';
 import type { Request, Response, NextFunction } from 'express';
 
 const router = Router({ mergeParams: true });
@@ -26,14 +27,14 @@ function wid(req: Request): string {
 // Middleware: daily cap check
 // ---------------------------------------------------------------------------
 
-function checkCap(req: Request, res: Response, next: NextFunction): void {
-  const { allowed, current, cap } = checkDailyCap(wid(req));
+const checkCap = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+  const { allowed, current, cap } = await checkDailyCap(wid(req));
   if (!allowed) {
     res.status(429).json({ error: `Daily call cap reached (${current}/${cap}).`, code: 'DAILY_CAP' });
     return;
   }
   next();
-}
+});
 
 // ---------------------------------------------------------------------------
 // POST /api/worlds/:wid/agents/estimate
@@ -44,13 +45,13 @@ router.post('/estimate', asyncHandler(async (req, res) => {
   if (!parse.success) throw new AppError(400, 'VALIDATION_ERROR', 'Invalid request', parse.error.flatten().fieldErrors);
 
   const worldId = wid(req);
-  const bibleText = renderBible(worldId);
+  const bibleText = await renderBible(worldId);
   const combined = parse.data.extraText ? `${bibleText}\n\n${parse.data.extraText}` : bibleText;
 
   let estimatedTokens: number;
   try {
-    estimatedTokens = isLLMConfigured()
-      ? await getProvider().estimateTokens(combined)
+    estimatedTokens = (await isLLMConfigured())
+      ? await (await getProvider()).estimateTokens(combined)
       : Math.ceil(combined.length / 4);
   } catch {
     estimatedTokens = Math.ceil(combined.length / 4);
@@ -68,11 +69,11 @@ router.post('/skeleton', requireLLM, checkCap, asyncHandler(async (req, res) => 
   if (!parse.success) throw new AppError(400, 'VALIDATION_ERROR', 'Invalid request', parse.error.flatten().fieldErrors);
 
   const worldId = wid(req);
-  const world = getDb().prepare('SELECT id FROM worlds WHERE id = ?').get(worldId);
+  const world = await getDbClient().get('SELECT id FROM worlds WHERE id = ?', [worldId]);
   if (!world) throw new AppError(404, 'NOT_FOUND', 'World not found');
 
   const result = await coordinator.createWorld(worldId, parse.data.seedText);
-  const { tokenCount } = getBibleMeta(worldId);
+  const { tokenCount } = await getBibleMeta(worldId);
   res.json({ stubs: result.stubs, worldBibleTokenCount: tokenCount });
 }));
 
@@ -142,7 +143,7 @@ router.post('/expand', requireLLM, checkCap, asyncHandler(async (req, res) => {
   const result = await coordinator.expand(worldId, articleId, pipelineType, selectedProposal, userSpec, contextDepth, selectedIdeas, runStyleWarden, runContinuityEditor, wordCountPreset);
 
   // Persist draft so POST /accept can commit it
-  const db = getDb();
+  const exec = getDbClient();
   const draftContent = pipelineType === 'create_child'
     ? { childDescription: result.description, introduction: result.introduction, mentions: result.mentions }
     : { description: result.description, mentions: result.mentions };
@@ -152,19 +153,21 @@ router.post('/expand', requireLLM, checkCap, asyncHandler(async (req, res) => {
     : null;
 
   const now = Date.now();
-  const existing = db.prepare('SELECT id FROM pending_drafts WHERE article_id = ? AND pipeline_type = ?').get(articleId, pipelineType);
+  const existing = await exec.get('SELECT id FROM pending_drafts WHERE article_id = ? AND pipeline_type = ?', [articleId, pipelineType]);
   if (existing) {
-    db.prepare(
+    await exec.run(
       `UPDATE pending_drafts
        SET draft_content = ?, parent_update = ?, selected_proposal = ?, updated_at = ?
        WHERE article_id = ? AND pipeline_type = ?`,
-    ).run(JSON.stringify(draftContent), parentUpdateJson, JSON.stringify(selectedProposal), now, articleId, pipelineType);
+      [JSON.stringify(draftContent), parentUpdateJson, JSON.stringify(selectedProposal), now, articleId, pipelineType],
+    );
   } else {
-    db.prepare(
+    await exec.run(
       `INSERT INTO pending_drafts
-         (id, article_id, draft_content, pipeline_type, parent_update, selected_proposal, expansion_params, phase, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, '{}', 'done', ?, ?)`,
-    ).run(nanoid(), articleId, JSON.stringify(draftContent), pipelineType, parentUpdateJson, JSON.stringify(selectedProposal), now, now);
+         (id, owner_id, article_id, draft_content, pipeline_type, parent_update, selected_proposal, expansion_params, phase, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, '{}', 'done', ?, ?)`,
+      [nanoid(), tenantIdFor(req), articleId, JSON.stringify(draftContent), pipelineType, parentUpdateJson, JSON.stringify(selectedProposal), now, now],
+    );
   }
 
   res.json(result);
@@ -238,14 +241,15 @@ router.post('/cohere', requireLLM, checkCap, asyncHandler(async (req, res) => {
 
   // Persist Warden warnings to article_issues (replacing previous warden issues for this article)
   if (result.warnings.length > 0) {
-    const db = getDb();
+    const exec = getDbClient();
     const now = Date.now();
-    db.prepare(`DELETE FROM article_issues WHERE article_id = ? AND source = 'warden'`).run(articleId);
+    await exec.run(`DELETE FROM article_issues WHERE article_id = ? AND source = 'warden'`, [articleId]);
     for (const w of result.warnings) {
-      db.prepare(
-        `INSERT INTO article_issues (id, world_id, article_id, source, severity, code, excerpt, explanation, suggestion, status, created_at)
-         VALUES (?, ?, ?, 'warden', ?, 'COHERENCE_WARNING', NULL, ?, NULL, 'open', ?)`,
-      ).run(nanoid(), worldId, articleId, w.severity === 'conflict' ? 'blocking' : 'warning', w.description, now);
+      await exec.run(
+        `INSERT INTO article_issues (id, world_id, owner_id, article_id, source, severity, code, excerpt, explanation, suggestion, status, created_at)
+         VALUES (?, ?, ?, ?, 'warden', ?, 'COHERENCE_WARNING', NULL, ?, NULL, 'open', ?)`,
+        [nanoid(), worldId, tenantIdFor(req), articleId, w.severity === 'conflict' ? 'blocking' : 'warning', w.description, now],
+      );
     }
   }
 
@@ -325,31 +329,35 @@ router.post('/audit', requireLLM, checkCap, asyncHandler(async (req, res) => {
   if (!parse.success) throw new AppError(400, 'VALIDATION_ERROR', 'Invalid request', parse.error.flatten().fieldErrors);
 
   const worldId = wid(req);
+  const ownerId = tenantIdFor(req);
   const result = await coordinator.audit(worldId, parse.data.sampleSize, parse.data.focus);
 
-  const db = getDb();
+  const exec = getDbClient();
   const now = Date.now();
 
   // Persist edge proposals for later acceptance
   for (const ep of result.edgeProposals) {
-    const sourceExists = db.prepare('SELECT id FROM articles WHERE id = ? AND world_id = ?').get(ep.sourceArticleId, worldId);
-    const targetExists = db.prepare('SELECT id FROM articles WHERE id = ? AND world_id = ?').get(ep.targetArticleId, worldId);
+    const sourceExists = await exec.get('SELECT id FROM articles WHERE id = ? AND world_id = ?', [ep.sourceArticleId, worldId]);
+    const targetExists = await exec.get('SELECT id FROM articles WHERE id = ? AND world_id = ?', [ep.targetArticleId, worldId]);
     if (!sourceExists || !targetExists) continue;
 
-    db.prepare(
-      `INSERT OR IGNORE INTO auditor_edge_proposals
-         (id, world_id, source_article_id, target_article_id, link_type, rationale, status, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)`,
-    ).run(nanoid(), worldId, ep.sourceArticleId, ep.targetArticleId, ep.linkType, ep.rationale, now);
+    await exec.run(
+      `INSERT INTO auditor_edge_proposals
+         (id, world_id, owner_id, source_article_id, target_article_id, link_type, rationale, status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+       ON CONFLICT (id) DO NOTHING`,
+      [nanoid(), worldId, ownerId, ep.sourceArticleId, ep.targetArticleId, ep.linkType, ep.rationale, now],
+    );
   }
 
   // Persist global warnings to world_issues (replace open ones, preserve dismissed/resolved/in_review)
-  db.prepare(`DELETE FROM world_issues WHERE world_id = ? AND status = 'open'`).run(worldId);
+  await exec.run(`DELETE FROM world_issues WHERE world_id = ? AND status = 'open'`, [worldId]);
   for (const gw of result.globalWarnings) {
-    db.prepare(
-      `INSERT INTO world_issues (id, world_id, severity, type, description, article_ids, source, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, 'auditor', 'open', ?, ?)`,
-    ).run(nanoid(), worldId, gw.severity, gw.type, gw.description, JSON.stringify(gw.involvedArticleIds), now, now);
+    await exec.run(
+      `INSERT INTO world_issues (id, world_id, owner_id, severity, type, description, article_ids, source, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'auditor', 'open', ?, ?)`,
+      [nanoid(), worldId, ownerId, gw.severity, gw.type, gw.description, JSON.stringify(gw.involvedArticleIds), now, now],
+    );
   }
 
   res.json({
@@ -358,21 +366,21 @@ router.post('/audit', requireLLM, checkCap, asyncHandler(async (req, res) => {
   });
 }));
 
-router.get('/audit/proposals', (req, res) => {
+router.get('/audit/proposals', asyncHandler(async (req, res) => {
   const worldId = wid(req);
-  const db = getDb();
-  const proposals = db.prepare(
+  const proposals = await getDbClient().all(
     `SELECT aep.*, sa.title AS source_title, ta.title AS target_title
      FROM auditor_edge_proposals aep
      JOIN articles sa ON sa.id = aep.source_article_id
      JOIN articles ta ON ta.id = aep.target_article_id
      WHERE aep.world_id = ? AND aep.status = 'pending'
      ORDER BY aep.created_at DESC`,
-  ).all(worldId);
+    [worldId],
+  );
   res.json({ proposals });
-});
+}));
 
-router.post('/audit/accept-edge', (req, res) => {
+router.post('/audit/accept-edge', asyncHandler(async (req, res) => {
   const parse = z.object({
     sourceArticleId: z.string().min(1),
     targetArticleId: z.string().min(1),
@@ -385,28 +393,31 @@ router.post('/audit/accept-edge', (req, res) => {
 
   const worldId = wid(req);
   const { sourceArticleId, targetArticleId, linkType } = parse.data;
-  const db = getDb();
+  const exec = getDbClient();
 
-  const sourceExists = db.prepare('SELECT id FROM articles WHERE id = ? AND world_id = ?').get(sourceArticleId, worldId);
-  const targetExists = db.prepare('SELECT id FROM articles WHERE id = ? AND world_id = ?').get(targetArticleId, worldId);
+  const sourceExists = await exec.get('SELECT id FROM articles WHERE id = ? AND world_id = ?', [sourceArticleId, worldId]);
+  const targetExists = await exec.get('SELECT id FROM articles WHERE id = ? AND world_id = ?', [targetArticleId, worldId]);
   if (!sourceExists || !targetExists) {
     res.status(404).json({ error: 'Source or target article not found in this world', code: 'NOT_FOUND' });
     return;
   }
 
-  db.transaction(() => {
-    db.prepare(
-      `INSERT OR IGNORE INTO article_links (source_article_id, target_article_id, link_type)
-       VALUES (?, ?, ?)`,
-    ).run(sourceArticleId, targetArticleId, linkType);
+  await exec.transaction(async (tx) => {
+    await tx.run(
+      `INSERT INTO article_links (source_article_id, target_article_id, owner_id, link_type)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT (source_article_id, target_article_id) DO NOTHING`,
+      [sourceArticleId, targetArticleId, tenantIdFor(req), linkType],
+    );
 
-    db.prepare(
+    await tx.run(
       `UPDATE auditor_edge_proposals SET status = 'accepted'
        WHERE world_id = ? AND source_article_id = ? AND target_article_id = ?`,
-    ).run(worldId, sourceArticleId, targetArticleId);
-  })();
+      [worldId, sourceArticleId, targetArticleId],
+    );
+  });
 
   res.json({ ok: true });
-});
+}));
 
 export default router;

@@ -1,14 +1,19 @@
 import express from 'express';
+import helmet from 'helmet';
 import { z } from 'zod';
 import { nanoid as _nanoid } from 'nanoid';
 import { existsSync } from 'fs';
 import { resolve } from 'path';
-import { getDb, DB_PATH } from './db/index.js';
+import { DB_PATH } from './db/index.js';
+import { getDbClient } from './db/client.js';
 import { getStorageAdapter } from './db/storage.js';
 import { authMiddleware } from './auth.js';
 import { getAppMode, getPublicBaseUrl } from './config.js';
 import { requireWorldTenant, tenantIdFor } from './tenant.js';
 import { requestContextMiddleware } from './requestContext.js';
+import { asyncHandler } from './middleware/errorHandler.js';
+import { apiRateLimiter } from './middleware/rateLimit.js';
+import { requestIdMiddleware } from './middleware/requestId.js';
 import worldRoutes from './routes/worlds.js';
 import articleRoutes from './routes/articles.js';
 import bibleRoutes from './routes/bible.js';
@@ -29,6 +34,18 @@ const PORT = 3001;
 
 assertNoCommittedSecrets();
 
+// First in the chain so even pre-auth/malformed requests get a correlatable id.
+app.use(requestIdMiddleware);
+
+// Required for correct req.ip (and thus correct rate-limit keying) behind a
+// reverse proxy (Render/Fly/Railway all sit in front of the app).
+app.set('trust proxy', process.env.TRUST_PROXY ?? 1);
+
+// CSP is disabled only for the optional same-process STATIC_DIR SPA-fallback
+// path (a bundled index.html), since the normal hosted deploy serves the
+// client from a separate origin and default CSP has nothing to conflict with.
+app.use(helmet({ contentSecurityPolicy: process.env.STATIC_DIR ? false : undefined }));
+
 app.use(express.json({ limit: '2mb' }));
 
 app.use((_req, res, next) => {
@@ -41,6 +58,8 @@ app.use((_req, res, next) => {
   }
   next();
 });
+
+app.use('/api', apiRateLimiter);
 
 app.use('/api', (req, res, next) => {
   void authMiddleware(req, res, next);
@@ -72,26 +91,24 @@ app.use('/api/worlds/:wid/publish', requireWorldTenant, publishRoutes);
 app.use('/api/settings', settingsRoutes);
 
 // World-wide article issues summary
-app.get('/api/worlds/:wid/issues', requireWorldTenant, (req, res) => {
-  const db = getDb();
+app.get('/api/worlds/:wid/issues', requireWorldTenant, asyncHandler(async (req, res) => {
   const wid = req.params.wid;
 
-  const summary = db.prepare(`
+  const summary = await getDbClient().all<{ severity: string; count: number }>(`
     SELECT severity, COUNT(*) AS count
     FROM article_issues
     WHERE world_id = ? AND owner_id = ? AND status = 'open'
     GROUP BY severity
-  `).all(wid, tenantIdFor(req)) as { severity: string; count: number }[];
+  `, [wid, tenantIdFor(req)]);
 
   const blocking = summary.find(s => s.severity === 'blocking')?.count ?? 0;
   const warnings = summary.find(s => s.severity === 'warning')?.count ?? 0;
 
   res.json({ blocking, warnings, total: blocking + warnings });
-});
+}));
 
 // World-level issues (Auditor globalWarnings, persisted tickets)
-app.get('/api/worlds/:wid/world-issues', requireWorldTenant, (req, res) => {
-  const db = getDb();
+app.get('/api/worlds/:wid/world-issues', requireWorldTenant, asyncHandler(async (req, res) => {
   const worldId = req.params.wid;
   const { status, severity, type } = req.query as Record<string, string | undefined>;
 
@@ -103,7 +120,7 @@ app.get('/api/worlds/:wid/world-issues', requireWorldTenant, (req, res) => {
   if (type) { sql += ` AND type = ?`; params.push(type); }
   sql += ` ORDER BY created_at DESC`;
 
-  const rows = db.prepare(sql).all(...params) as Array<Record<string, unknown>>;
+  const rows = await getDbClient().all<Record<string, unknown>>(sql, params);
   res.json(rows.map(r => ({
     id: r.id,
     worldId: r.world_id,
@@ -116,9 +133,9 @@ app.get('/api/worlds/:wid/world-issues', requireWorldTenant, (req, res) => {
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   })));
-});
+}));
 
-app.patch('/api/worlds/:wid/world-issues/:iid', requireWorldTenant, (req, res) => {
+app.patch('/api/worlds/:wid/world-issues/:iid', requireWorldTenant, asyncHandler(async (req, res) => {
   const parse = z.object({
     status: z.enum(['open', 'in_review', 'resolved', 'dismissed']),
   }).safeParse(req.body);
@@ -127,28 +144,28 @@ app.patch('/api/worlds/:wid/world-issues/:iid', requireWorldTenant, (req, res) =
     return;
   }
 
-  const db = getDb();
   const { wid, iid } = req.params;
   const now = Date.now();
-  const result = db.prepare(
+  const result = await getDbClient().run(
     `UPDATE world_issues SET status = ?, updated_at = ? WHERE id = ? AND world_id = ? AND owner_id = ?`,
-  ).run(parse.data.status, now, iid, wid, tenantIdFor(req));
+    [parse.data.status, now, iid, wid, tenantIdFor(req)],
+  );
 
   if (result.changes === 0) {
     res.status(404).json({ error: 'Issue not found', code: 'NOT_FOUND' });
     return;
   }
   res.json({ ok: true });
-});
+}));
 
 // World issues that reference a specific article
-app.get('/api/worlds/:wid/articles/:aid/world-issues', requireWorldTenant, (req, res) => {
-  const db = getDb();
+app.get('/api/worlds/:wid/articles/:aid/world-issues', requireWorldTenant, asyncHandler(async (req, res) => {
   const { wid, aid } = req.params;
 
-  const rows = db.prepare(
+  const rows = await getDbClient().all<Record<string, unknown>>(
     `SELECT * FROM world_issues WHERE world_id = ? AND owner_id = ? AND status != 'dismissed' AND article_ids LIKE ? ORDER BY created_at DESC`,
-  ).all(wid, tenantIdFor(req), `%"${aid}"%`) as Array<Record<string, unknown>>;
+    [wid, tenantIdFor(req), `%"${aid}"%`],
+  );
 
   res.json(rows.map(r => ({
     id: r.id,
@@ -162,7 +179,7 @@ app.get('/api/worlds/:wid/articles/:aid/world-issues', requireWorldTenant, (req,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   })));
-});
+}));
 
 const staticDir = process.env.STATIC_DIR;
 if (staticDir && existsSync(staticDir)) {

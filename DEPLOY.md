@@ -16,6 +16,20 @@ WorldArchitect defaults to local-first mode. Hosted mode is opt-in with `APP_MOD
 
 For local hosted-mode smoke tests only, set `ALLOW_DEV_AUTH_HEADER=1` and send `x-worldarchitect-user-id`.
 
+## Pool Sizing
+
+`PGPOOL_MAX` (default `5`) caps how many Postgres connections each server process opens. Keep `PGPOOL_MAX ≤ (Neon plan's pooled connection limit) ÷ (max concurrent server instances)` — e.g. if your Neon plan's pooler allows 100 and you run 3 instances, `PGPOOL_MAX=30` is safe; the conservative default of 5 is fine for a single instance. Also configurable: `PGPOOL_IDLE_TIMEOUT_MS` (default `30000`), `PGPOOL_CONN_TIMEOUT_MS` (default `5000`).
+
+## Rate Limiting And Proxy Trust
+
+`/api/*` is rate-limited in hosted mode only (local mode is never throttled). Tunable via `RATE_LIMIT_WINDOW_MS` (default `60000`) and `RATE_LIMIT_MAX` (default `300`, requests per window per client). `TRUST_PROXY` (default `1`) controls Express's `trust proxy` setting, which must correctly reflect your deployment's reverse-proxy hop count (Render/Fly/Railway all sit in front of the app) for rate limiting to key on the real client IP instead of the proxy's.
+
+## Client environment
+
+The frontend needs its own Clerk key to render the sign-in screen (separate from the server's `CLERK_*` vars above, and read at build time by Vite):
+
+- `VITE_CLERK_PUBLISHABLE_KEY=pk_...` — from the same Clerk Dashboard "API Keys" page as `CLERK_ISSUER`/`CLERK_JWKS_URL`. Leave unset for local mode (no login).
+
 ## Docker
 
 Build and run:

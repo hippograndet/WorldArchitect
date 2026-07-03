@@ -1,4 +1,4 @@
-import { getDb } from '../db/index.js';
+import { getDbClient } from '../db/client.js';
 import { getProvider, isLLMConfigured } from '../providers/index.js';
 import { renderBible } from './worldBible.js';
 
@@ -12,7 +12,7 @@ export async function estimateCallTokens(
   worldId: string,
   extraText: string = '',
 ): Promise<number> {
-  const bible = renderBible(worldId);
+  const bible = await renderBible(worldId);
   const combined = [bible, extraText].filter(Boolean).join('\n\n');
   return countTokens(combined);
 }
@@ -23,12 +23,13 @@ export async function estimateCallTokens(
  * refreshTokenCount() in worldBible.ts.
  */
 export async function updateBibleTokenCount(worldId: string): Promise<number> {
-  const rendered = renderBible(worldId);
+  const rendered = await renderBible(worldId);
   const count = await countTokens(rendered);
 
-  getDb()
-    .prepare('UPDATE world_bible_meta SET token_count = ?, updated_at = ? WHERE world_id = ?')
-    .run(count, Date.now(), worldId);
+  await getDbClient().run(
+    'UPDATE world_bible_meta SET token_count = ?, updated_at = ? WHERE world_id = ?',
+    [count, Date.now(), worldId],
+  );
 
   return count;
 }
@@ -38,9 +39,10 @@ export async function updateBibleTokenCount(worldId: string): Promise<number> {
 // ---------------------------------------------------------------------------
 
 async function countTokens(text: string): Promise<number> {
-  if (!isLLMConfigured()) return charBasedEstimate(text);
+  if (!(await isLLMConfigured())) return charBasedEstimate(text);
   try {
-    return await getProvider().estimateTokens(text);
+    const provider = await getProvider();
+    return await provider.estimateTokens(text);
   } catch {
     return charBasedEstimate(text);
   }

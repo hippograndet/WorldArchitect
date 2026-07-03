@@ -8,7 +8,7 @@ The app is fully usable without an LLM. When you do connect a provider, WorldArc
 
 ## Why WorldArchitect?
 
-- **Own your world locally.** Your encyclopedia is stored in a local SQLite database. No account, cloud sync, or hosted backend required.
+- **Own your world locally, by default.** In local mode your encyclopedia is stored in a local SQLite database — no account, cloud sync, or hosted backend required. An opt-in hosted multi-tenant mode is also available for self-deployment (accounts via Clerk, Postgres storage) — see [DEPLOY.md](DEPLOY.md).
 - **Write with structure.** Build a browsable wiki with categories, article hierarchy, cross-links, chronology, and snapshots.
 - **Use AI without surrendering control.** Agent drafts are reviewed before they are committed, and the app works normally with AI disabled.
 - **Grow worlds deliberately.** Spark creates and expands articles, Solidify cleans them up, Forge can recursively expand a subtree, and World Tools help audit the larger graph.
@@ -79,12 +79,14 @@ Set `WORLDARCHITECT_LOCAL_ONLY=1` to force Ollama-only operation and block hoste
 
 ## How The App Is Organized
 
-WorldArchitect has two local processes:
+WorldArchitect has two processes:
 
 - `client/` - React, TypeScript, Vite, Zustand, TipTap, Tailwind
-- `server/` - Node.js, Express, TypeScript, SQLite, Zod, LLM provider adapters
+- `server/` - Node.js, Express, TypeScript, Zod, LLM provider adapters
 
-The browser talks only to the local server. The server owns the database, export system, provider settings, agent calls, and versioning.
+The browser talks only to the server. The server owns the database, export system, provider settings, agent calls, and versioning.
+
+By default (`APP_MODE=local`) the server runs unauthenticated against a local SQLite file with a single implicit user, which is the setup this Quick Start walks through. It can instead be run as `APP_MODE=hosted`, which requires Clerk-based authentication and Postgres storage and scopes every world to its owner. Hosted mode is meant for self-deployment (Docker, Railway, Fly.io), not for local development — see [DEPLOY.md](DEPLOY.md) for the required environment variables and deploy steps.
 
 ## Documentation
 
@@ -93,6 +95,8 @@ Public, reader-friendly docs live in [`docs/`](docs/):
 - [How WorldArchitect Works](docs/how-it-works.md)
 - [Multi-Agent System Overview](docs/mas-overview.md)
 - [Local-First Data And Privacy](docs/local-first.md)
+- [Security Notes](docs/security.md)
+- [Hosted Deployment](DEPLOY.md)
 
 Developer notes and older design documents are kept locally in `dev-docs/` and are intentionally ignored by Git.
 

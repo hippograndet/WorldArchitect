@@ -2,6 +2,7 @@ import { lazy, Suspense } from 'react';
 import { createBrowserRouter } from 'react-router-dom';
 import App from './App.tsx';
 import AppShell from './components/layout/AppShell.tsx';
+import RouteErrorBoundary from './components/shared/RouteErrorBoundary.tsx';
 
 // Eagerly-loaded: small components that are part of the shell or appear immediately
 import WorldList from './components/world/WorldList.tsx';
@@ -31,6 +32,7 @@ export const router = createBrowserRouter([
   {
     path: '/',
     element: <App />,
+    errorElement: <RouteErrorBoundary />,
     children: [
       { index: true, element: <WorldList /> },
       { path: 'new',  element: <WorldCreationWizard /> },

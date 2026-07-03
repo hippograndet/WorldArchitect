@@ -2,6 +2,8 @@
 
 WorldArchitect is designed as a local-first desktop-style web app. You run it yourself, and the project data lives on your machine.
 
+This page describes the default **local mode** (`APP_MODE=local`). WorldArchitect also supports an opt-in **hosted mode** for self-deployment, which adds accounts (Clerk) and Postgres storage and is scoped per user instead of per machine — see [DEPLOY.md](../DEPLOY.md) for that setup. Everything below assumes local mode.
+
 ## What Is Stored Locally
 
 World data is stored in a local SQLite database managed by the server process. This includes:

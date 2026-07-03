@@ -10,7 +10,7 @@ interface CallLogEntry {
   tokensIn: number;
   tokensOut: number;
   status: 'success' | 'error' | 'cap_exceeded';
-  error: string | null;
+  errorMessage: string | null;
   createdAt: number;
 }
 
@@ -20,6 +20,7 @@ export default function UsagePage() {
 
   const [entries, setEntries]     = useState<CallLogEntry[]>([]);
   const [total, setTotal]         = useState(0);
+  const [todayCount, setTodayCount] = useState(0);
   const [page, setPage]           = useState(1);
   const [loading, setLoading]     = useState(false);
   const [dailyCap, setDailyCap]   = useState<number | null>(null);
@@ -36,8 +37,9 @@ export default function UsagePage() {
       api.settings.worldGet(wid),
     ])
       .then(([log, settings]) => {
-        setEntries(log.entries as CallLogEntry[]);
-        setTotal(log.total);
+        setEntries(log.calls as CallLogEntry[]);
+        setTotal(log.pagination.total);
+        setTodayCount(log.todayCount);
         setDailyCap(settings.dailyCap);
         setThreshold(settings.bibleThreshold);
         setCapInput(settings.dailyCap?.toString() ?? '');
@@ -70,11 +72,6 @@ export default function UsagePage() {
   };
 
   const totalPages = Math.ceil(total / 20);
-  const todayCalls = entries.filter((e) => {
-    const today = new Date();
-    const d = new Date(e.createdAt * 1000);
-    return d.toDateString() === today.toDateString();
-  }).length;
 
   const statusColor = (s: string) =>
     s === 'success' ? 'text-green-600' :
@@ -89,7 +86,7 @@ export default function UsagePage() {
       <div className="grid grid-cols-3 gap-4 mb-8">
         <div className="p-4 bg-white border border-gray-200 rounded-xl">
           <p className="text-xs text-gray-400 mb-1">Today's calls</p>
-          <p className="text-2xl font-bold text-gray-900">{todayCalls}</p>
+          <p className="text-2xl font-bold text-gray-900">{todayCount}</p>
           {dailyCap !== null && (
             <p className="text-xs text-gray-400 mt-0.5">of {dailyCap} cap</p>
           )}
@@ -166,7 +163,7 @@ export default function UsagePage() {
                   {entries.map((e) => (
                     <tr key={e.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
                       <td className="px-4 py-2.5 text-gray-400 font-mono whitespace-nowrap">
-                        {new Date(e.createdAt * 1000).toLocaleString()}
+                        {new Date(e.createdAt).toLocaleString()}
                       </td>
                       <td className="px-4 py-2.5 text-gray-700">{e.agentType}</td>
                       <td className="px-4 py-2.5">

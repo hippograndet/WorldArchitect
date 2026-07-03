@@ -1,10 +1,11 @@
 {
   "name": "worldarchitect-server",
-  "version": "1.0.0",
+  "version": "0.5.0",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
+    "dev:hosted": "APP_MODE=hosted tsx watch --env-file=.env.local src/index.ts",
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "start": "node dist/index.js",
@@ -16,6 +17,9 @@
     "@types/pg": "^8.20.0",
     "better-sqlite3": "^12.6.2",
     "express": "^4.21.2",
+    "express-rate-limit": "^8.5.2",
+    "helmet": "^8.2.0",
+    "jose": "^6.2.3",
     "jszip": "^3.10.1",
     "nanoid": "^5.1.5",
     "openai": "^4.103.0",

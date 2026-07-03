@@ -50,7 +50,7 @@ export abstract class BaseAgent<TInput, TOutput> {
   abstract readonly agentType: string;
   abstract readonly outputToolName: string;
 
-  protected abstract buildMessages(worldId: string, input: TInput): ChatMessage[];
+  protected abstract buildMessages(worldId: string, input: TInput): ChatMessage[] | Promise<ChatMessage[]>;
   protected abstract buildOutputTool(): Tool;
   protected abstract parseOutput(input: Record<string, unknown>): TOutput;
 
@@ -69,8 +69,8 @@ export abstract class BaseAgent<TInput, TOutput> {
   protected getToolChoice(): 'required' | undefined { return 'required'; }
 
   async run(worldId: string, input: TInput): Promise<AgentResult<TOutput>> {
-    const provider = getProvider();
-    const messages: ChatMessage[] = this.buildMessages(worldId, input);
+    const provider = await getProvider();
+    const messages: ChatMessage[] = await this.buildMessages(worldId, input);
     const tools: Tool[] = [...this.getContextTools(), this.buildOutputTool()];
 
     let tokensIn = 0;
@@ -120,7 +120,7 @@ export abstract class BaseAgent<TInput, TOutput> {
               messages.push({ role: 'tool', content: `Tool call rejected: ${msg}. Please revise and call the tool again.`, toolCallId: call.id });
             }
           } else {
-            const content = executeContextTool(worldId, call);
+            const content = await executeContextTool(worldId, call);
             messages.push({ role: 'tool', content, toolCallId: call.id });
           }
         }
@@ -132,7 +132,7 @@ export abstract class BaseAgent<TInput, TOutput> {
       }
     } finally {
       try {
-        logCall({ worldId, agentType: this.agentType, tokensIn, tokensOut, status });
+        await logCall({ worldId, agentType: this.agentType, tokensIn, tokensOut, status });
       } catch { /* logging must never crash the agent */ }
     }
 
@@ -146,7 +146,7 @@ export abstract class BaseAgent<TInput, TOutput> {
   }
 
   /** Convenience for subclasses that need to call a context tool manually. */
-  protected callContextTool(worldId: string, call: ToolCall): string {
+  protected async callContextTool(worldId: string, call: ToolCall): Promise<string> {
     return executeContextTool(worldId, call);
   }
 }

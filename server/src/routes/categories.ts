@@ -1,7 +1,9 @@
 import { Router } from 'express';
 import { nanoid } from 'nanoid';
 import { z } from 'zod';
-import { getDb } from '../db/index.js';
+import { getDbClient } from '../db/client.js';
+import { asyncHandler } from '../middleware/errorHandler.js';
+import { tenantIdFor } from '../tenant.js';
 
 // mergeParams: true exposes :wid from the parent /api/worlds/:wid router
 const router = Router({ mergeParams: true });
@@ -27,29 +29,30 @@ function parseCategory(row: Record<string, unknown>) {
   };
 }
 
-function requireWorld(worldId: string): boolean {
-  const db = getDb();
-  return !!db.prepare('SELECT id FROM worlds WHERE id = ?').get(worldId);
+async function requireWorld(worldId: string): Promise<boolean> {
+  const row = await getDbClient().get('SELECT id FROM worlds WHERE id = ?', [worldId]);
+  return !!row;
 }
 
 // GET /api/worlds/:wid/categories
-router.get('/', (req, res) => {
-  if (!requireWorld((req.params as Record<string, string>).wid)) {
+router.get('/', asyncHandler(async (req, res) => {
+  const wid = (req.params as Record<string, string>).wid;
+  if (!(await requireWorld(wid))) {
     res.status(404).json({ error: 'World not found' });
     return;
   }
 
-  const db = getDb();
-  const rows = db
-    .prepare('SELECT * FROM categories WHERE world_id = ? ORDER BY sort_order, created_at')
-    .all((req.params as Record<string, string>).wid) as Record<string, unknown>[];
+  const rows = await getDbClient().all<Record<string, unknown>>(
+    'SELECT * FROM categories WHERE world_id = ? ORDER BY sort_order, created_at', [wid],
+  );
 
   res.json(rows.map(parseCategory));
-});
+}));
 
 // POST /api/worlds/:wid/categories
-router.post('/', (req, res) => {
-  if (!requireWorld((req.params as Record<string, string>).wid)) {
+router.post('/', asyncHandler(async (req, res) => {
+  const wid = (req.params as Record<string, string>).wid;
+  if (!(await requireWorld(wid))) {
     res.status(404).json({ error: 'World not found' });
     return;
   }
@@ -60,40 +63,39 @@ router.post('/', (req, res) => {
     return;
   }
 
-  const db = getDb();
+  const db = getDbClient();
   const now = Date.now();
 
   // Place new category after the last existing one
-  const lastOrder = db
-    .prepare('SELECT MAX(sort_order) as max_order FROM categories WHERE world_id = ?')
-    .get((req.params as Record<string, string>).wid) as { max_order: number | null };
-  const sortOrder = (lastOrder.max_order ?? -1) + 1;
+  const lastOrder = await db.get<{ max_order: number | null }>(
+    'SELECT MAX(sort_order) as max_order FROM categories WHERE world_id = ?', [wid],
+  );
+  const sortOrder = (lastOrder?.max_order ?? -1) + 1;
 
   const id = nanoid();
-  db.prepare(`
-    INSERT INTO categories (id, world_id, name, sort_order, hidden, created_at)
-    VALUES (?, ?, ?, ?, 0, ?)
-  `).run(id, (req.params as Record<string, string>).wid, parse.data.name, sortOrder, now);
+  await db.run(`
+    INSERT INTO categories (id, world_id, owner_id, name, sort_order, hidden, created_at)
+    VALUES (?, ?, ?, ?, ?, 0, ?)
+  `, [id, wid, tenantIdFor(req), parse.data.name, sortOrder, now]);
 
-  const row = db
-    .prepare('SELECT * FROM categories WHERE id = ?')
-    .get(id) as Record<string, unknown>;
+  const row = await db.get<Record<string, unknown>>('SELECT * FROM categories WHERE id = ?', [id]);
 
-  res.status(201).json(parseCategory(row));
-});
+  res.status(201).json(parseCategory(row!));
+}));
 
 // PATCH /api/worlds/:wid/categories/:cid
-router.patch('/:cid', (req, res) => {
+router.patch('/:cid', asyncHandler(async (req, res) => {
   const parse = UpdateCategorySchema.safeParse(req.body);
   if (!parse.success) {
     res.status(400).json({ error: parse.error.flatten().fieldErrors });
     return;
   }
 
-  const db = getDb();
-  const existing = db
-    .prepare('SELECT * FROM categories WHERE id = ? AND world_id = ?')
-    .get(req.params.cid, (req.params as Record<string, string>).wid) as Record<string, unknown> | undefined;
+  const db = getDbClient();
+  const wid = (req.params as Record<string, string>).wid;
+  const existing = await db.get<Record<string, unknown>>(
+    'SELECT * FROM categories WHERE id = ? AND world_id = ?', [req.params.cid, wid],
+  );
 
   if (!existing) {
     res.status(404).json({ error: 'Category not found' });
@@ -114,29 +116,28 @@ router.patch('/:cid', (req, res) => {
   }
 
   values.push(req.params.cid);
-  db.prepare(`UPDATE categories SET ${fields.join(', ')} WHERE id = ?`).run(...values);
+  await db.run(`UPDATE categories SET ${fields.join(', ')} WHERE id = ?`, values);
 
-  const updated = db
-    .prepare('SELECT * FROM categories WHERE id = ?')
-    .get(req.params.cid) as Record<string, unknown>;
+  const updated = await db.get<Record<string, unknown>>('SELECT * FROM categories WHERE id = ?', [req.params.cid]);
 
-  res.json(parseCategory(updated));
-});
+  res.json(parseCategory(updated!));
+}));
 
 // DELETE /api/worlds/:wid/categories/:cid
-router.delete('/:cid', (req, res) => {
-  const db = getDb();
-  const existing = db
-    .prepare('SELECT id FROM categories WHERE id = ? AND world_id = ?')
-    .get(req.params.cid, (req.params as Record<string, string>).wid);
+router.delete('/:cid', asyncHandler(async (req, res) => {
+  const db = getDbClient();
+  const wid = (req.params as Record<string, string>).wid;
+  const existing = await db.get(
+    'SELECT id FROM categories WHERE id = ? AND world_id = ?', [req.params.cid, wid],
+  );
 
   if (!existing) {
     res.status(404).json({ error: 'Category not found' });
     return;
   }
 
-  db.prepare('DELETE FROM categories WHERE id = ?').run(req.params.cid);
+  await db.run('DELETE FROM categories WHERE id = ?', [req.params.cid]);
   res.status(204).send();
-});
+}));
 
 export default router;

@@ -6,7 +6,6 @@ import WorldBibleMeter from './WorldBibleMeter.tsx';
 import { api } from '../../lib/api.ts';
 
 const NAV_LINKS = [
-  { label: 'Timeline', path: 'timeline' },
   { label: 'Graph',    path: 'graph' },
   { label: 'Usage',    path: 'usage' },
   { label: 'Inbox',    path: 'inbox' },

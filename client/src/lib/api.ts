@@ -2,13 +2,22 @@ import type { World, CreateWorldInput, BibleMeta, WorldIssue } from '../types/wo
 import type { FlatArticle } from './tree.ts';
 import type { Article, ArticleDetail, ArticleGraph, ArticleGraphEdge, ArticleVersion, PendingDraft, CoherenceWarning } from '../types/article.ts';
 import type { ContextDepth, IdeaItem, EdgeProposal, GlobalWarning, StyleWardenResult } from '../types/agent.ts';
+import { getAuthToken } from './authToken.ts';
 
 const BASE = '/api';
+
+async function authHeaders(): Promise<Record<string, string>> {
+  const token = await getAuthToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     method,
-    headers: body !== undefined ? { 'Content-Type': 'application/json' } : {},
+    headers: {
+      ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+      ...(await authHeaders()),
+    },
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
 
@@ -221,13 +230,22 @@ export const api = {
 
   callLog: {
     list: (wid: string, page = 1) =>
-      get<{ entries: unknown[]; total: number; page: number }>(`/worlds/${wid}/call-log?page=${page}`),
+      get<{
+        calls: Array<{
+          id: string; agentType: string; articleId: string | null;
+          tokensIn: number | null; tokensOut: number | null;
+          status: 'success' | 'error' | 'cap_exceeded';
+          errorMessage: string | null; createdAt: number;
+        }>;
+        pagination: { page: number; limit: number; total: number; pages: number };
+        todayCount: number;
+      }>(`/worlds/${wid}/call-log?page=${page}`),
   },
 
   export: {
     downloadUrl: (wid: string) => `${BASE}/worlds/${wid}/export`,
     download: async (wid: string) => {
-      const res = await fetch(`${BASE}/worlds/${wid}/export`);
+      const res = await fetch(`${BASE}/worlds/${wid}/export`, { headers: await authHeaders() });
       if (!res.ok) {
         const data = await res.json().catch(() => null) as { error?: unknown } | null;
         const raw = data?.error ?? `HTTP ${res.status}`;

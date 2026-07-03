@@ -5,7 +5,8 @@ import { OUTPUT_TOOLS } from '../tools/output.js';
 import { buildLinterSystemPrompt, buildLinterUserMessage } from '../prompts/linter.js';
 import type { WorldContext } from './director.js';
 import { CONTEXT_TOOLS } from '../tools/context.js';
-import { getDb } from '../db/index.js';
+import { getDbClient } from '../db/client.js';
+import { ownerIdForWorld } from '../db/ownership.js';
 import type { ChatMessage } from '../providers/types.js';
 import type { Tool } from '../tools/types.js';
 
@@ -57,16 +58,16 @@ export class LinterAgent extends BaseAgent<LinterInput, LinterOutput> {
     return CONTEXT_TOOLS;
   }
 
-  protected buildMessages(worldId: string, input: LinterInput): ChatMessage[] {
-    const db = getDb();
+  protected async buildMessages(worldId: string, input: LinterInput): Promise<ChatMessage[]> {
+    const exec = getDbClient();
 
-    const article = db.prepare(`
+    const article = await exec.get<DbRow>(`
       SELECT a.title, a.template_type, a.depth, av.body, wbe.summary
       FROM articles a
       LEFT JOIN article_versions av ON av.id = a.current_version_id
       LEFT JOIN world_bible_entries wbe ON wbe.article_id = a.id
       WHERE a.id = ? AND a.world_id = ?
-    `).get(input.articleId, worldId) as DbRow | undefined;
+    `, [input.articleId, worldId]);
 
     if (!article) {
       return [
@@ -79,43 +80,43 @@ export class LinterAgent extends BaseAgent<LinterInput, LinterOutput> {
     const depth = (article.depth as number) ?? 1;
 
     // Fetch parents
-    const parents = db.prepare(`
+    const parents = await exec.all<{ title: string; summary: string }>(`
       SELECT a.title, wbe.summary
       FROM article_links al
       JOIN articles a ON a.id = al.source_article_id
       LEFT JOIN world_bible_entries wbe ON wbe.article_id = a.id
       WHERE al.target_article_id = ? AND al.link_type = 'hierarchical'
-    `).all(input.articleId) as { title: string; summary: string }[];
+    `, [input.articleId]);
 
     // Fetch siblings (same parent, excluding self)
     const parentIds = parents.map(p => p.title); // we use title for display
     const siblings: { title: string; summary: string }[] = [];
     if (depth > 1) {
-      const parentRows = db.prepare(`
+      const parentRows = await exec.get<{ source_article_id: string }>(`
         SELECT source_article_id FROM article_links WHERE target_article_id = ? AND link_type = 'hierarchical' LIMIT 1
-      `).get(input.articleId) as { source_article_id: string } | undefined;
+      `, [input.articleId]);
 
       if (parentRows) {
-        const sibRows = db.prepare(`
+        const sibRows = await exec.all<{ title: string; summary: string }>(`
           SELECT a.title, wbe.summary
           FROM article_links al
           JOIN articles a ON a.id = al.target_article_id
           LEFT JOIN world_bible_entries wbe ON wbe.article_id = a.id
           WHERE al.source_article_id = ? AND al.link_type = 'hierarchical' AND al.target_article_id != ?
           LIMIT 8
-        `).all(parentRows.source_article_id, input.articleId) as { title: string; summary: string }[];
+        `, [parentRows.source_article_id, input.articleId]);
         siblings.push(...sibRows);
       }
     }
 
     // Fetch fixed points
-    const fixedPoints = db.prepare(`
+    const fixedPoints = await exec.all<{ title: string; summary: string }>(`
       SELECT a.title, wbe.summary
       FROM articles a
       LEFT JOIN world_bible_entries wbe ON wbe.article_id = a.id
       WHERE a.world_id = ? AND a.is_fixed_point = 1
       LIMIT 5
-    `).all(worldId) as { title: string; summary: string }[];
+    `, [worldId]);
 
     void parentIds; // suppress unused warning
 
@@ -146,17 +147,18 @@ export class LinterAgent extends BaseAgent<LinterInput, LinterOutput> {
    * Clears existing linter issues for the article before inserting new ones.
    */
   async runAndPersist(worldId: string, articleId: string, worldContext: WorldContext): Promise<void> {
-    const db = getDb();
-    db.prepare(`DELETE FROM article_issues WHERE article_id = ? AND source = 'linter'`).run(articleId);
+    const exec = getDbClient();
+    await exec.run(`DELETE FROM article_issues WHERE article_id = ? AND source = 'linter'`, [articleId]);
 
     const result = await this.run(worldId, { worldId, articleId, worldContext });
     const now = Date.now();
+    const ownerId = await ownerIdForWorld(exec, worldId);
 
     for (const issue of result.output.issues) {
-      db.prepare(`
-        INSERT INTO article_issues (id, world_id, article_id, source, severity, code, excerpt, explanation, suggestion, status, created_at)
-        VALUES (?, ?, ?, 'linter', ?, 'SEMANTIC_ISSUE', ?, ?, ?, 'open', ?)
-      `).run(nanoid(), worldId, articleId, issue.severity, issue.excerpt ?? null, issue.explanation, issue.suggestion ?? null, now);
+      await exec.run(`
+        INSERT INTO article_issues (id, world_id, owner_id, article_id, source, severity, code, excerpt, explanation, suggestion, status, created_at)
+        VALUES (?, ?, ?, ?, 'linter', ?, 'SEMANTIC_ISSUE', ?, ?, ?, 'open', ?)
+      `, [nanoid(), worldId, ownerId, articleId, issue.severity, issue.excerpt ?? null, issue.explanation, issue.suggestion ?? null, now]);
     }
   }
 }

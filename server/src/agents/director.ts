@@ -1,5 +1,6 @@
 import { nanoid } from 'nanoid';
-import { getDb } from '../db/index.js';
+import { getDbClient } from '../db/client.js';
+import { ownerIdForWorld } from '../db/ownership.js';
 import { upsertEntry, getEntries } from '../services/worldBible.js';
 import { buildContextPackage, type ArchivistMode, type ContextDepth } from '../services/archivist.js';
 import { AppError } from '../middleware/errorHandler.js';
@@ -28,11 +29,12 @@ import type { WorldStyleConfig } from '../services/worldStylePresets.js';
 // ---------------------------------------------------------------------------
 
 /** Returns true if the world bible has enough entries for a coherence check to be meaningful. */
-function hasSufficientBibleContent(worldId: string): boolean {
-  const row = getDb()
-    .prepare('SELECT COUNT(*) AS n FROM world_bible_entries WHERE world_id = ? AND summary != ""')
-    .get(worldId) as { n: number };
-  return row.n >= 5;
+async function hasSufficientBibleContent(worldId: string): Promise<boolean> {
+  const row = await getDbClient().get<{ n: number }>(
+    'SELECT COUNT(*) AS n FROM world_bible_entries WHERE world_id = ? AND summary != ""',
+    [worldId],
+  );
+  return row!.n >= 5;
 }
 
 // ---------------------------------------------------------------------------
@@ -47,10 +49,11 @@ export interface WorldContext {
   styleConfig: WorldStyleConfig | null;
 }
 
-export function fetchWorldContext(worldId: string): WorldContext {
-  const row = getDb()
-    .prepare('SELECT id, name, tone, origin_point, style_config FROM worlds WHERE id = ?')
-    .get(worldId) as Record<string, unknown> | undefined;
+export async function fetchWorldContext(worldId: string): Promise<WorldContext> {
+  const row = await getDbClient().get<Record<string, unknown>>(
+    'SELECT id, name, tone, origin_point, style_config FROM worlds WHERE id = ?',
+    [worldId],
+  );
 
   if (!row) throw new Error(`World ${worldId} not found`);
 
@@ -155,23 +158,25 @@ export class PipelineCoordinator {
     worldId: string,
     seedText: string,
   ): Promise<{ stubs: Stub[]; tokensIn: number; tokensOut: number }> {
-    const db = getDb();
+    const exec = getDbClient();
 
-    const categories = db
-      .prepare('SELECT id, name FROM categories WHERE world_id = ? ORDER BY sort_order')
-      .all(worldId) as Array<{ id: string; name: string }>;
+    const categories = await exec.all<{ id: string; name: string }>(
+      'SELECT id, name FROM categories WHERE world_id = ? ORDER BY sort_order',
+      [worldId],
+    );
 
     if (categories.length === 0) throw new Error('World has no categories');
 
-    const worldContext = fetchWorldContext(worldId);
+    const worldContext = await fetchWorldContext(worldId);
     const agent = new ArchitectAgent();
     const result = await agent.run(worldId, { seedText, categories, worldContext });
     const { stubs } = result.output;
 
     const categoryMap = new Map(categories.map((c) => [c.name.toLowerCase(), c.id]));
     const now = Date.now();
+    const ownerId = await ownerIdForWorld(exec, worldId);
 
-    db.transaction(() => {
+    await exec.transaction(async (tx) => {
       for (const stub of stubs) {
         const categoryId = categoryMap.get(stub.categoryName.toLowerCase());
         if (!categoryId) continue;
@@ -179,22 +184,24 @@ export class PipelineCoordinator {
         const articleId = nanoid();
         const versionId = nanoid();
 
-        db.prepare(
+        await tx.run(
           `INSERT INTO articles
-             (id, world_id, category_id, title, status, template_type,
+             (id, world_id, owner_id, category_id, title, status, template_type,
               depth, current_version_id, created_at, updated_at)
-           VALUES (?, ?, ?, ?, 'stub', ?, 2, ?, ?, ?)`,
-        ).run(articleId, worldId, categoryId, stub.title, stub.templateType, versionId, now, now);
+           VALUES (?, ?, ?, ?, ?, 'stub', ?, 2, ?, ?, ?)`,
+          [articleId, worldId, ownerId, categoryId, stub.title, stub.templateType, versionId, now, now],
+        );
 
-        db.prepare(
+        await tx.run(
           `INSERT INTO article_versions
-             (id, article_id, version_number, introduction, description, chronology, word_count, created_at)
-           VALUES (?, ?, 1, ?, '', '', 0, ?)`,
-        ).run(versionId, articleId, stub.summary, now);
+             (id, article_id, owner_id, version_number, introduction, description, chronology, word_count, created_at)
+           VALUES (?, ?, ?, 1, ?, '', '', 0, ?)`,
+          [versionId, articleId, ownerId, stub.summary, now],
+        );
 
-        upsertEntry(worldId, articleId, stub.summary);
+        await upsertEntry(tx, worldId, articleId, stub.summary);
       }
-    })();
+    });
 
     return { stubs, tokensIn: result.tokensIn, tokensOut: result.tokensOut };
   }
@@ -211,8 +218,8 @@ export class PipelineCoordinator {
     autoSelect = false,
     contextDepth: ContextDepth = 'mid',
   ): Promise<ProposeOutput> {
-    const worldContext = fetchWorldContext(worldId);
-    const contextPackage = buildContextPackage(worldId, articleId, { contextDepth });
+    const worldContext = await fetchWorldContext(worldId);
+    const contextPackage = await buildContextPackage(worldId, articleId, { contextDepth });
 
     const agent = new MuseAgent();
     const result = await agent.run(worldId, {
@@ -227,9 +234,10 @@ export class PipelineCoordinator {
     let totalTokensOut = result.tokensOut;
 
     if (autoSelect && proposals.length > 0) {
-      const article = getDb()
-        .prepare('SELECT title, template_type FROM articles WHERE id = ? AND world_id = ?')
-        .get(articleId, worldId) as { title: string; template_type: string } | undefined;
+      const article = await getDbClient().get<{ title: string; template_type: string }>(
+        'SELECT title, template_type FROM articles WHERE id = ? AND world_id = ?',
+        [articleId, worldId],
+      );
 
       const curatorAgent = new CuratorAgent();
       const curatorResult = await curatorAgent.run(worldId, {
@@ -270,12 +278,13 @@ export class PipelineCoordinator {
     userSpec?: string,
     contextDepth: ContextDepth = 'mid',
   ): Promise<ProposeIdeasOutput> {
-    const worldContext = fetchWorldContext(worldId);
-    const contextPackage = buildContextPackage(worldId, articleId, { contextDepth });
+    const worldContext = await fetchWorldContext(worldId);
+    const contextPackage = await buildContextPackage(worldId, articleId, { contextDepth });
 
-    const article = getDb()
-      .prepare('SELECT title FROM articles WHERE id = ? AND world_id = ?')
-      .get(articleId, worldId) as { title: string } | undefined;
+    const article = await getDbClient().get<{ title: string }>(
+      'SELECT title FROM articles WHERE id = ? AND world_id = ?',
+      [articleId, worldId],
+    );
 
     const agent = new OracleAgent();
     const result = await agent.run(worldId, {
@@ -310,9 +319,9 @@ export class PipelineCoordinator {
     runContinuityEditor = false,
     wordCountPreset: 'short' | 'medium' | 'long' = 'medium',
   ): Promise<ExpandOutput> {
-    const worldContext = fetchWorldContext(worldId);
+    const worldContext = await fetchWorldContext(worldId);
     const archivistMode: ArchivistMode = pipelineType === 'reorganize' ? 'reorganize' : 'default';
-    const contextPackage = buildContextPackage(worldId, articleId, { mode: archivistMode, contextDepth });
+    const contextPackage = await buildContextPackage(worldId, articleId, { mode: archivistMode, contextDepth });
 
     // Researcher (always-on): build constraint brief before Scribe writes
     const researcherAgent = new ResearcherAgent();
@@ -421,17 +430,15 @@ export class PipelineCoordinator {
     articleId: string,
     mode: LorekeepMode = 'full',
   ): Promise<SummarizeOutput> {
-    const worldContext = fetchWorldContext(worldId);
-    const db = getDb();
+    const worldContext = await fetchWorldContext(worldId);
 
-    const article = db
-      .prepare(
-        `SELECT a.title, av.description, av.introduction
-         FROM articles a
-         LEFT JOIN article_versions av ON av.id = a.current_version_id
-         WHERE a.id = ? AND a.world_id = ?`,
-      )
-      .get(articleId, worldId) as { title: string; description: string; introduction: string } | undefined;
+    const article = await getDbClient().get<{ title: string; description: string; introduction: string }>(
+      `SELECT a.title, av.description, av.introduction
+       FROM articles a
+       LEFT JOIN article_versions av ON av.id = a.current_version_id
+       WHERE a.id = ? AND a.world_id = ?`,
+      [articleId, worldId],
+    );
 
     if (!article) throw new Error(`Article ${articleId} not found`);
 
@@ -467,8 +474,8 @@ export class PipelineCoordinator {
     userSpec?: string,
     contextDepth: ContextDepth = 'mid',
   ): Promise<ProposeChildrenOutput> {
-    const worldContext = fetchWorldContext(worldId);
-    const contextPackage = buildContextPackage(worldId, articleId, { mode: 'propose_children', contextDepth });
+    const worldContext = await fetchWorldContext(worldId);
+    const contextPackage = await buildContextPackage(worldId, articleId, { mode: 'propose_children', contextDepth });
 
     const agent = new CartographerAgent();
     const result = await agent.run(worldId, { contextPackage, worldContext, userSpec });
@@ -489,8 +496,8 @@ export class PipelineCoordinator {
     articleId: string,
     contextDepth: ContextDepth = 'mid',
   ): Promise<ReorganizeOutput> {
-    const worldContext = fetchWorldContext(worldId);
-    const contextPackage = buildContextPackage(worldId, articleId, { mode: 'reorganize', contextDepth });
+    const worldContext = await fetchWorldContext(worldId);
+    const contextPackage = await buildContextPackage(worldId, articleId, { mode: 'reorganize', contextDepth });
 
     const scribeAgent = new ScribeAgent();
     const expandResult = await scribeAgent.run(worldId, {
@@ -534,12 +541,12 @@ export class PipelineCoordinator {
     articleId: string,
     contextDepth: ContextDepth = 'mid',
   ): Promise<{ warnings: CoherenceWarning[]; suggestedLinks: SuggestedLink[]; tokensIn: number; tokensOut: number }> {
-    if (!hasSufficientBibleContent(worldId)) {
+    if (!(await hasSufficientBibleContent(worldId))) {
       return { warnings: [], suggestedLinks: [], tokensIn: 0, tokensOut: 0 };
     }
 
-    const worldContext = fetchWorldContext(worldId);
-    const contextPackage = buildContextPackage(worldId, articleId, { contextDepth });
+    const worldContext = await fetchWorldContext(worldId);
+    const contextPackage = await buildContextPackage(worldId, articleId, { contextDepth });
 
     const agent = new WardenAgent();
     const result = await agent.run(worldId, {
@@ -568,8 +575,8 @@ export class PipelineCoordinator {
     contextDepth: ContextDepth = 'mid',
     runStyleWarden = false,
   ): Promise<ChronologyOutput> {
-    const worldContext = fetchWorldContext(worldId);
-    const contextPackage = buildContextPackage(worldId, articleId, { mode: 'expand_chronology', contextDepth });
+    const worldContext = await fetchWorldContext(worldId);
+    const contextPackage = await buildContextPackage(worldId, articleId, { mode: 'expand_chronology', contextDepth });
 
     const chroniclerAgent = new ChroniclerAgent();
     const chroniclerResult = await chroniclerAgent.run(worldId, {
@@ -584,7 +591,7 @@ export class PipelineCoordinator {
     let coherenceWarnings: CoherenceWarning[] = [];
     let suggestedLinks: SuggestedLink[] = [];
 
-    if (hasSufficientBibleContent(worldId)) {
+    if (await hasSufficientBibleContent(worldId)) {
       const wardenAgent = new WardenAgent();
       const coherenceResult = await wardenAgent.run(worldId, {
         contextPackage,
@@ -627,8 +634,8 @@ export class PipelineCoordinator {
   // ---------------------------------------------------------------------------
 
   async compress(worldId: string): Promise<CompressOutput> {
-    const worldContext = fetchWorldContext(worldId);
-    const bibleEntries = getEntries(worldId);
+    const worldContext = await fetchWorldContext(worldId);
+    const bibleEntries = await getEntries(worldId);
 
     const entries = bibleEntries.map((e) => ({
       articleId: e.articleId,
@@ -651,38 +658,41 @@ export class PipelineCoordinator {
   // ---------------------------------------------------------------------------
 
   async audit(worldId: string, sampleSize?: number, focus: 'all' | 'recent' = 'all'): Promise<AuditOutput> {
-    const worldContext = fetchWorldContext(worldId);
-    const db = getDb();
+    const worldContext = await fetchWorldContext(worldId);
+    const exec = getDbClient();
 
     let lastAuditTs = 0;
     if (focus === 'recent') {
-      const lastRow = db.prepare(
+      const lastRow = await exec.get<{ ts: number | null }>(
         `SELECT MAX(created_at) AS ts FROM world_issues WHERE world_id = ?`,
-      ).get(worldId) as { ts: number | null };
+        [worldId],
+      );
       lastAuditTs = lastRow?.ts ?? 0;
     }
 
-    const rows = db.prepare(
+    const rows = await exec.all<{ id: string; title: string; summary: string | null }>(
       `SELECT a.id, a.title, wbe.summary
        FROM articles a
        LEFT JOIN world_bible_entries wbe ON wbe.article_id = a.id
        WHERE a.world_id = ? ${focus === 'recent' && lastAuditTs > 0 ? 'AND a.updated_at > ?' : ''}
        ORDER BY a.depth ASC, a.title ASC`,
-    ).all(worldId, ...(focus === 'recent' && lastAuditTs > 0 ? [lastAuditTs] : [])) as Array<{ id: string; title: string; summary: string | null }>;
+      [worldId, ...(focus === 'recent' && lastAuditTs > 0 ? [lastAuditTs] : [])],
+    );
 
-    const linkRows = db.prepare(
+    const linkRows = await exec.all<{
+      source_article_id: string;
+      target_article_id: string;
+      link_type: string;
+      target_title: string;
+    }>(
       `SELECT al.source_article_id, al.target_article_id, al.link_type, a.title AS target_title
        FROM article_links al
        JOIN articles a ON a.id = al.target_article_id
        WHERE al.source_article_id IN (
          SELECT id FROM articles WHERE world_id = ?
        )`,
-    ).all(worldId) as Array<{
-      source_article_id: string;
-      target_article_id: string;
-      link_type: string;
-      target_title: string;
-    }>;
+      [worldId],
+    );
 
     const linkMap = new Map<string, Array<{ targetId: string; targetTitle: string; linkType: string }>>();
     for (const row of linkRows) {

@@ -1,4 +1,4 @@
-import { getDb } from '../db/index.js';
+import { getDbClient } from '../db/client.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -68,12 +68,12 @@ function est(text: string): number {
  *   propose_children  — children tier added after siblings
  *   reorganize        — full body counts against budget first
  */
-export function buildContextPackage(
+export async function buildContextPackage(
   worldId: string,
   articleId: string,
   options: ArchivistOptions = {},
-): ContextPackage {
-  const db = getDb();
+): Promise<ContextPackage> {
+  const exec = getDbClient();
   const { mode = 'default', contextDepth = 'mid' } = options;
 
   const budgetByDepth: Record<ContextDepth, number> = {
@@ -84,15 +84,14 @@ export function buildContextPackage(
   const maxTokens = options.maxTokens ?? budgetByDepth[contextDepth];
 
   // Fetch target
-  const target = db
-    .prepare(
-      `SELECT a.id, a.title, a.template_type, a.temporal_anchor_start,
-              av.introduction, av.description, av.chronology
-       FROM articles a
-       LEFT JOIN article_versions av ON av.id = a.current_version_id
-       WHERE a.id = ? AND a.world_id = ?`,
-    )
-    .get(articleId, worldId) as Record<string, unknown> | undefined;
+  const target = await exec.get<Record<string, unknown>>(
+    `SELECT a.id, a.title, a.template_type, a.temporal_anchor_start,
+            av.introduction, av.description, av.chronology
+     FROM articles a
+     LEFT JOIN article_versions av ON av.id = a.current_version_id
+     WHERE a.id = ? AND a.world_id = ?`,
+    [articleId, worldId],
+  );
 
   if (!target) throw new Error(`Article ${articleId} not found in world ${worldId}`);
 
@@ -115,30 +114,30 @@ export function buildContextPackage(
   const temporalNeighbors: Array<ContextArticle & { temporalAnchorStart: string }> = [];
   const referencedArticles: Array<{ id: string; title: string }> = [];
 
-  const fetchDescription = (articleRowId: string): string => {
-    const ver = db
-      .prepare(`SELECT av.description FROM articles a LEFT JOIN article_versions av ON av.id = a.current_version_id WHERE a.id = ?`)
-      .get(articleRowId) as { description: string } | undefined;
+  const fetchDescription = async (articleRowId: string): Promise<string> => {
+    const ver = await exec.get<{ description: string }>(
+      `SELECT av.description FROM articles a LEFT JOIN article_versions av ON av.id = a.current_version_id WHERE a.id = ?`,
+      [articleRowId],
+    );
     return ver?.description ?? '';
   };
 
   // Status ordering: published > reviewed > draft > stub (anything else last)
   const STATUS_ORDER = `CASE a.status WHEN 'published' THEN 0 WHEN 'reviewed' THEN 1 WHEN 'draft' THEN 2 ELSE 3 END`;
 
-  const fillParents = (): void => {
+  const fillParents = async (): Promise<void> => {
     if (contextDepth === 'shallow') {
       // Shallow: only direct parents, intro only
-      const rows = db
-        .prepare(
-          `SELECT a.id, a.title, wbe.summary
-           FROM article_links al
-           JOIN articles a ON a.id = al.source_article_id
-           LEFT JOIN world_bible_entries wbe ON wbe.article_id = a.id
-           WHERE al.target_article_id = ? AND al.link_type = 'hierarchical'
-           ORDER BY ${STATUS_ORDER}, a.title
-           LIMIT 2`,
-        )
-        .all(articleId) as Record<string, unknown>[];
+      const rows = await exec.all<Record<string, unknown>>(
+        `SELECT a.id, a.title, wbe.summary
+         FROM article_links al
+         JOIN articles a ON a.id = al.source_article_id
+         LEFT JOIN world_bible_entries wbe ON wbe.article_id = a.id
+         WHERE al.target_article_id = ? AND al.link_type = 'hierarchical'
+         ORDER BY ${STATUS_ORDER}, a.title
+         LIMIT 2`,
+        [articleId],
+      );
 
       for (const r of rows) {
         const summary = (r.summary as string) ?? '';
@@ -150,24 +149,23 @@ export function buildContextPackage(
       return;
     }
 
-    const rows = db
-      .prepare(
-        `SELECT a.id, a.title, wbe.summary
-         FROM article_links al
-         JOIN articles a ON a.id = al.source_article_id
-         LEFT JOIN world_bible_entries wbe ON wbe.article_id = a.id
-         WHERE al.target_article_id = ? AND al.link_type = 'hierarchical'
-         ORDER BY ${STATUS_ORDER}, a.title
-         LIMIT 4`,
-      )
-      .all(articleId) as Record<string, unknown>[];
+    const rows = await exec.all<Record<string, unknown>>(
+      `SELECT a.id, a.title, wbe.summary
+       FROM article_links al
+       JOIN articles a ON a.id = al.source_article_id
+       LEFT JOIN world_bible_entries wbe ON wbe.article_id = a.id
+       WHERE al.target_article_id = ? AND al.link_type = 'hierarchical'
+       ORDER BY ${STATUS_ORDER}, a.title
+       LIMIT 4`,
+      [articleId],
+    );
 
     for (const r of rows) {
       const summary = (r.summary as string) ?? '';
       let description: string | undefined;
 
       if (contextDepth === 'deep') {
-        const desc = fetchDescription(r.id as string);
+        const desc = await fetchDescription(r.id as string);
         const descCost = est(desc);
         if (desc && budget - est(`### ${r.title}\n${summary}\n`) - descCost >= 0) {
           description = desc;
@@ -181,31 +179,29 @@ export function buildContextPackage(
     }
   };
 
-  const fillTemporalNeighbors = (): void => {
+  const fillTemporalNeighbors = async (): Promise<void> => {
     if (contextDepth === 'shallow') return;
     const anchor = targetAnchor ?? '0000';
 
-    const before = db
-      .prepare(
-        `SELECT a.id, a.title, a.temporal_anchor_start, wbe.summary
-         FROM articles a
-         LEFT JOIN world_bible_entries wbe ON wbe.article_id = a.id
-         WHERE a.world_id = ? AND a.temporal_anchor_start IS NOT NULL
-           AND a.temporal_anchor_start < ? AND a.id != ?
-         ORDER BY a.temporal_anchor_start DESC, ${STATUS_ORDER} LIMIT 3`,
-      )
-      .all(worldId, anchor, articleId) as Record<string, unknown>[];
+    const before = await exec.all<Record<string, unknown>>(
+      `SELECT a.id, a.title, a.temporal_anchor_start, wbe.summary
+       FROM articles a
+       LEFT JOIN world_bible_entries wbe ON wbe.article_id = a.id
+       WHERE a.world_id = ? AND a.temporal_anchor_start IS NOT NULL
+         AND a.temporal_anchor_start < ? AND a.id != ?
+       ORDER BY a.temporal_anchor_start DESC, ${STATUS_ORDER} LIMIT 3`,
+      [worldId, anchor, articleId],
+    );
 
-    const after = db
-      .prepare(
-        `SELECT a.id, a.title, a.temporal_anchor_start, wbe.summary
-         FROM articles a
-         LEFT JOIN world_bible_entries wbe ON wbe.article_id = a.id
-         WHERE a.world_id = ? AND a.temporal_anchor_start IS NOT NULL
-           AND a.temporal_anchor_start > ? AND a.id != ?
-         ORDER BY a.temporal_anchor_start ASC, ${STATUS_ORDER} LIMIT 3`,
-      )
-      .all(worldId, anchor, articleId) as Record<string, unknown>[];
+    const after = await exec.all<Record<string, unknown>>(
+      `SELECT a.id, a.title, a.temporal_anchor_start, wbe.summary
+       FROM articles a
+       LEFT JOIN world_bible_entries wbe ON wbe.article_id = a.id
+       WHERE a.world_id = ? AND a.temporal_anchor_start IS NOT NULL
+         AND a.temporal_anchor_start > ? AND a.id != ?
+       ORDER BY a.temporal_anchor_start ASC, ${STATUS_ORDER} LIMIT 3`,
+      [worldId, anchor, articleId],
+    );
 
     for (const r of [...before.reverse(), ...after]) {
       const summary = (r.summary as string) ?? '';
@@ -221,27 +217,26 @@ export function buildContextPackage(
     }
   };
 
-  const fillChildren = (): void => {
+  const fillChildren = async (): Promise<void> => {
     if (contextDepth === 'shallow') return;
 
-    const rows = db
-      .prepare(
-        `SELECT a.id, a.title, wbe.summary
-         FROM article_links al
-         JOIN articles a ON a.id = al.target_article_id
-         LEFT JOIN world_bible_entries wbe ON wbe.article_id = a.id
-         WHERE al.source_article_id = ? AND al.link_type = 'hierarchical'
-         ORDER BY ${STATUS_ORDER}, a.title
-         LIMIT 12`,
-      )
-      .all(articleId) as Record<string, unknown>[];
+    const rows = await exec.all<Record<string, unknown>>(
+      `SELECT a.id, a.title, wbe.summary
+       FROM article_links al
+       JOIN articles a ON a.id = al.target_article_id
+       LEFT JOIN world_bible_entries wbe ON wbe.article_id = a.id
+       WHERE al.source_article_id = ? AND al.link_type = 'hierarchical'
+       ORDER BY ${STATUS_ORDER}, a.title
+       LIMIT 12`,
+      [articleId],
+    );
 
     for (const r of rows) {
       const summary = (r.summary as string) ?? '';
       let description: string | undefined;
 
       if (contextDepth === 'deep') {
-        const desc = fetchDescription(r.id as string);
+        const desc = await fetchDescription(r.id as string);
         const descCost = est(desc);
         if (desc && budget - est(`- ${r.title}: ${summary}\n`) - descCost >= 0) {
           description = desc;
@@ -257,36 +252,35 @@ export function buildContextPackage(
 
   // Tier ordering by mode
   if (mode === 'expand_chronology') {
-    fillTemporalNeighbors();
-    fillChildren();
-    fillParents();
+    await fillTemporalNeighbors();
+    await fillChildren();
+    await fillParents();
   } else {
-    fillParents();
-    if (targetAnchor) fillTemporalNeighbors();
+    await fillParents();
+    if (targetAnchor) await fillTemporalNeighbors();
   }
 
   // Siblings — other children of the same parents (skip in shallow mode)
   if (parents.length > 0 && contextDepth !== 'shallow') {
     const placeholders = parents.map(() => '?').join(', ');
-    const siblingRows = db
-      .prepare(
-        `SELECT DISTINCT a.id, a.title, wbe.summary
-         FROM article_links al
-         JOIN articles a ON a.id = al.target_article_id
-         LEFT JOIN world_bible_entries wbe ON wbe.article_id = a.id
-         WHERE al.source_article_id IN (${placeholders})
-           AND al.link_type = 'hierarchical' AND a.id != ?
-         ORDER BY ${STATUS_ORDER}, a.title
-         LIMIT 6`,
-      )
-      .all(...parents.map((p) => p.id), articleId) as Record<string, unknown>[];
+    const siblingRows = await exec.all<Record<string, unknown>>(
+      `SELECT DISTINCT a.id, a.title, wbe.summary
+       FROM article_links al
+       JOIN articles a ON a.id = al.target_article_id
+       LEFT JOIN world_bible_entries wbe ON wbe.article_id = a.id
+       WHERE al.source_article_id IN (${placeholders})
+         AND al.link_type = 'hierarchical' AND a.id != ?
+       ORDER BY ${STATUS_ORDER}, a.title
+       LIMIT 6`,
+      [...parents.map((p) => p.id), articleId],
+    );
 
     for (const r of siblingRows) {
       const summary = (r.summary as string) ?? '';
       let description: string | undefined;
 
       if (contextDepth === 'deep') {
-        const desc = fetchDescription(r.id as string);
+        const desc = await fetchDescription(r.id as string);
         const descCost = est(desc);
         if (desc && budget - est(`- ${r.title}: ${summary}\n`) - descCost >= 0) {
           description = desc;
@@ -302,21 +296,20 @@ export function buildContextPackage(
 
   // Children tier for propose_children (also added for expand_chronology above)
   if (mode === 'propose_children') {
-    fillChildren();
+    await fillChildren();
   }
 
   // Fixed points — skip in shallow mode (L2+)
   if (contextDepth !== 'shallow') {
-    const fixedRows = db
-      .prepare(
-        `SELECT a.id, a.title, wbe.summary
-         FROM articles a
-         LEFT JOIN world_bible_entries wbe ON wbe.article_id = a.id
-         WHERE a.world_id = ? AND a.is_fixed_point = 1 AND a.id != ?
-         ORDER BY ${STATUS_ORDER}, a.title
-         LIMIT 10`,
-      )
-      .all(worldId, articleId) as Record<string, unknown>[];
+    const fixedRows = await exec.all<Record<string, unknown>>(
+      `SELECT a.id, a.title, wbe.summary
+       FROM articles a
+       LEFT JOIN world_bible_entries wbe ON wbe.article_id = a.id
+       WHERE a.world_id = ? AND a.is_fixed_point = 1 AND a.id != ?
+       ORDER BY ${STATUS_ORDER}, a.title
+       LIMIT 10`,
+      [worldId, articleId],
+    );
 
     for (const r of fixedRows) {
       const summary = (r.summary as string) ?? '';
@@ -329,15 +322,14 @@ export function buildContextPackage(
 
   // Referenced articles — titles only, skip in shallow mode
   if (contextDepth !== 'shallow') {
-    const refRows = db
-      .prepare(
-        `SELECT a.id, a.title
-         FROM article_links al
-         JOIN articles a ON a.id = al.target_article_id
-         WHERE al.source_article_id = ? AND al.link_type = 'references'
-         LIMIT 10`,
-      )
-      .all(articleId) as Record<string, unknown>[];
+    const refRows = await exec.all<Record<string, unknown>>(
+      `SELECT a.id, a.title
+       FROM article_links al
+       JOIN articles a ON a.id = al.target_article_id
+       WHERE al.source_article_id = ? AND al.link_type = 'references'
+       LIMIT 10`,
+      [articleId],
+    );
 
     for (const r of refRows) {
       const cost = est(`- ${r.title}\n`);

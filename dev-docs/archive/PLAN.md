@@ -1,9 +1,15 @@
 # WorldArchitect Hosted Multi-Tenant Deployment Plan
 
+*Archived — fully implemented, kept for historical design reasoning only. For current architecture, see `dev-docs/architecture.md` decisions 9–10 and `dev-docs/system_layers.md`. For operating hosted mode, see `DEPLOY.md` at the repo root.*
+
+**Status: implemented.** All 5 commits below have landed — `APP_MODE=hosted`, Clerk auth, tenant-scoped routes, the SQLite/Postgres storage adapter, and Docker/Railway/Fly deploy config all exist. This file is kept as the design record; the rest of it is written in the original forward-looking tense.
+
+The scope limit called out in earlier revisions of this file — that the storage adapter's Postgres implementation only covered `health()`/`migrate()`, with route/service code still querying SQLite directly via `getDb()` — has since been closed. All route and service code now goes through a driver-agnostic `QueryExecutor` (`server/src/db/executor.ts`, `server/src/db/client.ts`), backed by SQLite or Postgres depending on `STORAGE_DRIVER`. This was verified end-to-end against a live Postgres instance (Neon), including multi-tenant isolation. CI (`.github/workflows/ci.yml`) now also exercises the Postgres path via a `postgres:16-alpine` service container and a schema-drift test (`server/src/db/schemaDrift.test.ts`). A follow-up hardening pass (headers, rate limiting, pool sizing, request correlation, `jose`-based JWT verification) is documented in `dev-docs/architecture.md` decision 11.
+
 ## Repo Map
 
 - `server/src/db/index.ts` opens the local `better-sqlite3` database and applies schema/migration code from `server/src/db/schema.ts`.
-- `server/src/routes/*.ts`, several `server/src/services/*.ts`, and some agents currently issue direct SQLite statements through `getDb()`.
+- `server/src/routes/*.ts`, `server/src/services/*.ts`, and agents issued direct SQLite statements through `getDb()` at the time this plan was written; they now go through `getDbClient()`/`QueryExecutor` instead (see the status note above).
 - `server/src/routes/settings.ts` exposes provider settings as one global singleton plus per-world cost settings.
 - `server/src/providers/index.ts` reads that singleton, merges env overrides, masks secrets on response, and enforces Phase A local-only egress rules.
 - `server/src/index.ts` owns route mounting, CORS, `/health`, and startup initialization.

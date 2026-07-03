@@ -1,17 +1,15 @@
 import { Router } from 'express';
-import { getDb } from '../db/index.js';
+import { getDbClient } from '../db/client.js';
 import { buildWorldZip } from '../services/exporter.js';
+import { asyncHandler } from '../middleware/errorHandler.js';
 
 const router = Router({ mergeParams: true });
 
 // GET /api/worlds/:wid/export
-router.get('/', async (req, res) => {
+router.get('/', asyncHandler(async (req, res) => {
   const { wid } = req.params as Record<string, string>;
-  const db = getDb();
 
-  const world = db
-    .prepare(`SELECT name FROM worlds WHERE id = ?`)
-    .get(wid) as { name: string } | undefined;
+  const world = await getDbClient().get<{ name: string }>(`SELECT name FROM worlds WHERE id = ?`, [wid]);
 
   if (!world) {
     res.status(404).json({ error: 'World not found.' });
@@ -29,6 +27,6 @@ router.get('/', async (req, res) => {
     const msg = err instanceof Error ? err.message : 'Export failed.';
     res.status(500).json({ error: msg });
   }
-});
+}));
 
 export default router;

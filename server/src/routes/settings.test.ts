@@ -124,14 +124,14 @@ describe('local-only egress settings', () => {
 });
 
 describe('call log redaction', () => {
-  it('redacts API-key-looking values before persisting error messages', () => {
+  it('redacts API-key-looking values before persisting error messages', async () => {
     const now = Date.now();
     dbRef.db!.prepare(`
       INSERT INTO worlds (id, name, description, tags, tone, created_at, updated_at)
       VALUES ('w1', 'World', 'A world description long enough.', '[]', 'narrative', ?, ?)
     `).run(now, now);
 
-    logCall({
+    await logCall({
       worldId: 'w1',
       agentType: 'scribe',
       status: 'error',

@@ -3,6 +3,7 @@ import type { Request } from 'express';
 import { z } from 'zod';
 import { generateNames, listNames, addNames, deleteName, CULTURAL_PROFILES } from '../services/nameBank.js';
 import type { EntityType, Gender, SocialClass, NameComponent, ListNamesFilter } from '../services/nameBank.js';
+import { asyncHandler } from '../middleware/errorHandler.js';
 
 const router = Router({ mergeParams: true });
 
@@ -14,7 +15,7 @@ function wid(req: Request): string {
 // GET /api/worlds/:wid/names
 // ---------------------------------------------------------------------------
 
-router.get('/', (req, res) => {
+router.get('/', asyncHandler(async (req, res) => {
   const { entityType, gender, socialClass, nameComponent, tags } = req.query as Record<string, string | undefined>;
   const tagList = tags ? tags.split(',').map((t) => t.trim()).filter(Boolean) : undefined;
 
@@ -26,12 +27,12 @@ router.get('/', (req, res) => {
     tags:          tagList,
   };
 
-  const entries = listNames(wid(req), filter);
+  const entries = await listNames(wid(req), filter);
   res.json({
     names:    entries,
     profiles: Object.entries(CULTURAL_PROFILES).map(([id, p]) => ({ id, label: p.label, feel: p.feel })),
   });
-});
+}));
 
 // ---------------------------------------------------------------------------
 // POST /api/worlds/:wid/names/generate  — generate candidates (no DB write)
@@ -46,7 +47,7 @@ const GenerateSchema = z.object({
   count:         z.number().int().min(1).max(20).optional().default(8),
 });
 
-router.post('/generate', (req, res) => {
+router.post('/generate', asyncHandler(async (req, res) => {
   const parse = GenerateSchema.safeParse(req.body);
   if (!parse.success) {
     res.status(400).json({ error: parse.error.flatten().fieldErrors });
@@ -60,7 +61,7 @@ router.post('/generate', (req, res) => {
   }
 
   try {
-    const names = generateNames(parse.data.profileId, parse.data.entityType, worldId, parse.data.count, {
+    const names = await generateNames(parse.data.profileId, parse.data.entityType, worldId, parse.data.count, {
       gender:        parse.data.gender,
       socialClass:   parse.data.socialClass,
       nameComponent: parse.data.nameComponent,
@@ -69,7 +70,7 @@ router.post('/generate', (req, res) => {
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });
   }
-});
+}));
 
 // ---------------------------------------------------------------------------
 // POST /api/worlds/:wid/names  — save accepted names
@@ -88,7 +89,7 @@ const SaveSchema = z.object({
   })).min(1),
 });
 
-router.post('/', (req, res) => {
+router.post('/', asyncHandler(async (req, res) => {
   const parse = SaveSchema.safeParse(req.body);
   if (!parse.success) {
     res.status(400).json({ error: parse.error.flatten().fieldErrors });
@@ -97,20 +98,20 @@ router.post('/', (req, res) => {
 
   const worldId = wid(req);
   try {
-    const saved = addNames(worldId, parse.data.names);
+    const saved = await addNames(worldId, parse.data.names);
     res.status(201).json({ names: saved });
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });
   }
-});
+}));
 
 // ---------------------------------------------------------------------------
 // DELETE /api/worlds/:wid/names/:nid
 // ---------------------------------------------------------------------------
 
-router.delete('/:nid', (req, res) => {
-  deleteName((req.params as Record<string, string>).nid);
+router.delete('/:nid', asyncHandler(async (req, res) => {
+  await deleteName((req.params as Record<string, string>).nid);
   res.status(204).send();
-});
+}));
 
 export default router;

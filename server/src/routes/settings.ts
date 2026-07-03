@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { getDb } from '../db/index.js';
+import { getDbClient } from '../db/client.js';
 import {
   readProviderSettings,
   readEffectiveProviderSettings,
@@ -36,8 +36,8 @@ const UpdateCostSettingsSchema = z.object({
 // Global provider settings  GET /api/settings
 // ---------------------------------------------------------------------------
 
-router.get('/', (req, res) => {
-  const { provider, config, sources, localOnly } = readEffectiveProviderSettings(tenantIdFor(req));
+router.get('/', asyncHandler(async (req, res) => {
+  const { provider, config, sources, localOnly } = await readEffectiveProviderSettings(tenantIdFor(req));
 
   res.json({
     provider,
@@ -67,10 +67,10 @@ router.get('/', (req, res) => {
       model: config.ollamaModel ?? 'llama3',
     },
   });
-});
+}));
 
 // PATCH /api/settings — set active provider + store its key/model
-router.patch('/', (req, res) => {
+router.patch('/', asyncHandler(async (req, res) => {
   const parse = UpdateProviderSchema.safeParse(req.body);
   if (!parse.success) {
     res.status(400).json({ error: parse.error.flatten().fieldErrors });
@@ -79,7 +79,7 @@ router.patch('/', (req, res) => {
 
   const { provider, apiKey, model, ollamaUrl, localOnly } = parse.data;
   const userId = tenantIdFor(req);
-  const { config: existing } = readProviderSettings(userId);
+  const { config: existing } = await readProviderSettings(userId);
 
   // Merge — only overwrite the fields relevant to the selected provider.
   const updated: ProviderConfig = { ...existing };
@@ -102,16 +102,16 @@ router.patch('/', (req, res) => {
     updated.localOnly = localOnly;
   }
 
-  writeProviderSettings(provider as ProviderName | 'none', updated, userId);
+  await writeProviderSettings(provider as ProviderName | 'none', updated, userId);
 
-  const effective = readEffectiveProviderSettings(userId);
+  const effective = await readEffectiveProviderSettings(userId);
   res.json({ ok: true, provider, localOnly: effective.localOnly });
-});
+}));
 
 // POST /api/settings/test — fire a minimal completion to verify the key works
 router.post('/test', asyncHandler(async (_req, res) => {
   try {
-    const provider = getProvider();
+    const provider = await getProvider();
     const result = await provider.complete(
       [{ role: 'user', content: 'Reply with the single word: ok' }],
       { maxTokens: 10 },
@@ -125,7 +125,7 @@ router.post('/test', asyncHandler(async (_req, res) => {
 
 // GET /api/settings/ollama/models — list models available in the local Ollama daemon
 router.get('/ollama/models', asyncHandler(async (_req, res) => {
-  const { config } = readEffectiveProviderSettings();
+  const { config } = await readEffectiveProviderSettings();
   const base = (config.ollamaUrl ?? 'http://localhost:11434').replace(/\/v1\/?$/, '');
 
   try {
@@ -146,10 +146,12 @@ router.get('/ollama/models', asyncHandler(async (_req, res) => {
 
 export const worldSettingsRouter = Router({ mergeParams: true });
 
-worldSettingsRouter.get('/', (req, res) => {
-  const settings = getDb()
-    .prepare('SELECT * FROM cost_settings WHERE world_id = ? AND owner_id = ?')
-    .get((req.params as Record<string, string>).wid, tenantIdFor(req)) as { daily_cap: number | null; bible_threshold: number } | undefined;
+worldSettingsRouter.get('/', asyncHandler(async (req, res) => {
+  const settings = await getDbClient()
+    .get<{ daily_cap: number | null; bible_threshold: number }>(
+      'SELECT * FROM cost_settings WHERE world_id = ? AND owner_id = ?',
+      [(req.params as Record<string, string>).wid, tenantIdFor(req)],
+    );
 
   if (!settings) {
     res.status(404).json({ error: 'World not found' });
@@ -160,18 +162,23 @@ worldSettingsRouter.get('/', (req, res) => {
     dailyCap: settings.daily_cap,
     bibleThreshold: settings.bible_threshold,
   });
-});
+}));
 
-worldSettingsRouter.patch('/', (req, res) => {
+worldSettingsRouter.patch('/', asyncHandler(async (req, res) => {
   const parse = UpdateCostSettingsSchema.safeParse(req.body);
   if (!parse.success) {
     res.status(400).json({ error: parse.error.flatten().fieldErrors });
     return;
   }
 
-  const existing = getDb()
-    .prepare('SELECT * FROM cost_settings WHERE world_id = ? AND owner_id = ?')
-    .get((req.params as Record<string, string>).wid, tenantIdFor(req)) as { daily_cap: number | null; bible_threshold: number } | undefined;
+  const wid = (req.params as Record<string, string>).wid;
+  const ownerId = tenantIdFor(req);
+  const exec = getDbClient();
+
+  const existing = await exec.get<{ daily_cap: number | null; bible_threshold: number }>(
+    'SELECT * FROM cost_settings WHERE world_id = ? AND owner_id = ?',
+    [wid, ownerId],
+  );
 
   if (!existing) {
     res.status(404).json({ error: 'World not found' });
@@ -186,18 +193,17 @@ worldSettingsRouter.patch('/', (req, res) => {
   if (bibleThreshold !== undefined) { fields.push('bible_threshold = ?'); values.push(bibleThreshold); }
 
   if (fields.length > 0) {
-    values.push((req.params as Record<string, string>).wid);
-    values.push(tenantIdFor(req));
-    getDb()
-      .prepare(`UPDATE cost_settings SET ${fields.join(', ')} WHERE world_id = ? AND owner_id = ?`)
-      .run(...values);
+    values.push(wid);
+    values.push(ownerId);
+    await exec.run(`UPDATE cost_settings SET ${fields.join(', ')} WHERE world_id = ? AND owner_id = ?`, values);
   }
 
-  const updated = getDb()
-    .prepare('SELECT * FROM cost_settings WHERE world_id = ? AND owner_id = ?')
-    .get((req.params as Record<string, string>).wid, tenantIdFor(req)) as { daily_cap: number | null; bible_threshold: number };
+  const updated = await exec.get<{ daily_cap: number | null; bible_threshold: number }>(
+    'SELECT * FROM cost_settings WHERE world_id = ? AND owner_id = ?',
+    [wid, ownerId],
+  );
 
-  res.json({ dailyCap: updated.daily_cap, bibleThreshold: updated.bible_threshold });
-});
+  res.json({ dailyCap: updated!.daily_cap, bibleThreshold: updated!.bible_threshold });
+}));
 
 export default router;

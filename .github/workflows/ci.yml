@@ -7,6 +7,20 @@ on:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: worldarchitect
+          POSTGRES_PASSWORD: worldarchitect
+          POSTGRES_DB: worldarchitect
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U worldarchitect -d worldarchitect"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -17,6 +31,8 @@ jobs:
       - run: npm run lint
       - run: npm run build
       - run: npm test -w server
+        env:
+          DRIFT_TEST_DATABASE_URL: postgres://worldarchitect:worldarchitect@localhost:5432/worldarchitect
       - run: npm test -w client
 
   image:

@@ -1,6 +1,6 @@
 {
   "name": "worldarchitect-client",
-  "version": "1.0.0",
+  "version": "0.5.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -12,6 +12,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@clerk/react": "6.11.3",
     "@tiptap/react": "^2.4.0",
     "@tiptap/starter-kit": "^2.4.0",
     "immer": "^10.1.1",

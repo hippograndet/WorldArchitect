@@ -1,29 +1,29 @@
-import type { Request, RequestHandler } from 'express';
-import { getDb } from './db/index.js';
+import type { Request } from 'express';
+import { getDbClient } from './db/client.js';
 import { getAppMode, LOCAL_USER_ID } from './config.js';
 import { getRequestUserId } from './auth.js';
+import { asyncHandler } from './middleware/errorHandler.js';
 
 export function tenantIdFor(req: Request): string {
   return getAppMode() === 'hosted' ? getRequestUserId(req) : LOCAL_USER_ID;
 }
 
-export function worldBelongsToTenant(worldId: string, ownerId: string): boolean {
-  return !!getDb()
-    .prepare('SELECT id FROM worlds WHERE id = ? AND owner_id = ?')
-    .get(worldId, ownerId);
+export async function worldBelongsToTenant(worldId: string, ownerId: string): Promise<boolean> {
+  const row = await getDbClient().get('SELECT id FROM worlds WHERE id = ? AND owner_id = ?', [worldId, ownerId]);
+  return !!row;
 }
 
-export const requireWorldTenant: RequestHandler = (req, res, next) => {
+export const requireWorldTenant = asyncHandler(async (req, res, next) => {
   const wid = (req.params as Record<string, string>).wid;
   if (!wid) {
     next();
     return;
   }
 
-  if (!worldBelongsToTenant(wid, tenantIdFor(req))) {
+  if (!(await worldBelongsToTenant(wid, tenantIdFor(req)))) {
     res.status(404).json({ error: 'World not found', code: 'NOT_FOUND' });
     return;
   }
 
   next();
-};
+});

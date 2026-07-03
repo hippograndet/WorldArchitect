@@ -1,9 +1,12 @@
 import { Router } from 'express';
 import { nanoid } from 'nanoid';
 import { z } from 'zod';
-import { getDb } from '../db/index.js';
+import { getDbClient } from '../db/client.js';
+import type { QueryExecutor } from '../db/executor.js';
 import { upsertEntry } from '../services/worldBible.js';
 import { runSyncRules } from '../services/syncRules.js';
+import { asyncHandler } from '../middleware/errorHandler.js';
+import { tenantIdFor } from '../tenant.js';
 
 const router = Router({ mergeParams: true });
 
@@ -208,21 +211,16 @@ function bodyToDescription(body: string | undefined, fallback?: string): string 
     .trim();
 }
 
-function getNextVersionNumber(articleId: string): number {
-  const db = getDb();
-  const row = db
-    .prepare('SELECT MAX(version_number) as max FROM article_versions WHERE article_id = ?')
-    .get(articleId) as { max: number | null };
-  return (row.max ?? 0) + 1;
+async function getNextVersionNumber(exec: QueryExecutor, articleId: string): Promise<number> {
+  const row = await exec.get<{ max: number | null }>(
+    'SELECT MAX(version_number) as max FROM article_versions WHERE article_id = ?',
+    [articleId],
+  );
+  return (row?.max ?? 0) + 1;
 }
 
-function requireArticle(worldId: string, articleId: string): DbRow | null {
-  const db = getDb();
-  return (
-    (db
-      .prepare('SELECT * FROM articles WHERE id = ? AND world_id = ?')
-      .get(articleId, worldId) as DbRow | undefined) ?? null
-  );
+async function requireArticle(exec: QueryExecutor, worldId: string, articleId: string): Promise<DbRow | null> {
+  return (await exec.get<DbRow>('SELECT * FROM articles WHERE id = ? AND world_id = ?', [articleId, worldId])) ?? null;
 }
 
 // ---------------------------------------------------------------------------
@@ -231,11 +229,10 @@ function requireArticle(worldId: string, articleId: string): DbRow | null {
 
 // GET /api/worlds/:wid/articles/tree — flat list with parentId for tree building
 // Must be declared before /:aid to avoid 'tree' being matched as an article ID.
-router.get('/tree', (req, res) => {
-  const db = getDb();
+router.get('/tree', asyncHandler(async (req, res) => {
   const wid = (req.params as Record<string, string>).wid;
 
-  const rows = db.prepare(`
+  const rows = await getDbClient().all<{ id: string; title: string; status: string; depth: number; updated_at: number; parent_id: string | null }>(`
     SELECT a.id, a.title, a.status, a.depth, a.updated_at,
            al.source_article_id AS parent_id
     FROM articles a
@@ -243,7 +240,7 @@ router.get('/tree', (req, res) => {
       ON al.target_article_id = a.id AND al.link_type = 'hierarchical'
     WHERE a.world_id = ?
     ORDER BY a.depth ASC, a.updated_at ASC
-  `).all(wid) as { id: string; title: string; status: string; depth: number; updated_at: number; parent_id: string | null }[];
+  `, [wid]);
 
   res.json(rows.map((r) => ({
     id:       r.id,
@@ -252,30 +249,34 @@ router.get('/tree', (req, res) => {
     depth:    r.depth,
     parentId: r.parent_id ?? null,
   })));
-});
+}));
 
 // GET /api/worlds/:wid/articles/graph — article network for graph view
-router.get('/graph', (req, res) => {
-  const db = getDb();
+router.get('/graph', asyncHandler(async (req, res) => {
   const wid = (req.params as Record<string, string>).wid;
+  const exec = getDbClient();
 
-  const nodes = db.prepare(`
-    SELECT a.id, a.title, a.status, a.template_type, a.depth,
-           COALESCE(av.introduction, '') AS introduction
-    FROM articles a
-    LEFT JOIN article_versions av ON av.id = a.current_version_id
-    WHERE a.world_id = ?
-    ORDER BY a.depth ASC, a.title COLLATE NOCASE ASC
-  `).all(wid) as {
+  const nodes = await exec.all<{
     id: string;
     title: string;
     status: string;
     template_type: string;
     depth: number;
     introduction: string;
-  }[];
+  }>(`
+    SELECT a.id, a.title, a.status, a.template_type, a.depth,
+           COALESCE(av.introduction, '') AS introduction
+    FROM articles a
+    LEFT JOIN article_versions av ON av.id = a.current_version_id
+    WHERE a.world_id = ?
+    ORDER BY a.depth ASC, a.title COLLATE NOCASE ASC
+  `, [wid]);
 
-  const edges = db.prepare(`
+  const edges = await exec.all<{
+    source: string;
+    target: string;
+    linkType: 'hierarchical' | 'references';
+  }>(`
     SELECT al.source_article_id AS source,
            al.target_article_id AS target,
            al.link_type AS linkType
@@ -285,11 +286,7 @@ router.get('/graph', (req, res) => {
     WHERE source_article.world_id = ?
       AND target_article.world_id = ?
     ORDER BY al.link_type ASC
-  `).all(wid, wid) as {
-    source: string;
-    target: string;
-    linkType: 'hierarchical' | 'references';
-  }[];
+  `, [wid, wid]);
 
   res.json({
     nodes: nodes.map((node) => ({
@@ -302,10 +299,10 @@ router.get('/graph', (req, res) => {
     })),
     edges,
   });
-});
+}));
 
 // POST /api/worlds/:wid/articles/links — manually create or update an article edge
-router.post('/links', (req, res) => {
+router.post('/links', asyncHandler(async (req, res) => {
   const parse = CreateLinkSchema.safeParse(req.body);
   if (!parse.success) {
     res.status(400).json({ error: parse.error.flatten().fieldErrors });
@@ -320,12 +317,12 @@ router.post('/links', (req, res) => {
     return;
   }
 
-  const db = getDb();
-  const articles = db.prepare(`
+  const exec = getDbClient();
+  const articles = await exec.all<{ id: string; depth: number }>(`
     SELECT id, depth
     FROM articles
     WHERE world_id = ? AND id IN (?, ?)
-  `).all(wid, sourceArticleId, targetArticleId) as { id: string; depth: number }[];
+  `, [wid, sourceArticleId, targetArticleId]);
 
   if (articles.length !== 2) {
     res.status(404).json({ error: 'Both articles must exist in this world.' });
@@ -352,11 +349,11 @@ router.post('/links', (req, res) => {
       if (seen.has(currentId)) continue;
       seen.add(currentId);
 
-      const children = db.prepare(`
+      const children = await exec.all<{ id: string }>(`
         SELECT target_article_id AS id
         FROM article_links
         WHERE source_article_id = ? AND link_type = 'hierarchical'
-      `).all(currentId) as { id: string }[];
+      `, [currentId]);
 
       for (const child of children) queue.push(child.id);
     }
@@ -364,22 +361,22 @@ router.post('/links', (req, res) => {
 
   const now = Date.now();
 
-  db.transaction(() => {
+  await exec.transaction(async (tx) => {
     if (linkType === 'hierarchical') {
-      db.prepare(`
+      await tx.run(`
         DELETE FROM article_links
         WHERE target_article_id = ?
           AND link_type = 'hierarchical'
           AND source_article_id != ?
-      `).run(targetArticleId, sourceArticleId);
+      `, [targetArticleId, sourceArticleId]);
     }
 
-    db.prepare(`
-      INSERT INTO article_links (source_article_id, target_article_id, link_type)
-      VALUES (?, ?, ?)
+    await tx.run(`
+      INSERT INTO article_links (source_article_id, target_article_id, owner_id, link_type)
+      VALUES (?, ?, ?, ?)
       ON CONFLICT(source_article_id, target_article_id)
       DO UPDATE SET link_type = excluded.link_type
-    `).run(sourceArticleId, targetArticleId, linkType);
+    `, [sourceArticleId, targetArticleId, tenantIdFor(req), linkType]);
 
     if (linkType === 'hierarchical') {
       const queue = [{ id: targetArticleId, depth: (sourceArticle.depth ?? 1) + 1 }];
@@ -390,14 +387,13 @@ router.post('/links', (req, res) => {
         if (seen.has(current.id)) continue;
         seen.add(current.id);
 
-        db.prepare('UPDATE articles SET depth = ?, updated_at = ? WHERE id = ?')
-          .run(current.depth, now, current.id);
+        await tx.run('UPDATE articles SET depth = ?, updated_at = ? WHERE id = ?', [current.depth, now, current.id]);
 
-        const children = db.prepare(`
+        const children = await tx.all<{ id: string }>(`
           SELECT target_article_id AS id
           FROM article_links
           WHERE source_article_id = ? AND link_type = 'hierarchical'
-        `).all(current.id) as { id: string }[];
+        `, [current.id]);
 
         for (const child of children) {
           queue.push({ id: child.id, depth: current.depth + 1 });
@@ -405,23 +401,21 @@ router.post('/links', (req, res) => {
       }
     }
 
-    db.prepare('UPDATE articles SET updated_at = ? WHERE id IN (?, ?)')
-      .run(now, sourceArticleId, targetArticleId);
-  })();
+    await tx.run('UPDATE articles SET updated_at = ? WHERE id IN (?, ?)', [now, sourceArticleId, targetArticleId]);
+  });
 
-  runSyncRules(wid, sourceArticleId);
-  runSyncRules(wid, targetArticleId);
+  await runSyncRules(wid, sourceArticleId);
+  await runSyncRules(wid, targetArticleId);
 
   res.status(201).json({
     source: sourceArticleId,
     target: targetArticleId,
     linkType,
   });
-});
+}));
 
 // GET /api/worlds/:wid/articles?status=:s&q=:query
-router.get('/', (req, res) => {
-  const db = getDb();
+router.get('/', asyncHandler(async (req, res) => {
   const { status, q, category } = req.query as Record<string, string | undefined>;
 
   let sql = 'SELECT * FROM articles WHERE world_id = ?';
@@ -433,21 +427,21 @@ router.get('/', (req, res) => {
 
   sql += ' ORDER BY updated_at DESC';
 
-  const rows = db.prepare(sql).all(...params) as DbRow[];
+  const rows = await getDbClient().all<DbRow>(sql, params);
   res.json(rows.map(parseArticle));
-});
+}));
 
 // POST /api/worlds/:wid/articles — create article manually
-router.post('/', (req, res) => {
+router.post('/', asyncHandler(async (req, res) => {
   const parse = CreateArticleSchema.safeParse(req.body);
   if (!parse.success) {
     res.status(400).json({ error: parse.error.flatten().fieldErrors });
     return;
   }
 
-  const db = getDb();
+  const exec = getDbClient();
 
-  const worldExists = db.prepare('SELECT id FROM worlds WHERE id = ?').get((req.params as Record<string, string>).wid);
+  const worldExists = await exec.get('SELECT id FROM worlds WHERE id = ?', [(req.params as Record<string, string>).wid]);
   if (!worldExists) { res.status(404).json({ error: 'World not found' }); return; }
 
   const {
@@ -457,9 +451,10 @@ router.post('/', (req, res) => {
   const description = bodyToDescription(body, parse.data.description) ?? '';
 
   if (!categoryId) { res.status(400).json({ error: { categoryId: ['Required'] } }); return; }
-  const categoryExists = db
-    .prepare('SELECT id FROM categories WHERE id = ? AND world_id = ?')
-    .get(categoryId, (req.params as Record<string, string>).wid);
+  const categoryExists = await exec.get(
+    'SELECT id FROM categories WHERE id = ? AND world_id = ?',
+    [categoryId, (req.params as Record<string, string>).wid],
+  );
   if (!categoryExists) { res.status(404).json({ error: 'Category not found' }); return; }
 
   const now = Date.now();
@@ -467,64 +462,63 @@ router.post('/', (req, res) => {
   const versionId = nanoid();
   const hasContent = description.trim() || chronology.trim() || introduction.trim();
   const status = hasContent ? 'draft' : 'stub';
+  const ownerId = tenantIdFor(req);
 
-  db.transaction(() => {
-    db.prepare(`
+  await exec.transaction(async (tx) => {
+    await tx.run(`
       INSERT INTO articles
-        (id, world_id, category_id, title, status, template_type,
+        (id, world_id, owner_id, category_id, title, status, template_type,
          temporal_anchor_start, temporal_anchor_end, is_fixed_point,
          current_version_id, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      articleId, (req.params as Record<string, string>).wid, categoryId, title, status, templateType,
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [
+      articleId, (req.params as Record<string, string>).wid, ownerId, categoryId, title, status, templateType,
       temporalAnchorStart ?? null, temporalAnchorEnd ?? null, isFixedPoint ? 1 : 0,
       versionId, now, now,
-    );
+    ]);
 
-    db.prepare(`
+    await tx.run(`
       INSERT INTO article_versions
-        (id, article_id, version_number, introduction, description, chronology, word_count, created_at)
-      VALUES (?, ?, 1, ?, ?, ?, ?, ?)
-    `).run(versionId, articleId, introduction, description, chronology,
-           countWords(introduction + ' ' + description + ' ' + chronology), now);
-  })();
+        (id, article_id, owner_id, version_number, introduction, description, chronology, word_count, created_at)
+      VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?)
+    `, [versionId, articleId, ownerId, introduction, description, chronology,
+        countWords(introduction + ' ' + description + ' ' + chronology), now]);
+  });
 
-  const article = db.prepare('SELECT * FROM articles WHERE id = ?').get(articleId) as DbRow;
-  const version = db.prepare('SELECT * FROM article_versions WHERE id = ?').get(versionId) as DbRow;
+  const article = await exec.get<DbRow>('SELECT * FROM articles WHERE id = ?', [articleId]);
+  const version = await exec.get<DbRow>('SELECT * FROM article_versions WHERE id = ?', [versionId]);
 
-  res.status(201).json({ article: parseArticle(article), version: parseVersion(version) });
-});
+  res.status(201).json({ article: parseArticle(article!), version: parseVersion(version!) });
+}));
 
 // GET /api/worlds/:wid/articles/:aid — article + current version body
-router.get('/:aid', (req, res) => {
-  const article = requireArticle((req.params as Record<string, string>).wid, req.params.aid);
+router.get('/:aid', asyncHandler(async (req, res) => {
+  const exec = getDbClient();
+  const article = await requireArticle(exec, (req.params as Record<string, string>).wid, (req.params as Record<string, string>).aid);
   if (!article) { res.status(404).json({ error: 'Article not found' }); return; }
 
-  const db = getDb();
   const version = article.current_version_id
-    ? (db
-        .prepare('SELECT * FROM article_versions WHERE id = ?')
-        .get(article.current_version_id) as DbRow | undefined)
+    ? await exec.get<DbRow>('SELECT * FROM article_versions WHERE id = ?', [article.current_version_id])
     : undefined;
 
-  const bibleEntry = db
-    .prepare('SELECT summary FROM world_bible_entries WHERE article_id = ?')
-    .get(req.params.aid) as { summary: string } | undefined;
+  const bibleEntry = await exec.get<{ summary: string }>(
+    'SELECT summary FROM world_bible_entries WHERE article_id = ?',
+    [(req.params as Record<string, string>).aid],
+  );
 
-  const links = db
-    .prepare(`
-      SELECT a.id, a.title, wbe.summary AS introduction,
-             al.link_type AS linkType
-      FROM article_links al
-      JOIN articles a ON a.id = al.target_article_id
-      LEFT JOIN world_bible_entries wbe ON wbe.article_id = a.id
-      WHERE al.source_article_id = ?
-    `)
-    .all(req.params.aid) as DbRow[];
+  const links = await exec.all<DbRow>(`
+    SELECT a.id, a.title, wbe.summary AS introduction,
+           al.link_type AS linkType
+    FROM article_links al
+    JOIN articles a ON a.id = al.target_article_id
+    LEFT JOIN world_bible_entries wbe ON wbe.article_id = a.id
+    WHERE al.source_article_id = ?
+  `, [(req.params as Record<string, string>).aid]);
 
-  const warnings = db
-    .prepare(`SELECT * FROM coherence_warnings WHERE article_id = ? AND status = 'open'`)
-    .all(req.params.aid) as DbRow[];
+  const warnings = await exec.all<DbRow>(
+    `SELECT * FROM coherence_warnings WHERE article_id = ? AND status = 'open'`,
+    [(req.params as Record<string, string>).aid],
+  );
 
   res.json({
     article: parseArticle(article),
@@ -533,23 +527,23 @@ router.get('/:aid', (req, res) => {
     links,
     openWarnings: warnings,
   });
-});
+}));
 
 // PATCH /api/worlds/:wid/articles/:aid — manual edit → new version
-router.patch('/:aid', (req, res) => {
+router.patch('/:aid', asyncHandler(async (req, res) => {
   const parse = ManualEditSchema.safeParse(req.body);
   if (!parse.success) {
     res.status(400).json({ error: parse.error.flatten().fieldErrors });
     return;
   }
 
-  const article = requireArticle((req.params as Record<string, string>).wid, req.params.aid);
+  const exec = getDbClient();
+  const article = await requireArticle(exec, (req.params as Record<string, string>).wid, (req.params as Record<string, string>).aid);
   if (!article) { res.status(404).json({ error: 'Article not found' }); return; }
 
-  const db = getDb();
   const now = Date.now();
   const versionId = nanoid();
-  const versionNumber = getNextVersionNumber(req.params.aid);
+  const versionNumber = await getNextVersionNumber(exec, (req.params as Record<string, string>).aid);
 
   const { body, introduction, chronology, status, title, temporalAnchorStart, temporalAnchorEnd, isFixedPoint } = parse.data;
   const description = bodyToDescription(body, parse.data.description);
@@ -570,8 +564,10 @@ router.patch('/:aid', (req, res) => {
 
   // Fetch current version to merge only the provided fields
   const current = article.current_version_id
-    ? (db.prepare('SELECT introduction, description, chronology FROM article_versions WHERE id = ?')
-        .get(article.current_version_id) as { introduction: string; description: string; chronology: string } | undefined)
+    ? await exec.get<{ introduction: string; description: string; chronology: string }>(
+        'SELECT introduction, description, chronology FROM article_versions WHERE id = ?',
+        [article.current_version_id],
+      )
     : undefined;
 
   const newIntroduction = introduction  ?? current?.introduction  ?? '';
@@ -589,135 +585,137 @@ router.patch('/:aid', (req, res) => {
   if (temporalAnchorEnd !== undefined)   { articleFields.push('temporal_anchor_end = ?');   articleValues.push(temporalAnchorEnd); }
   if (isFixedPoint !== undefined)        { articleFields.push('is_fixed_point = ?');         articleValues.push(isFixedPoint ? 1 : 0); }
 
-  db.transaction(() => {
-    db.prepare(`
+  await exec.transaction(async (tx) => {
+    await tx.run(`
       INSERT INTO article_versions
-        (id, article_id, version_number, introduction, description, chronology, word_count, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(versionId, req.params.aid, versionNumber, newIntroduction, newDescription, newChronology,
-           countWords(newIntroduction + ' ' + newDescription + ' ' + newChronology), now);
+        (id, article_id, owner_id, version_number, introduction, description, chronology, word_count, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [versionId, (req.params as Record<string, string>).aid, tenantIdFor(req), versionNumber, newIntroduction, newDescription, newChronology,
+        countWords(newIntroduction + ' ' + newDescription + ' ' + newChronology), now]);
 
-    articleValues.push(req.params.aid);
-    db.prepare(`UPDATE articles SET ${articleFields.join(', ')} WHERE id = ?`).run(...articleValues);
-  })();
+    articleValues.push((req.params as Record<string, string>).aid);
+    await tx.run(`UPDATE articles SET ${articleFields.join(', ')} WHERE id = ?`, articleValues);
+  });
 
   // Run rule-based checks
-  runSyncRules((req.params as Record<string, string>).wid, req.params.aid);
+  await runSyncRules((req.params as Record<string, string>).wid, (req.params as Record<string, string>).aid);
 
-  const updated = db.prepare('SELECT * FROM articles WHERE id = ?').get(req.params.aid) as DbRow;
-  const version = db.prepare('SELECT * FROM article_versions WHERE id = ?').get(versionId) as DbRow;
+  const updated = await exec.get<DbRow>('SELECT * FROM articles WHERE id = ?', [(req.params as Record<string, string>).aid]);
+  const version = await exec.get<DbRow>('SELECT * FROM article_versions WHERE id = ?', [versionId]);
 
-  res.json({ article: parseArticle(updated), version: parseVersion(version) });
-});
+  res.json({ article: parseArticle(updated!), version: parseVersion(version!) });
+}));
 
 // DELETE /api/worlds/:wid/articles/:aid
-router.delete('/:aid', (req, res) => {
-  const article = requireArticle((req.params as Record<string, string>).wid, req.params.aid);
+router.delete('/:aid', asyncHandler(async (req, res) => {
+  const exec = getDbClient();
+  const article = await requireArticle(exec, (req.params as Record<string, string>).wid, (req.params as Record<string, string>).aid);
   if (!article) { res.status(404).json({ error: 'Article not found' }); return; }
 
-  getDb().prepare('DELETE FROM articles WHERE id = ?').run(req.params.aid);
+  await exec.run('DELETE FROM articles WHERE id = ?', [(req.params as Record<string, string>).aid]);
   res.status(204).send();
-});
+}));
 
 // ---------------------------------------------------------------------------
 // Versions
 // ---------------------------------------------------------------------------
 
 // GET /api/worlds/:wid/articles/:aid/versions
-router.get('/:aid/versions', (req, res) => {
-  const article = requireArticle((req.params as Record<string, string>).wid, req.params.aid);
+router.get('/:aid/versions', asyncHandler(async (req, res) => {
+  const exec = getDbClient();
+  const article = await requireArticle(exec, (req.params as Record<string, string>).wid, (req.params as Record<string, string>).aid);
   if (!article) { res.status(404).json({ error: 'Article not found' }); return; }
 
-  const rows = getDb()
-    .prepare('SELECT * FROM article_versions WHERE article_id = ? ORDER BY version_number DESC')
-    .all(req.params.aid) as DbRow[];
+  const rows = await exec.all<DbRow>(
+    'SELECT * FROM article_versions WHERE article_id = ? ORDER BY version_number DESC',
+    [(req.params as Record<string, string>).aid],
+  );
 
   res.json(rows.map(parseVersion));
-});
+}));
 
 // GET /api/worlds/:wid/articles/:aid/versions/:vid — preview one version
-router.get('/:aid/versions/:vid', (req, res) => {
-  const article = requireArticle((req.params as Record<string, string>).wid, req.params.aid);
+router.get('/:aid/versions/:vid', asyncHandler(async (req, res) => {
+  const exec = getDbClient();
+  const article = await requireArticle(exec, (req.params as Record<string, string>).wid, (req.params as Record<string, string>).aid);
   if (!article) { res.status(404).json({ error: 'Article not found' }); return; }
 
-  const row = getDb()
-    .prepare('SELECT * FROM article_versions WHERE id = ? AND article_id = ?')
-    .get(req.params.vid, req.params.aid) as DbRow | undefined;
+  const row = await exec.get<DbRow>(
+    'SELECT * FROM article_versions WHERE id = ? AND article_id = ?',
+    [(req.params as Record<string, string>).vid, (req.params as Record<string, string>).aid],
+  );
 
   if (!row) { res.status(404).json({ error: 'Version not found' }); return; }
 
   res.json(parseVersion(row));
-});
+}));
 
 // POST /api/worlds/:wid/articles/:aid/revert/:vid — revert to version (non-destructive)
-router.post('/:aid/revert/:vid', (req, res) => {
-  const article = requireArticle((req.params as Record<string, string>).wid, req.params.aid);
+router.post('/:aid/revert/:vid', asyncHandler(async (req, res) => {
+  const exec = getDbClient();
+  const article = await requireArticle(exec, (req.params as Record<string, string>).wid, (req.params as Record<string, string>).aid);
   if (!article) { res.status(404).json({ error: 'Article not found' }); return; }
 
-  const db = getDb();
-  const target = db
-    .prepare('SELECT * FROM article_versions WHERE id = ? AND article_id = ?')
-    .get(req.params.vid, req.params.aid) as DbRow | undefined;
+  const target = await exec.get<DbRow>(
+    'SELECT * FROM article_versions WHERE id = ? AND article_id = ?',
+    [(req.params as Record<string, string>).vid, (req.params as Record<string, string>).aid],
+  );
 
   if (!target) { res.status(404).json({ error: 'Version not found' }); return; }
 
   const now = Date.now();
   const versionId = nanoid();
-  const versionNumber = getNextVersionNumber(req.params.aid);
+  const versionNumber = await getNextVersionNumber(exec, (req.params as Record<string, string>).aid);
 
-  db.transaction(() => {
-    db.prepare(`
+  await exec.transaction(async (tx) => {
+    await tx.run(`
       INSERT INTO article_versions
-        (id, article_id, version_number, introduction, description, chronology, word_count,
+        (id, article_id, owner_id, version_number, introduction, description, chronology, word_count,
          is_revert, reverted_from_version_id, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
-    `).run(
-      versionId, req.params.aid, versionNumber,
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+    `, [
+      versionId, (req.params as Record<string, string>).aid, tenantIdFor(req), versionNumber,
       target.introduction, target.description, target.chronology, target.word_count,
-      req.params.vid, now,
-    );
+      (req.params as Record<string, string>).vid, now,
+    ]);
 
-    db.prepare('UPDATE articles SET current_version_id = ?, updated_at = ? WHERE id = ?')
-      .run(versionId, now, req.params.aid);
-  })();
+    await tx.run('UPDATE articles SET current_version_id = ?, updated_at = ? WHERE id = ?', [versionId, now, (req.params as Record<string, string>).aid]);
+  });
 
-  const newVersion = db
-    .prepare('SELECT * FROM article_versions WHERE id = ?')
-    .get(versionId) as DbRow;
+  const newVersion = await exec.get<DbRow>('SELECT * FROM article_versions WHERE id = ?', [versionId]);
 
-  res.status(201).json(parseVersion(newVersion));
-});
+  res.status(201).json(parseVersion(newVersion!));
+}));
 
 // ---------------------------------------------------------------------------
 // Drafts
 // ---------------------------------------------------------------------------
 
 // GET /api/worlds/:wid/articles/:aid/draft — crash recovery
-router.get('/:aid/draft', (req, res) => {
-  const article = requireArticle((req.params as Record<string, string>).wid, req.params.aid);
+router.get('/:aid/draft', asyncHandler(async (req, res) => {
+  const exec = getDbClient();
+  const article = await requireArticle(exec, (req.params as Record<string, string>).wid, (req.params as Record<string, string>).aid);
   if (!article) { res.status(404).json({ error: 'Article not found' }); return; }
 
-  const row = getDb()
-    .prepare('SELECT * FROM pending_drafts WHERE article_id = ?')
-    .get(req.params.aid) as DbRow | undefined;
+  const row = await exec.get<DbRow>('SELECT * FROM pending_drafts WHERE article_id = ?', [(req.params as Record<string, string>).aid]);
 
   if (!row) { res.status(404).json({ error: 'No pending draft' }); return; }
 
   res.json(parseDraft(row));
-});
+}));
 
 // POST /api/worlds/:wid/articles/:aid/draft — save / update draft
-router.post('/:aid/draft', (req, res) => {
+router.post('/:aid/draft', asyncHandler(async (req, res) => {
   const parse = SaveDraftSchema.safeParse(req.body);
   if (!parse.success) {
     res.status(400).json({ error: parse.error.flatten().fieldErrors });
     return;
   }
 
-  const article = requireArticle((req.params as Record<string, string>).wid, req.params.aid);
+  const exec = getDbClient();
+  const article = await requireArticle(exec, (req.params as Record<string, string>).wid, (req.params as Record<string, string>).aid);
   if (!article) { res.status(404).json({ error: 'Article not found' }); return; }
 
-  const db = getDb();
   const now = Date.now();
   const {
     selectedProposal, pipelineType, autoSelect, expansionParams,
@@ -726,18 +724,16 @@ router.post('/:aid/draft', (req, res) => {
 
   const selectedProposalJson = selectedProposal ? JSON.stringify(selectedProposal) : '{}';
 
-  const existing = db
-    .prepare('SELECT id FROM pending_drafts WHERE article_id = ?')
-    .get(req.params.aid) as DbRow | undefined;
+  const existing = await exec.get<DbRow>('SELECT id FROM pending_drafts WHERE article_id = ?', [(req.params as Record<string, string>).aid]);
 
   if (existing) {
-    db.prepare(`
+    await exec.run(`
       UPDATE pending_drafts
       SET selected_proposal = ?, draft_content = ?, expansion_params = ?,
           phase = ?, pipeline_type = ?, auto_select = ?,
           context_package = ?, concepts = ?, parent_update = ?, updated_at = ?
       WHERE article_id = ?
-    `).run(
+    `, [
       selectedProposalJson,
       draftContent ? JSON.stringify(draftContent) : null,
       JSON.stringify(expansionParams),
@@ -746,17 +742,17 @@ router.post('/:aid/draft', (req, res) => {
       concepts ? JSON.stringify(concepts) : null,
       parentUpdate ? JSON.stringify(parentUpdate) : null,
       now,
-      req.params.aid,
-    );
+      (req.params as Record<string, string>).aid,
+    ]);
   } else {
-    db.prepare(`
+    await exec.run(`
       INSERT INTO pending_drafts
-        (id, article_id, selected_proposal, draft_content, expansion_params,
+        (id, article_id, owner_id, selected_proposal, draft_content, expansion_params,
          phase, pipeline_type, auto_select, context_package, concepts, parent_update,
          created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      nanoid(), req.params.aid,
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [
+      nanoid(), (req.params as Record<string, string>).aid, tenantIdFor(req),
       selectedProposalJson,
       draftContent ? JSON.stringify(draftContent) : null,
       JSON.stringify(expansionParams),
@@ -765,27 +761,26 @@ router.post('/:aid/draft', (req, res) => {
       concepts ? JSON.stringify(concepts) : null,
       parentUpdate ? JSON.stringify(parentUpdate) : null,
       now, now,
-    );
+    ]);
   }
 
-  const row = db
-    .prepare('SELECT * FROM pending_drafts WHERE article_id = ?')
-    .get(req.params.aid) as DbRow;
+  const row = await exec.get<DbRow>('SELECT * FROM pending_drafts WHERE article_id = ?', [(req.params as Record<string, string>).aid]);
 
-  res.json(parseDraft(row));
-});
+  res.json(parseDraft(row!));
+}));
 
 // DELETE /api/worlds/:wid/articles/:aid/draft — discard draft
-router.delete('/:aid/draft', (req, res) => {
-  const article = requireArticle((req.params as Record<string, string>).wid, req.params.aid);
+router.delete('/:aid/draft', asyncHandler(async (req, res) => {
+  const exec = getDbClient();
+  const article = await requireArticle(exec, (req.params as Record<string, string>).wid, (req.params as Record<string, string>).aid);
   if (!article) { res.status(404).json({ error: 'Article not found' }); return; }
 
-  getDb().prepare('DELETE FROM pending_drafts WHERE article_id = ?').run(req.params.aid);
+  await exec.run('DELETE FROM pending_drafts WHERE article_id = ?', [(req.params as Record<string, string>).aid]);
   res.status(204).send();
-});
+}));
 
 // POST /api/worlds/:wid/articles/:aid/accept — commit draft as new version
-router.post('/:aid/accept', (req, res) => {
+router.post('/:aid/accept', asyncHandler(async (req, res) => {
   const parse = AcceptDraftSchema.safeParse(req.body ?? {});
   if (!parse.success) {
     res.status(400).json({ error: parse.error.flatten().fieldErrors });
@@ -793,13 +788,12 @@ router.post('/:aid/accept', (req, res) => {
   }
 
   const wid = (req.params as Record<string, string>).wid;
-  const article = requireArticle(wid, req.params.aid);
+  const ownerId = tenantIdFor(req);
+  const exec = getDbClient();
+  const article = await requireArticle(exec, wid, (req.params as Record<string, string>).aid);
   if (!article) { res.status(404).json({ error: 'Article not found' }); return; }
 
-  const db = getDb();
-  const draft = db
-    .prepare('SELECT * FROM pending_drafts WHERE article_id = ?')
-    .get(req.params.aid) as DbRow | undefined;
+  const draft = await exec.get<DbRow>('SELECT * FROM pending_drafts WHERE article_id = ?', [(req.params as Record<string, string>).aid]);
 
   if (!draft) { res.status(400).json({ error: 'No pending draft to accept' }); return; }
 
@@ -831,12 +825,14 @@ router.post('/:aid/accept', (req, res) => {
 
   const now = Date.now();
   const versionId = nanoid();
-  const versionNumber = getNextVersionNumber(req.params.aid);
+  const versionNumber = await getNextVersionNumber(exec, (req.params as Record<string, string>).aid);
 
   // Fetch current version fields
   const currentVersion = article.current_version_id
-    ? (db.prepare('SELECT introduction, description, chronology FROM article_versions WHERE id = ?')
-        .get(article.current_version_id) as { introduction: string; description: string; chronology: string } | undefined)
+    ? await exec.get<{ introduction: string; description: string; chronology: string }>(
+        'SELECT introduction, description, chronology FROM article_versions WHERE id = ?',
+        [article.current_version_id],
+      )
     : undefined;
   const currentDescription  = currentVersion?.description  ?? '';
   const currentChronology   = currentVersion?.chronology   ?? '';
@@ -863,7 +859,7 @@ router.post('/:aid/accept', (req, res) => {
     newIntroduction = parse.data.introductionOverride ?? draftContent.introduction ?? currentIntroduction;
   }
 
-  db.transaction(() => {
+  await exec.transaction(async (tx) => {
     if (pipelineType === 'create_child') {
       // Two-write transaction: new child article + parent append
       const parentUpdate = draft.parent_update
@@ -874,66 +870,66 @@ router.post('/:aid/accept', (req, res) => {
       const childId = nanoid();
       const childVersionId = nanoid();
 
-      db.prepare(`
+      await tx.run(`
         INSERT INTO articles
-          (id, world_id, title, status, template_type,
+          (id, world_id, owner_id, title, status, template_type,
            depth, current_version_id, created_at, updated_at)
-        SELECT ?, world_id, title, 'draft', template_type,
+        SELECT ?, world_id, owner_id, title, 'draft', template_type,
                ?, ?, ?, ?
         FROM articles WHERE id = ?
-      `).run(childId, parentDepth + 1, childVersionId, now, now, req.params.aid);
+      `, [childId, parentDepth + 1, childVersionId, now, now, (req.params as Record<string, string>).aid]);
 
-      db.prepare(`
+      await tx.run(`
         INSERT INTO article_versions
-          (id, article_id, version_number, introduction, description, chronology, word_count, created_at)
-        VALUES (?, ?, 1, ?, ?, ?, ?, ?)
-      `).run(childVersionId, childId, newIntroduction, newDescription, newChronology,
-             countWords(newIntroduction + ' ' + newDescription + ' ' + newChronology), now);
+          (id, article_id, owner_id, version_number, introduction, description, chronology, word_count, created_at)
+        VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?)
+      `, [childVersionId, childId, ownerId, newIntroduction, newDescription, newChronology,
+          countWords(newIntroduction + ' ' + newDescription + ' ' + newChronology), now]);
 
-      db.prepare(`
-        INSERT OR IGNORE INTO article_links (source_article_id, target_article_id, link_type)
-        VALUES (?, ?, 'hierarchical')
-      `).run(req.params.aid, childId);
+      await tx.run(`
+        INSERT INTO article_links (source_article_id, target_article_id, owner_id, link_type)
+        VALUES (?, ?, ?, 'hierarchical')
+        ON CONFLICT (source_article_id, target_article_id) DO NOTHING
+      `, [(req.params as Record<string, string>).aid, childId, ownerId]);
 
       if (newIntroduction) {
-        upsertEntry(wid, childId, newIntroduction);
+        await upsertEntry(tx, wid, childId, newIntroduction);
       }
 
       if (parentUpdate?.appendText) {
         const parentVersionId = nanoid();
-        const parentVersionNumber = getNextVersionNumber(req.params.aid);
+        const parentVersionNumber = await getNextVersionNumber(tx, (req.params as Record<string, string>).aid);
         const appendedDesc = currentDescription
           ? `${currentDescription}\n\n${parentUpdate.appendText}`
           : parentUpdate.appendText;
 
-        db.prepare(`
+        await tx.run(`
           INSERT INTO article_versions
-            (id, article_id, version_number, introduction, description, chronology, word_count, created_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(parentVersionId, req.params.aid, parentVersionNumber,
-               currentIntroduction, appendedDesc, currentChronology,
-               countWords(currentIntroduction + ' ' + appendedDesc + ' ' + currentChronology), now);
+            (id, article_id, owner_id, version_number, introduction, description, chronology, word_count, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [parentVersionId, (req.params as Record<string, string>).aid, ownerId, parentVersionNumber,
+            currentIntroduction, appendedDesc, currentChronology,
+            countWords(currentIntroduction + ' ' + appendedDesc + ' ' + currentChronology), now]);
 
-        db.prepare('UPDATE articles SET current_version_id = ?, updated_at = ? WHERE id = ?')
-          .run(parentVersionId, now, req.params.aid);
+        await tx.run('UPDATE articles SET current_version_id = ?, updated_at = ? WHERE id = ?', [parentVersionId, now, (req.params as Record<string, string>).aid]);
       }
 
       childArticleId = childId;
     } else {
       // Single article write
-      db.prepare(`
+      await tx.run(`
         INSERT INTO article_versions
-          (id, article_id, version_number, introduction, description, chronology,
+          (id, article_id, owner_id, version_number, introduction, description, chronology,
            expansion_params, proposal_used, word_count, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        versionId, req.params.aid, versionNumber,
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `, [
+        versionId, (req.params as Record<string, string>).aid, ownerId, versionNumber,
         newIntroduction, newDescription, newChronology,
         draft.expansion_params,
         draft.selected_proposal,
         countWords(newIntroduction + ' ' + newDescription + ' ' + newChronology),
         now,
-      );
+      ]);
 
       const articleUpdates: unknown[] = [versionId, 'draft', now];
       let sql = 'UPDATE articles SET current_version_id = ?, status = ?, updated_at = ?';
@@ -944,39 +940,41 @@ router.post('/:aid/accept', (req, res) => {
       }
 
       sql += ' WHERE id = ?';
-      articleUpdates.push(req.params.aid);
-      db.prepare(sql).run(...articleUpdates);
+      articleUpdates.push((req.params as Record<string, string>).aid);
+      await tx.run(sql, articleUpdates);
 
       if (newIntroduction) {
-        upsertEntry(wid, req.params.aid, newIntroduction);
+        await upsertEntry(tx, wid, (req.params as Record<string, string>).aid, newIntroduction);
       }
     }
 
     // Insert coherence warnings
     for (const w of coherenceWarnings) {
-      db.prepare(`
+      await tx.run(`
         INSERT INTO coherence_warnings
-          (id, article_id, source_article_id, severity, description, status, created_at)
-        VALUES (?, ?, ?, ?, ?, 'open', ?)
-      `).run(nanoid(), req.params.aid, w.sourceArticleId ?? null, w.severity, w.description, now);
+          (id, article_id, owner_id, source_article_id, severity, description, status, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, 'open', ?)
+      `, [nanoid(), (req.params as Record<string, string>).aid, ownerId, w.sourceArticleId ?? null, w.severity, w.description, now]);
     }
 
     // Upsert article links (only for links with known target IDs)
     for (const link of suggestedLinks) {
       if (!link.targetArticleId) continue;
-      db.prepare(`
-        INSERT OR IGNORE INTO article_links (source_article_id, target_article_id, link_type)
-        VALUES (?, ?, 'references')
-      `).run(req.params.aid, link.targetArticleId);
+      await tx.run(`
+        INSERT INTO article_links (source_article_id, target_article_id, owner_id, link_type)
+        VALUES (?, ?, ?, 'references')
+        ON CONFLICT (source_article_id, target_article_id) DO NOTHING
+      `, [(req.params as Record<string, string>).aid, link.targetArticleId, ownerId]);
     }
 
     // Process entity mentions — create stubs for novel entities Scribe introduced
     const sourceDepth = (article.depth as number) ?? 1;
-    const acceptedArticleId = pipelineType === 'create_child' ? childArticleId ?? req.params.aid : req.params.aid;
+    const acceptedArticleId = pipelineType === 'create_child' ? childArticleId ?? (req.params as Record<string, string>).aid : (req.params as Record<string, string>).aid;
     for (const mention of mentions) {
-      const existing = db.prepare(
+      const existing = await tx.get<{ id: string; depth: number }>(
         `SELECT id, depth FROM articles WHERE world_id = ? AND title = ? LIMIT 1`,
-      ).get(wid, mention.title) as { id: string; depth: number } | undefined;
+        [wid, mention.title],
+      );
 
       // Skip mentions that point to ancestors — they are parents/grandparents of the
       // accepted article, not novel subjects it introduces.
@@ -988,64 +986,65 @@ router.post('/:aid/accept', (req, res) => {
         targetId = nanoid();
         const stubVersionId = nanoid();
 
-        db.prepare(`
-          INSERT INTO articles (id, world_id, title, template_type, status, depth, created_at, updated_at)
-          VALUES (?, ?, ?, ?, 'stub', ?, ?, ?)
-        `).run(targetId, wid, mention.title, mention.templateType ?? 'general', sourceDepth, now, now);
+        await tx.run(`
+          INSERT INTO articles (id, world_id, owner_id, title, template_type, status, depth, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, 'stub', ?, ?, ?)
+        `, [targetId, wid, ownerId, mention.title, mention.templateType ?? 'general', sourceDepth, now, now]);
 
-        db.prepare(`
-          INSERT INTO article_versions (id, article_id, version_number, introduction, description, chronology, word_count, created_at)
-          VALUES (?, ?, 1, ?, ?, '', ?, ?)
-        `).run(stubVersionId, targetId, mention.summary ?? '', '', countWords(mention.summary ?? ''), now);
+        await tx.run(`
+          INSERT INTO article_versions (id, article_id, owner_id, version_number, introduction, description, chronology, word_count, created_at)
+          VALUES (?, ?, ?, 1, ?, ?, '', ?, ?)
+        `, [stubVersionId, targetId, ownerId, mention.summary ?? '', '', countWords(mention.summary ?? ''), now]);
 
-        db.prepare(`UPDATE articles SET current_version_id = ? WHERE id = ?`).run(stubVersionId, targetId);
+        await tx.run(`UPDATE articles SET current_version_id = ? WHERE id = ?`, [stubVersionId, targetId]);
 
         if (mention.summary) {
-          upsertEntry(wid, targetId, mention.summary);
+          await upsertEntry(tx, wid, targetId, mention.summary);
         }
       }
 
-      db.prepare(`
-        INSERT OR IGNORE INTO article_links (source_article_id, target_article_id, link_type)
-        VALUES (?, ?, 'references')
-      `).run(acceptedArticleId, targetId);
+      await tx.run(`
+        INSERT INTO article_links (source_article_id, target_article_id, owner_id, link_type)
+        VALUES (?, ?, ?, 'references')
+        ON CONFLICT (source_article_id, target_article_id) DO NOTHING
+      `, [acceptedArticleId, targetId, ownerId]);
 
-      db.prepare(`
-        INSERT INTO entity_mentions (id, world_id, source_article_id, article_id, title, template_type, summary, status, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'created', ?)
-      `).run(nanoid(), wid, acceptedArticleId, targetId ?? null, mention.title, mention.templateType ?? 'general', mention.summary ?? null, now);
+      await tx.run(`
+        INSERT INTO entity_mentions (id, world_id, owner_id, source_article_id, article_id, title, template_type, summary, status, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'created', ?)
+      `, [nanoid(), wid, ownerId, acceptedArticleId, targetId ?? null, mention.title, mention.templateType ?? 'general', mention.summary ?? null, now]);
     }
 
-    db.prepare('DELETE FROM pending_drafts WHERE article_id = ?').run(req.params.aid);
-  })();
+    await tx.run('DELETE FROM pending_drafts WHERE article_id = ?', [(req.params as Record<string, string>).aid]);
+  });
 
-  // Run rule-based checks (synchronous, silent)
-  runSyncRules(wid, req.params.aid);
-  if (childArticleId) runSyncRules(wid, childArticleId);
+  // Run rule-based checks (silent)
+  await runSyncRules(wid, (req.params as Record<string, string>).aid);
+  if (childArticleId) await runSyncRules(wid, childArticleId);
 
-  const updatedArticle = db
-    .prepare('SELECT * FROM articles WHERE id = ?')
-    .get(req.params.aid) as DbRow;
+  const updatedArticle = await exec.get<DbRow>('SELECT * FROM articles WHERE id = ?', [(req.params as Record<string, string>).aid]);
 
   if (pipelineType === 'create_child' && childArticleId) {
-    const childArticle = db.prepare('SELECT * FROM articles WHERE id = ?').get(childArticleId) as DbRow;
-    const childVersion = db.prepare('SELECT * FROM article_versions WHERE article_id = ? ORDER BY version_number DESC LIMIT 1').get(childArticleId) as DbRow;
-    return res.status(201).json({
-      article: parseArticle(updatedArticle),
-      childArticle: parseArticle(childArticle),
-      childVersion: parseVersion(childVersion),
+    const childArticle = await exec.get<DbRow>('SELECT * FROM articles WHERE id = ?', [childArticleId]);
+    const childVersion = await exec.get<DbRow>(
+      'SELECT * FROM article_versions WHERE article_id = ? ORDER BY version_number DESC LIMIT 1',
+      [childArticleId],
+    );
+    res.status(201).json({
+      article: parseArticle(updatedArticle!),
+      childArticle: parseArticle(childArticle!),
+      childVersion: parseVersion(childVersion!),
     });
+    return;
   }
 
-  const newVersion = db
-    .prepare('SELECT * FROM article_versions WHERE id = ?')
-    .get(versionId) as DbRow;
+  const newVersion = await exec.get<DbRow>('SELECT * FROM article_versions WHERE id = ?', [versionId]);
 
   res.status(201).json({
-    article: parseArticle(updatedArticle),
-    version: parseVersion(newVersion),
+    article: parseArticle(updatedArticle!),
+    version: parseVersion(newVersion!),
   });
-});
+}));
 
 // ---------------------------------------------------------------------------
 // Batch stub creation — POST /api/worlds/:wid/articles/batch
@@ -1063,7 +1062,7 @@ const BatchCreateSchema = z.object({
   ).min(1).max(20),
 });
 
-router.post('/batch', (req, res) => {
+router.post('/batch', asyncHandler(async (req, res) => {
   const parse = BatchCreateSchema.safeParse(req.body);
   if (!parse.success) {
     res.status(400).json({ error: parse.error.flatten().fieldErrors });
@@ -1071,67 +1070,72 @@ router.post('/batch', (req, res) => {
   }
 
   const wid = (req.params as Record<string, string>).wid;
-  const db = getDb();
+  const exec = getDbClient();
 
-  const parent = db
-    .prepare('SELECT id, depth FROM articles WHERE id = ? AND world_id = ?')
-    .get(parse.data.parentArticleId, wid) as DbRow | undefined;
+  const parent = await exec.get<DbRow>(
+    'SELECT id, depth FROM articles WHERE id = ? AND world_id = ?',
+    [parse.data.parentArticleId, wid],
+  );
 
   if (!parent) { res.status(404).json({ error: 'Parent article not found' }); return; }
 
   const now = Date.now();
   const parentDepth = (parent.depth as number) ?? 1;
+  const ownerId = tenantIdFor(req);
   const created: Array<{ id: string; title: string }> = [];
 
-  db.transaction(() => {
+  await exec.transaction(async (tx) => {
     for (const child of parse.data.children) {
       const articleId = nanoid();
       const versionId = nanoid();
 
-      db.prepare(`
+      await tx.run(`
         INSERT INTO articles
-          (id, world_id, title, status, template_type,
+          (id, world_id, owner_id, title, status, template_type,
            depth, current_version_id, created_at, updated_at)
-        VALUES (?, ?, ?, 'stub', ?, ?, ?, ?, ?)
-      `).run(
-        articleId, wid,
+        VALUES (?, ?, ?, ?, 'stub', ?, ?, ?, ?, ?)
+      `, [
+        articleId, wid, ownerId,
         child.title, child.templateType,
         parentDepth + 1, versionId, now, now,
-      );
+      ]);
 
-      db.prepare(`
+      await tx.run(`
         INSERT INTO article_versions
-          (id, article_id, version_number, introduction, description, chronology, word_count, created_at)
-        VALUES (?, ?, 1, ?, '', '', 0, ?)
-      `).run(versionId, articleId, child.introduction, now);
+          (id, article_id, owner_id, version_number, introduction, description, chronology, word_count, created_at)
+        VALUES (?, ?, ?, 1, ?, '', '', 0, ?)
+      `, [versionId, articleId, ownerId, child.introduction, now]);
 
-      db.prepare(`
-        INSERT OR IGNORE INTO article_links (source_article_id, target_article_id, link_type)
-        VALUES (?, ?, 'hierarchical')
-      `).run(parse.data.parentArticleId, articleId);
+      await tx.run(`
+        INSERT INTO article_links (source_article_id, target_article_id, owner_id, link_type)
+        VALUES (?, ?, ?, 'hierarchical')
+        ON CONFLICT (source_article_id, target_article_id) DO NOTHING
+      `, [parse.data.parentArticleId, articleId, ownerId]);
 
-      upsertEntry(wid, articleId, child.introduction);
+      await upsertEntry(tx, wid, articleId, child.introduction);
 
       created.push({ id: articleId, title: child.title });
     }
-  })();
+  });
 
   res.status(201).json({ created });
-});
+}));
 
 // ---------------------------------------------------------------------------
 // Issues routes
 // ---------------------------------------------------------------------------
 
 // GET /api/worlds/:wid/articles/:aid/issues
-router.get('/:aid/issues', (req, res) => {
+router.get('/:aid/issues', asyncHandler(async (req, res) => {
   const wid = (req.params as Record<string, string>).wid;
-  const article = requireArticle(wid, req.params.aid);
+  const exec = getDbClient();
+  const article = await requireArticle(exec, wid, (req.params as Record<string, string>).aid);
   if (!article) { res.status(404).json({ error: 'Article not found' }); return; }
 
-  const rows = getDb().prepare(
+  const rows = await exec.all<DbRow>(
     `SELECT * FROM article_issues WHERE article_id = ? AND status != 'dismissed' ORDER BY created_at DESC`,
-  ).all(req.params.aid) as DbRow[];
+    [(req.params as Record<string, string>).aid],
+  );
 
   res.json(rows.map(r => ({
     id: r.id,
@@ -1146,41 +1150,41 @@ router.get('/:aid/issues', (req, res) => {
     status: r.status,
     createdAt: r.created_at,
   })));
-});
+}));
 
 // POST /api/worlds/:wid/articles/:aid/lint — trigger LLM linter manually
 import { LinterAgent } from '../agents/linter.js';
 import { fetchWorldContext } from '../agents/director.js';
 
-router.post('/:aid/lint', (req, res) => {
+router.post('/:aid/lint', asyncHandler(async (req, res) => {
   const wid = (req.params as Record<string, string>).wid;
-  const article = requireArticle(wid, req.params.aid);
+  const exec = getDbClient();
+  const article = await requireArticle(exec, wid, (req.params as Record<string, string>).aid);
   if (!article) { res.status(404).json({ error: 'Article not found' }); return; }
 
-  const worldContext = fetchWorldContext(wid);
+  const worldContext = await fetchWorldContext(wid);
   const linterAgent = new LinterAgent();
 
-  linterAgent.runAndPersist(wid, req.params.aid, worldContext)
-    .then(() => {
-      const rows = getDb().prepare(
-        `SELECT * FROM article_issues WHERE article_id = ? AND source = 'linter' ORDER BY created_at DESC`,
-      ).all(req.params.aid) as DbRow[];
-      res.json(rows.map(r => ({
-        id: r.id, worldId: r.world_id, articleId: r.article_id,
-        source: r.source, severity: r.severity, code: r.code,
-        excerpt: r.excerpt ?? null, explanation: r.explanation,
-        suggestion: r.suggestion ?? null, status: r.status, createdAt: r.created_at,
-      })));
-    })
-    .catch((err: unknown) => {
-      console.error('Linter failed:', err);
-      res.status(500).json({ error: 'Linter run failed' });
-    });
-});
+  try {
+    await linterAgent.runAndPersist(wid, (req.params as Record<string, string>).aid, worldContext);
+    const rows = await exec.all<DbRow>(
+      `SELECT * FROM article_issues WHERE article_id = ? AND source = 'linter' ORDER BY created_at DESC`,
+      [(req.params as Record<string, string>).aid],
+    );
+    res.json(rows.map(r => ({
+      id: r.id, worldId: r.world_id, articleId: r.article_id,
+      source: r.source, severity: r.severity, code: r.code,
+      excerpt: r.excerpt ?? null, explanation: r.explanation,
+      suggestion: r.suggestion ?? null, status: r.status, createdAt: r.created_at,
+    })));
+  } catch (err) {
+    console.error('Linter failed:', err);
+    res.status(500).json({ error: 'Linter run failed' });
+  }
+}));
 
 // PATCH /api/worlds/:wid/articles/:aid/issues/:iid — dismiss
-router.patch('/:aid/issues/:iid', (req, res) => {
-  const wid = (req.params as Record<string, string>).wid;
+router.patch('/:aid/issues/:iid', asyncHandler(async (req, res) => {
   const body = req.body as { status?: string };
   const validStatuses = ['open', 'dismissed', 'fixed'];
 
@@ -1189,59 +1193,63 @@ router.patch('/:aid/issues/:iid', (req, res) => {
     return;
   }
 
-  const db = getDb();
-  const issue = db.prepare(
+  const exec = getDbClient();
+  const issue = await exec.get(
     `SELECT id FROM article_issues WHERE id = ? AND article_id = ?`,
-  ).get(req.params.iid, req.params.aid);
+    [(req.params as Record<string, string>).iid, (req.params as Record<string, string>).aid],
+  );
 
   if (!issue) { res.status(404).json({ error: 'Issue not found' }); return; }
 
-  db.prepare(`UPDATE article_issues SET status = ? WHERE id = ?`).run(body.status, req.params.iid);
+  await exec.run(`UPDATE article_issues SET status = ? WHERE id = ?`, [body.status, (req.params as Record<string, string>).iid]);
 
   res.json({ ok: true });
-});
+}));
 
 // POST /api/worlds/:wid/articles/:aid/issues/:iid/fix — Fixer agent
 import { FixerAgent } from '../agents/fixer.js';
 
-router.post('/:aid/issues/:iid/fix', (req, res) => {
+router.post('/:aid/issues/:iid/fix', asyncHandler(async (req, res) => {
   const wid = (req.params as Record<string, string>).wid;
-  const article = requireArticle(wid, req.params.aid);
+  const exec = getDbClient();
+  const article = await requireArticle(exec, wid, (req.params as Record<string, string>).aid);
   if (!article) { res.status(404).json({ error: 'Article not found' }); return; }
 
-  const db = getDb();
-  const issue = db.prepare(
+  const issue = await exec.get<DbRow>(
     `SELECT * FROM article_issues WHERE id = ? AND article_id = ?`,
-  ).get(req.params.iid, req.params.aid) as DbRow | undefined;
+    [(req.params as Record<string, string>).iid, (req.params as Record<string, string>).aid],
+  );
 
   if (!issue) { res.status(404).json({ error: 'Issue not found' }); return; }
 
   const currentVersion = article.current_version_id
-    ? (db.prepare('SELECT description FROM article_versions WHERE id = ?').get(article.current_version_id) as { description: string } | undefined)
+    ? await exec.get<{ description: string }>('SELECT description FROM article_versions WHERE id = ?', [article.current_version_id])
     : undefined;
 
-  const worldContext = fetchWorldContext(wid);
+  const worldContext = await fetchWorldContext(wid);
   const fixer = new FixerAgent();
 
-  fixer.run(wid, {
-    articleTitle: article.title as string,
-    articleBody: currentVersion?.description ?? '',
-    worldContext,
-    excerpt: (issue.excerpt as string) ?? '',
-    explanation: issue.explanation as string,
-    suggestion: (issue.suggestion as string) ?? '',
-  }).then(result => {
+  try {
+    const result = await fixer.run(wid, {
+      articleTitle: article.title as string,
+      articleBody: currentVersion?.description ?? '',
+      worldContext,
+      excerpt: (issue.excerpt as string) ?? '',
+      explanation: issue.explanation as string,
+      suggestion: (issue.suggestion as string) ?? '',
+    });
     res.json({ rewrittenPassage: result.output.rewrittenPassage });
-  }).catch((err: unknown) => {
+  } catch (err) {
     console.error('Fixer failed:', err);
     res.status(500).json({ error: 'Fixer run failed' });
-  });
-});
+  }
+}));
 
 // POST /api/worlds/:wid/articles/:aid/issues/:iid/apply-fix
-router.post('/:aid/issues/:iid/apply-fix', (req, res) => {
+router.post('/:aid/issues/:iid/apply-fix', asyncHandler(async (req, res) => {
   const wid = (req.params as Record<string, string>).wid;
-  const article = requireArticle(wid, req.params.aid);
+  const exec = getDbClient();
+  const article = await requireArticle(exec, wid, (req.params as Record<string, string>).aid);
   if (!article) { res.status(404).json({ error: 'Article not found' }); return; }
 
   const body = req.body as { rewrittenPassage?: string; excerpt?: string };
@@ -1250,16 +1258,18 @@ router.post('/:aid/issues/:iid/apply-fix', (req, res) => {
     return;
   }
 
-  const db = getDb();
-  const issue = db.prepare(
+  const issue = await exec.get(
     `SELECT id FROM article_issues WHERE id = ? AND article_id = ?`,
-  ).get(req.params.iid, req.params.aid);
+    [(req.params as Record<string, string>).iid, (req.params as Record<string, string>).aid],
+  );
 
   if (!issue) { res.status(404).json({ error: 'Issue not found' }); return; }
 
   const currentVersion = article.current_version_id
-    ? (db.prepare('SELECT introduction, description, chronology FROM article_versions WHERE id = ?')
-        .get(article.current_version_id) as { introduction: string; description: string; chronology: string } | undefined)
+    ? await exec.get<{ introduction: string; description: string; chronology: string }>(
+        'SELECT introduction, description, chronology FROM article_versions WHERE id = ?',
+        [article.current_version_id],
+      )
     : undefined;
   const currentDesc = currentVersion?.description ?? '';
   const newDesc = currentDesc.replace(body.excerpt, body.rewrittenPassage);
@@ -1273,25 +1283,25 @@ router.post('/:aid/issues/:iid/apply-fix', (req, res) => {
   const fixedChron = currentVersion?.chronology ?? '';
   const now = Date.now();
   const versionId = nanoid();
-  const versionNumber = getNextVersionNumber(req.params.aid);
+  const versionNumber = await getNextVersionNumber(exec, (req.params as Record<string, string>).aid);
 
-  db.transaction(() => {
-    db.prepare(`
-      INSERT INTO article_versions (id, article_id, version_number, introduction, description, chronology, word_count, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(versionId, req.params.aid, versionNumber, fixedIntro, newDesc, fixedChron,
-           countWords(fixedIntro + ' ' + newDesc + ' ' + fixedChron), now);
+  await exec.transaction(async (tx) => {
+    await tx.run(`
+      INSERT INTO article_versions (id, article_id, owner_id, version_number, introduction, description, chronology, word_count, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [versionId, (req.params as Record<string, string>).aid, tenantIdFor(req), versionNumber, fixedIntro, newDesc, fixedChron,
+        countWords(fixedIntro + ' ' + newDesc + ' ' + fixedChron), now]);
 
-    db.prepare(`UPDATE articles SET current_version_id = ?, updated_at = ? WHERE id = ?`).run(versionId, now, req.params.aid);
-    db.prepare(`UPDATE article_issues SET status = 'fixed' WHERE id = ?`).run(req.params.iid);
-  })();
+    await tx.run(`UPDATE articles SET current_version_id = ?, updated_at = ? WHERE id = ?`, [versionId, now, (req.params as Record<string, string>).aid]);
+    await tx.run(`UPDATE article_issues SET status = 'fixed' WHERE id = ?`, [(req.params as Record<string, string>).iid]);
+  });
 
-  runSyncRules(wid, req.params.aid);
+  await runSyncRules(wid, (req.params as Record<string, string>).aid);
 
-  const updated = db.prepare('SELECT * FROM articles WHERE id = ?').get(req.params.aid) as DbRow;
-  const version = db.prepare('SELECT * FROM article_versions WHERE id = ?').get(versionId) as DbRow;
+  const updated = await exec.get<DbRow>('SELECT * FROM articles WHERE id = ?', [(req.params as Record<string, string>).aid]);
+  const version = await exec.get<DbRow>('SELECT * FROM article_versions WHERE id = ?', [versionId]);
 
-  res.status(201).json({ article: parseArticle(updated), version: parseVersion(version) });
-});
+  res.status(201).json({ article: parseArticle(updated!), version: parseVersion(version!) });
+}));
 
 export default router;

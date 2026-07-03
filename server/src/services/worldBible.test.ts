@@ -15,6 +15,7 @@ vi.mock('../db/index.js', () => ({
 
 // Import the service AFTER the mock is registered
 import { renderBible, getBibleMeta, upsertEntry, refreshTokenCount } from './worldBible.js';
+import { getDbClient } from '../db/client.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -94,22 +95,22 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe('renderBible', () => {
-  it('returns empty string when no bible entries exist', () => {
-    expect(renderBible('world1')).toBe('');
+  it('returns empty string when no bible entries exist', async () => {
+    expect(await renderBible('world1')).toBe('');
   });
 
-  it('renders a single entry under its category heading', () => {
-    upsertEntry('world1', 'art1', 'A great battle was fought.');
-    const md = renderBible('world1');
+  it('renders a single entry under its category heading', async () => {
+    await upsertEntry(getDbClient(), 'world1', 'art1', 'A great battle was fought.');
+    const md = await renderBible('world1');
     expect(md).toContain('## History');
     expect(md).toContain('### The Battle');
     expect(md).toContain('A great battle was fought.');
   });
 
-  it('renders entries grouped by category in sort_order', () => {
-    upsertEntry('world1', 'art1', 'Summary A');
-    upsertEntry('world1', 'art2', 'Summary B');
-    const md = renderBible('world1');
+  it('renders entries grouped by category in sort_order', async () => {
+    await upsertEntry(getDbClient(), 'world1', 'art1', 'Summary A');
+    await upsertEntry(getDbClient(), 'world1', 'art2', 'Summary B');
+    const md = await renderBible('world1');
     const historyIdx = md.indexOf('## History');
     const cultureIdx = md.indexOf('## Culture');
     expect(historyIdx).toBeGreaterThanOrEqual(0);
@@ -118,15 +119,15 @@ describe('renderBible', () => {
     expect(historyIdx).toBeLessThan(cultureIdx);
   });
 
-  it('formats each article as ### Title + summary', () => {
-    upsertEntry('world1', 'art1', 'Battle summary.');
-    const md = renderBible('world1');
+  it('formats each article as ### Title + summary', async () => {
+    await upsertEntry(getDbClient(), 'world1', 'art1', 'Battle summary.');
+    const md = await renderBible('world1');
     expect(md).toMatch(/### The Battle\nBattle summary\./);
   });
 
-  it('returns empty string for a world that has no articles (different worldId)', () => {
-    upsertEntry('world1', 'art1', 'Something');
-    expect(renderBible('nonexistent')).toBe('');
+  it('returns empty string for a world that has no articles (different worldId)', async () => {
+    await upsertEntry(getDbClient(), 'world1', 'art1', 'Something');
+    expect(await renderBible('nonexistent')).toBe('');
   });
 });
 
@@ -135,8 +136,8 @@ describe('renderBible', () => {
 // ---------------------------------------------------------------------------
 
 describe('upsertEntry', () => {
-  it('creates a new bible entry for a valid article', () => {
-    upsertEntry('world1', 'art1', 'My summary');
+  it('creates a new bible entry for a valid article', async () => {
+    await upsertEntry(getDbClient(), 'world1', 'art1', 'My summary');
     const row = dbRef.db!
       .prepare('SELECT * FROM world_bible_entries WHERE article_id = ?')
       .get('art1') as Record<string, unknown> | undefined;
@@ -144,9 +145,9 @@ describe('upsertEntry', () => {
     expect(row!.summary).toBe('My summary');
   });
 
-  it('updates an existing entry on conflict (upsert behaviour)', () => {
-    upsertEntry('world1', 'art1', 'First');
-    upsertEntry('world1', 'art1', 'Updated');
+  it('updates an existing entry on conflict (upsert behaviour)', async () => {
+    await upsertEntry(getDbClient(), 'world1', 'art1', 'First');
+    await upsertEntry(getDbClient(), 'world1', 'art1', 'Updated');
     const rows = dbRef.db!
       .prepare('SELECT * FROM world_bible_entries WHERE article_id = ?')
       .all('art1');
@@ -154,22 +155,22 @@ describe('upsertEntry', () => {
     expect((rows[0] as Record<string, unknown>).summary).toBe('Updated');
   });
 
-  it('throws when the article does not exist', () => {
-    expect(() => upsertEntry('world1', 'ghost', 'x')).toThrow(/Article ghost not found/);
+  it('throws when the article does not exist', async () => {
+    await expect(upsertEntry(getDbClient(), 'world1', 'ghost', 'x')).rejects.toThrow(/Article ghost not found/);
   });
 
-  it('refreshes the token count after upsert', () => {
-    upsertEntry('world1', 'art1', 'Hello world');
+  it('refreshes the token count after upsert', async () => {
+    await upsertEntry(getDbClient(), 'world1', 'art1', 'Hello world');
     const meta = dbRef.db!
       .prepare('SELECT token_count FROM world_bible_meta WHERE world_id = ?')
       .get('world1') as { token_count: number };
     expect(meta.token_count).toBeGreaterThan(0);
   });
 
-  it('sets sort_order from the category sort_order', () => {
+  it('sets sort_order from the category sort_order', async () => {
     // art1 is in cat1 (sort_order 0), art2 is in cat2 (sort_order 1)
-    upsertEntry('world1', 'art1', 'A');
-    upsertEntry('world1', 'art2', 'B');
+    await upsertEntry(getDbClient(), 'world1', 'art1', 'A');
+    await upsertEntry(getDbClient(), 'world1', 'art2', 'B');
     const row1 = dbRef.db!
       .prepare('SELECT sort_order FROM world_bible_entries WHERE article_id = ?')
       .get('art1') as { sort_order: number };
@@ -186,30 +187,30 @@ describe('upsertEntry', () => {
 // ---------------------------------------------------------------------------
 
 describe('getBibleMeta', () => {
-  it('returns tokenCount 0 and default threshold when no entries', () => {
-    const meta = getBibleMeta('world1');
+  it('returns tokenCount 0 and default threshold when no entries', async () => {
+    const meta = await getBibleMeta('world1');
     expect(meta.tokenCount).toBe(0);
     expect(meta.threshold).toBe(80000);
   });
 
-  it('returns updated tokenCount after upsertEntry', () => {
-    upsertEntry('world1', 'art1', 'A'.repeat(400)); // 400 chars / 4 = 100 tokens
-    const meta = getBibleMeta('world1');
+  it('returns updated tokenCount after upsertEntry', async () => {
+    await upsertEntry(getDbClient(), 'world1', 'art1', 'A'.repeat(400)); // 400 chars / 4 = 100 tokens
+    const meta = await getBibleMeta('world1');
     expect(meta.tokenCount).toBeGreaterThan(0);
   });
 
-  it('returns 80000 as default threshold when no cost_settings row', () => {
+  it('returns 80000 as default threshold when no cost_settings row', async () => {
     // Remove cost_settings to test the fallback
     dbRef.db!.exec("DELETE FROM cost_settings WHERE world_id = 'world1'");
-    const meta = getBibleMeta('world1');
+    const meta = await getBibleMeta('world1');
     expect(meta.threshold).toBe(80000);
   });
 
-  it('returns the configured threshold from cost_settings', () => {
+  it('returns the configured threshold from cost_settings', async () => {
     dbRef.db!
       .prepare("UPDATE cost_settings SET bible_threshold = 50000 WHERE world_id = 'world1'")
       .run();
-    const meta = getBibleMeta('world1');
+    const meta = await getBibleMeta('world1');
     expect(meta.threshold).toBe(50000);
   });
 });
@@ -219,22 +220,22 @@ describe('getBibleMeta', () => {
 // ---------------------------------------------------------------------------
 
 describe('refreshTokenCount', () => {
-  it('returns 0 when bible is empty', () => {
-    expect(refreshTokenCount('world1')).toBe(0);
+  it('returns 0 when bible is empty', async () => {
+    expect(await refreshTokenCount('world1')).toBe(0);
   });
 
-  it('returns a positive count proportional to content length', () => {
-    upsertEntry('world1', 'art1', 'X'.repeat(400));
+  it('returns a positive count proportional to content length', async () => {
+    await upsertEntry(getDbClient(), 'world1', 'art1', 'X'.repeat(400));
     // The refresh was already called by upsertEntry; call again to verify
-    const count = refreshTokenCount('world1');
+    const count = await refreshTokenCount('world1');
     expect(count).toBeGreaterThan(0);
     // ~400 chars of content + headings → at minimum 100 tokens
     expect(count).toBeGreaterThanOrEqual(10);
   });
 
-  it('persists the updated token_count in world_bible_meta', () => {
-    upsertEntry('world1', 'art1', 'Y'.repeat(800));
-    refreshTokenCount('world1');
+  it('persists the updated token_count in world_bible_meta', async () => {
+    await upsertEntry(getDbClient(), 'world1', 'art1', 'Y'.repeat(800));
+    await refreshTokenCount('world1');
     const row = dbRef.db!
       .prepare('SELECT token_count FROM world_bible_meta WHERE world_id = ?')
       .get('world1') as { token_count: number };

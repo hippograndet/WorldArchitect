@@ -1,5 +1,6 @@
 import { nanoid } from 'nanoid';
-import { getDb } from '../db/index.js';
+import { getDbClient } from '../db/client.js';
+import type { QueryExecutor } from '../db/executor.js';
 
 export interface BibleEntry {
   id: string;
@@ -11,44 +12,8 @@ export interface BibleEntry {
   sortOrder: number;
 }
 
-/**
- * Insert or update the World Bible summary for a single article.
- * The Bible is internal LLM context — it has no UI editor.
- */
-export function upsertEntry(
-  worldId: string,
-  articleId: string,
-  summary: string,
-): void {
-  const db = getDb();
-  const now = Date.now();
-  const article = db.prepare(`
-    SELECT a.id, COALESCE(c.sort_order, 9999) AS sort_order
-    FROM articles a
-    LEFT JOIN categories c ON c.id = a.category_id
-    WHERE a.id = ? AND a.world_id = ?
-  `).get(articleId, worldId) as { id: string; sort_order: number } | undefined;
-
-  if (!article) throw new Error(`Article ${articleId} not found in world ${worldId}`);
-
-  db.prepare(`
-    INSERT INTO world_bible_entries (id, world_id, article_id, summary, sort_order, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?)
-    ON CONFLICT(article_id) DO UPDATE SET
-      summary    = excluded.summary,
-      sort_order = excluded.sort_order,
-      updated_at = excluded.updated_at
-  `).run(nanoid(), worldId, articleId, summary, article.sort_order, now);
-
-  refreshTokenCount(worldId);
-}
-
-/**
- * Return all Bible entries for a world, sorted alphabetically by article title.
- */
-export function getEntries(worldId: string): BibleEntry[] {
-  const db = getDb();
-  const rows = db.prepare(`
+async function getEntriesWithExecutor(exec: QueryExecutor, worldId: string): Promise<BibleEntry[]> {
+  const rows = await exec.all<Record<string, unknown>>(`
     SELECT wbe.id, wbe.article_id, wbe.summary, wbe.updated_at, wbe.sort_order,
            a.title AS article_title, c.name AS category_name
     FROM world_bible_entries wbe
@@ -56,7 +21,7 @@ export function getEntries(worldId: string): BibleEntry[] {
     LEFT JOIN categories c ON c.id = a.category_id
     WHERE wbe.world_id = ?
     ORDER BY wbe.sort_order, c.name, a.title
-  `).all(worldId) as Array<Record<string, unknown>>;
+  `, [worldId]);
 
   return rows.map((r) => ({
     id:           r.id as string,
@@ -69,12 +34,8 @@ export function getEntries(worldId: string): BibleEntry[] {
   }));
 }
 
-/**
- * Render the World Bible as markdown for LLM context.
- * Format: ### Article Title\nsummary\n\n...
- */
-export function renderBible(worldId: string): string {
-  const entries = getEntries(worldId);
+async function renderBibleWithExecutor(exec: QueryExecutor, worldId: string): Promise<string> {
+  const entries = await getEntriesWithExecutor(exec, worldId);
   if (entries.length === 0) return '';
 
   const parts: string[] = [];
@@ -89,16 +50,82 @@ export function renderBible(worldId: string): string {
   return parts.join('\n\n');
 }
 
-export function getBibleMeta(worldId: string): { tokenCount: number; threshold: number } {
-  const db = getDb();
+async function refreshTokenCountWithExecutor(exec: QueryExecutor, worldId: string): Promise<number> {
+  const rendered = await renderBibleWithExecutor(exec, worldId);
+  const tokenCount = Math.ceil(rendered.length / 4);
+  const now = Date.now();
 
-  const meta = db
-    .prepare('SELECT token_count FROM world_bible_meta WHERE world_id = ?')
-    .get(worldId) as { token_count: number } | undefined;
+  await exec.run(
+    'UPDATE world_bible_meta SET token_count = ?, updated_at = ? WHERE world_id = ?',
+    [tokenCount, now, worldId],
+  );
 
-  const settings = db
-    .prepare('SELECT bible_threshold FROM cost_settings WHERE world_id = ?')
-    .get(worldId) as { bible_threshold: number } | undefined;
+  return tokenCount;
+}
+
+/**
+ * Insert or update the World Bible summary for a single article.
+ * The Bible is internal LLM context — it has no UI editor.
+ *
+ * Takes an explicit QueryExecutor so callers inside an existing transaction
+ * (e.g. article creation) can pass their `tx` and have this join that
+ * transaction instead of opening a separate connection.
+ */
+export async function upsertEntry(
+  exec: QueryExecutor,
+  worldId: string,
+  articleId: string,
+  summary: string,
+): Promise<void> {
+  const now = Date.now();
+  const article = await exec.get<{ id: string; sort_order: number; owner_id: string }>(`
+    SELECT a.id, a.owner_id, COALESCE(c.sort_order, 9999) AS sort_order
+    FROM articles a
+    LEFT JOIN categories c ON c.id = a.category_id
+    WHERE a.id = ? AND a.world_id = ?
+  `, [articleId, worldId]);
+
+  if (!article) throw new Error(`Article ${articleId} not found in world ${worldId}`);
+
+  await exec.run(`
+    INSERT INTO world_bible_entries (id, world_id, owner_id, article_id, summary, sort_order, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(article_id) DO UPDATE SET
+      summary    = excluded.summary,
+      sort_order = excluded.sort_order,
+      updated_at = excluded.updated_at
+  `, [nanoid(), worldId, article.owner_id, articleId, summary, article.sort_order, now]);
+
+  await refreshTokenCountWithExecutor(exec, worldId);
+}
+
+/**
+ * Return all Bible entries for a world, sorted alphabetically by article title.
+ */
+export async function getEntries(worldId: string): Promise<BibleEntry[]> {
+  return getEntriesWithExecutor(getDbClient(), worldId);
+}
+
+/**
+ * Render the World Bible as markdown for LLM context.
+ * Format: ### Article Title\nsummary\n\n...
+ */
+export async function renderBible(worldId: string): Promise<string> {
+  return renderBibleWithExecutor(getDbClient(), worldId);
+}
+
+export async function getBibleMeta(worldId: string): Promise<{ tokenCount: number; threshold: number }> {
+  const exec = getDbClient();
+
+  const meta = await exec.get<{ token_count: number }>(
+    'SELECT token_count FROM world_bible_meta WHERE world_id = ?',
+    [worldId],
+  );
+
+  const settings = await exec.get<{ bible_threshold: number }>(
+    'SELECT bible_threshold FROM cost_settings WHERE world_id = ?',
+    [worldId],
+  );
 
   return {
     tokenCount: meta?.token_count ?? 0,
@@ -106,14 +133,6 @@ export function getBibleMeta(worldId: string): { tokenCount: number; threshold: 
   };
 }
 
-export function refreshTokenCount(worldId: string): number {
-  const rendered = renderBible(worldId);
-  const tokenCount = Math.ceil(rendered.length / 4);
-  const now = Date.now();
-
-  getDb()
-    .prepare('UPDATE world_bible_meta SET token_count = ?, updated_at = ? WHERE world_id = ?')
-    .run(tokenCount, now, worldId);
-
-  return tokenCount;
+export async function refreshTokenCount(worldId: string): Promise<number> {
+  return refreshTokenCountWithExecutor(getDbClient(), worldId);
 }

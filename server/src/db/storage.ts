@@ -1,11 +1,10 @@
 import { readFileSync } from 'fs';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
-import pg from 'pg';
 import { getDb, DB_PATH } from './index.js';
 import { getStorageDriver } from '../config.js';
+import { getPgPool } from './pgPool.js';
 
-const { Pool } = pg;
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 export type StorageHealth = {
@@ -37,13 +36,12 @@ class SqliteStorageAdapter implements StorageAdapter {
 
 class PostgresStorageAdapter implements StorageAdapter {
   readonly driver = 'postgres' as const;
-  private pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
   async health(): Promise<StorageHealth> {
     if (!process.env.DATABASE_URL) {
       return { driver: this.driver, ok: false, detail: 'DATABASE_URL is not set' };
     }
-    const client = await this.pool.connect();
+    const client = await getPgPool().connect();
     try {
       const result = await client.query<{ now: Date }>('SELECT NOW() AS now');
       return { driver: this.driver, ok: true, detail: `connected at ${result.rows[0]?.now?.toISOString?.() ?? 'unknown'}` };
@@ -54,11 +52,14 @@ class PostgresStorageAdapter implements StorageAdapter {
 
   async migrate(): Promise<void> {
     if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is required for Postgres migrations');
-    const sql = readFileSync(resolve(__dirname, 'migrations/postgres/001_initial.sql'), 'utf8');
-    const client = await this.pool.connect();
+    const files = ['001_initial.sql', '002_full_schema.sql'];
+    const client = await getPgPool().connect();
     try {
       await client.query('BEGIN');
-      await client.query(sql);
+      for (const file of files) {
+        const sql = readFileSync(resolve(__dirname, 'migrations/postgres', file), 'utf8');
+        await client.query(sql);
+      }
       await client.query('COMMIT');
     } catch (err) {
       await client.query('ROLLBACK');
@@ -69,8 +70,11 @@ class PostgresStorageAdapter implements StorageAdapter {
   }
 }
 
+let adapter: StorageAdapter | null = null;
+
 export function getStorageAdapter(): StorageAdapter {
-  return getStorageDriver() === 'postgres'
-    ? new PostgresStorageAdapter()
-    : new SqliteStorageAdapter();
+  if (!adapter) {
+    adapter = getStorageDriver() === 'postgres' ? new PostgresStorageAdapter() : new SqliteStorageAdapter();
+  }
+  return adapter;
 }

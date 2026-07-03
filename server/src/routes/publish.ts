@@ -1,8 +1,10 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { nanoid } from 'nanoid';
-import { getDb } from '../db/index.js';
+import { getDbClient } from '../db/client.js';
 import { runSyncRules } from '../services/syncRules.js';
+import { asyncHandler } from '../middleware/errorHandler.js';
+import { tenantIdFor } from '../tenant.js';
 
 const router = Router({ mergeParams: true });
 
@@ -13,11 +15,10 @@ type DbRow = Record<string, unknown>;
 // List draft articles with their health state
 // ---------------------------------------------------------------------------
 
-router.get('/staged', (req, res) => {
+router.get('/staged', asyncHandler(async (req, res) => {
   const wid = (req.params as Record<string, string>).wid;
-  const db = getDb();
 
-  const articles = db.prepare(`
+  const articles = await getDbClient().all<DbRow>(`
     SELECT a.id, a.title, a.status, a.template_type, a.depth, a.updated_at,
            COALESCE(blocking.cnt, 0) AS blocking_issues,
            COALESCE(warn.cnt, 0) AS warning_issues
@@ -34,7 +35,7 @@ router.get('/staged', (req, res) => {
     ) warn ON warn.article_id = a.id
     WHERE a.world_id = ? AND a.status = 'draft'
     ORDER BY a.depth ASC, a.title ASC
-  `).all(wid) as DbRow[];
+  `, [wid]);
 
   res.json(articles.map(a => ({
     id: a.id,
@@ -49,7 +50,7 @@ router.get('/staged', (req, res) => {
            : (a.warning_issues as number) > 0 ? 'warnings'
            : 'clean',
   })));
-});
+}));
 
 // ---------------------------------------------------------------------------
 // POST /api/worlds/:wid/publish/check
@@ -60,7 +61,7 @@ const CheckSchema = z.object({
   articleIds: z.array(z.string()).min(1).max(100),
 });
 
-router.post('/check', (req, res) => {
+router.post('/check', asyncHandler(async (req, res) => {
   const parse = CheckSchema.safeParse(req.body);
   if (!parse.success) {
     res.status(400).json({ error: parse.error.flatten().fieldErrors });
@@ -72,18 +73,17 @@ router.post('/check', (req, res) => {
 
   // Re-run sync rules for freshness
   for (const aid of articleIds) {
-    runSyncRules(wid, aid);
+    await runSyncRules(wid, aid);
   }
 
-  const db = getDb();
   const placeholders = articleIds.map(() => '?').join(', ');
-  const issues = db.prepare(`
+  const issues = await getDbClient().all<DbRow>(`
     SELECT ai.*, a.title AS article_title
     FROM article_issues ai
     JOIN articles a ON a.id = ai.article_id
     WHERE ai.article_id IN (${placeholders}) AND ai.status = 'open'
     ORDER BY ai.severity DESC, ai.created_at DESC
-  `).all(...articleIds) as DbRow[];
+  `, articleIds);
 
   const summary = {
     blocking: issues.filter(i => i.severity === 'blocking').length,
@@ -106,7 +106,7 @@ router.post('/check', (req, res) => {
       status: i.status,
     })),
   });
-});
+}));
 
 // ---------------------------------------------------------------------------
 // POST /api/worlds/:wid/publish/commit
@@ -118,7 +118,7 @@ const CommitSchema = z.object({
   force: z.boolean().optional().default(false),
 });
 
-router.post('/commit', (req, res) => {
+router.post('/commit', asyncHandler(async (req, res) => {
   const parse = CommitSchema.safeParse(req.body);
   if (!parse.success) {
     res.status(400).json({ error: parse.error.flatten().fieldErrors });
@@ -126,66 +126,69 @@ router.post('/commit', (req, res) => {
   }
 
   const wid = (req.params as Record<string, string>).wid;
+  const ownerId = tenantIdFor(req);
   const { articleIds, force } = parse.data;
-  const db = getDb();
+  const exec = getDbClient();
   const now = Date.now();
 
   if (!force) {
     const placeholders = articleIds.map(() => '?').join(', ');
-    const blocking = db.prepare(`
+    const blocking = await exec.get<{ cnt: number }>(`
       SELECT COUNT(*) AS cnt FROM article_issues
       WHERE article_id IN (${placeholders}) AND severity = 'blocking' AND status = 'open'
-    `).get(...articleIds) as { cnt: number };
+    `, articleIds);
 
-    if (blocking.cnt > 0) {
+    if (blocking!.cnt > 0) {
       res.status(422).json({
         error: 'BLOCKING_ISSUES',
-        message: `${blocking.cnt} blocking issue(s) must be resolved before publishing. Use force=true to override.`,
+        message: `${blocking!.cnt} blocking issue(s) must be resolved before publishing. Use force=true to override.`,
       });
       return;
     }
   }
 
   const publishedIds: string[] = [];
-  db.transaction(() => {
+  await exec.transaction(async (tx) => {
     for (const aid of articleIds) {
-      const article = db.prepare(`SELECT id, current_version_id FROM articles WHERE id = ? AND world_id = ?`).get(aid, wid) as { id: string; current_version_id: string } | undefined;
+      const article = await tx.get<{ id: string; current_version_id: string }>(
+        `SELECT id, current_version_id FROM articles WHERE id = ? AND world_id = ?`,
+        [aid, wid],
+      );
       if (!article) continue;
 
-      db.prepare(`UPDATE articles SET status = 'published', updated_at = ? WHERE id = ?`).run(now, aid);
+      await tx.run(`UPDATE articles SET status = 'published', updated_at = ? WHERE id = ?`, [now, aid]);
 
       if (article.current_version_id) {
-        db.prepare(`UPDATE article_versions SET is_published = 1 WHERE id = ?`).run(article.current_version_id);
+        await tx.run(`UPDATE article_versions SET is_published = 1 WHERE id = ?`, [article.current_version_id]);
       }
 
-      db.prepare(`
-        INSERT INTO publish_history (id, world_id, article_id, version_id, published_at)
-        VALUES (?, ?, ?, ?, ?)
-      `).run(nanoid(), wid, aid, article.current_version_id ?? null, now);
+      await tx.run(`
+        INSERT INTO publish_history (id, world_id, owner_id, article_id, version_id, published_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `, [nanoid(), wid, ownerId, aid, article.current_version_id ?? null, now]);
 
       publishedIds.push(aid);
     }
-  })();
+  });
 
   res.json({ published: publishedIds, publishedAt: now });
-});
+}));
 
 // ---------------------------------------------------------------------------
 // GET /api/worlds/:wid/publish/history
 // ---------------------------------------------------------------------------
 
-router.get('/history', (req, res) => {
+router.get('/history', asyncHandler(async (req, res) => {
   const wid = (req.params as Record<string, string>).wid;
-  const db = getDb();
 
-  const rows = db.prepare(`
+  const rows = await getDbClient().all<DbRow>(`
     SELECT ph.*, a.title AS article_title
     FROM publish_history ph
     JOIN articles a ON a.id = ph.article_id
     WHERE ph.world_id = ?
     ORDER BY ph.published_at DESC
     LIMIT 100
-  `).all(wid) as DbRow[];
+  `, [wid]);
 
   res.json(rows.map(r => ({
     id: r.id,
@@ -194,6 +197,6 @@ router.get('/history', (req, res) => {
     versionId: r.version_id ?? null,
     publishedAt: r.published_at,
   })));
-});
+}));
 
 export default router;

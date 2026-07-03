@@ -1,5 +1,6 @@
-import { getDb } from '../db/index.js';
+import { getDbClient } from '../db/client.js';
 import { getAppMode, LOCAL_USER_ID } from '../config.js';
+import { asyncHandler } from '../middleware/errorHandler.js';
 import { getContextUserId } from '../requestContext.js';
 import { maskSecret } from '../security/redaction.js';
 import { decryptSecret, encryptSecret } from '../security/secrets.js';
@@ -74,11 +75,10 @@ function withV1(url: string): string {
   return url.replace(/\/+$/, '').endsWith('/v1') ? url.replace(/\/+$/, '') : `${url.replace(/\/+$/, '')}/v1`;
 }
 
-export function readProviderSettings(userId?: string): { provider: ProviderName | 'none'; config: ProviderConfig } {
+export async function readProviderSettings(userId?: string): Promise<{ provider: ProviderName | 'none'; config: ProviderConfig }> {
   const id = providerSettingsId(userId);
-  const row = getDb()
-    .prepare('SELECT provider, config FROM provider_settings WHERE id = ?')
-    .get(id) as RawSettings | undefined;
+  const row = await getDbClient()
+    .get<RawSettings>('SELECT provider, config FROM provider_settings WHERE id = ?', [id]);
 
   return {
     provider: (row?.provider ?? 'none') as ProviderName | 'none',
@@ -86,26 +86,24 @@ export function readProviderSettings(userId?: string): { provider: ProviderName 
   };
 }
 
-export function writeProviderSettings(
+export async function writeProviderSettings(
   provider: ProviderName | 'none',
   config: ProviderConfig,
   userId?: string,
-): void {
+): Promise<void> {
   const id = providerSettingsId(userId);
-  getDb()
-    .prepare(`
+  await getDbClient().run(`
       INSERT INTO provider_settings (id, provider, config, updated_at)
       VALUES (?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         provider = excluded.provider,
         config = excluded.config,
         updated_at = excluded.updated_at
-    `)
-    .run(id, provider, serializeConfig(config), Date.now());
+    `, [id, provider, serializeConfig(config), Date.now()]);
 }
 
-export function readEffectiveProviderSettings(userId?: string): EffectiveProviderSettings {
-  const { provider, config: storedConfig } = readProviderSettings(userId);
+export async function readEffectiveProviderSettings(userId?: string): Promise<EffectiveProviderSettings> {
+  const { provider, config: storedConfig } = await readProviderSettings(userId);
   const anthropicKey = process.env.ANTHROPIC_API_KEY;
   const openaiKey = process.env.OPENAI_API_KEY;
   const groqKey = process.env.GROQ_API_KEY;
@@ -144,8 +142,8 @@ export function readEffectiveProviderSettings(userId?: string): EffectiveProvide
 // Runtime helpers
 // ---------------------------------------------------------------------------
 
-export function isLLMConfigured(): boolean {
-  const { provider, config, localOnly } = readEffectiveProviderSettings();
+export async function isLLMConfigured(): Promise<boolean> {
+  const { provider, config, localOnly } = await readEffectiveProviderSettings();
   if (provider === 'none') return false;
   if (localOnly.enabled && provider !== 'ollama') return false;
   if (provider === 'ollama') return true;
@@ -159,8 +157,8 @@ export function isLLMConfigured(): boolean {
  * Build and return the active LLMProvider.
  * Throws with a user-friendly message when nothing is configured.
  */
-export function getProvider(): LLMProvider {
-  const { provider, config, localOnly } = readEffectiveProviderSettings();
+export async function getProvider(): Promise<LLMProvider> {
+  const { provider, config, localOnly } = await readEffectiveProviderSettings();
   if (localOnly.enabled && provider !== 'ollama') {
     throw new ProviderSafetyError(
       'LOCAL_ONLY_EGRESS_BLOCKED',
@@ -198,12 +196,12 @@ export function getProvider(): LLMProvider {
  * Express middleware — returns 503 when no LLM is configured.
  * Apply to all agent routes so manual features remain unaffected.
  */
-export function requireLLM(
+export const requireLLM = asyncHandler(async (
   _req: import('express').Request,
   res: import('express').Response,
   next: import('express').NextFunction,
-): void {
-  const { provider, localOnly } = readEffectiveProviderSettings();
+): Promise<void> => {
+  const { provider, localOnly } = await readEffectiveProviderSettings();
   if (localOnly.enabled && provider !== 'ollama') {
     res.status(403).json({
       error: 'Local-only mode is enabled. Hosted LLM providers are blocked; switch to Ollama to use AI features.',
@@ -212,7 +210,7 @@ export function requireLLM(
     return;
   }
 
-  if (!isLLMConfigured()) {
+  if (!(await isLLMConfigured())) {
     res.status(503).json({
       error: 'No LLM provider configured.',
       hint: 'All manual editing features work without an LLM. Go to Settings to add an API key.',
@@ -220,7 +218,7 @@ export function requireLLM(
     return;
   }
   next();
-}
+});
 
 /** Mask an API key for safe client display: `sk-ant-api03-xxxx...yyyy` → `sk-ant-****yyyy` */
 export function maskKey(key: string | undefined): string | undefined {

@@ -1,5 +1,6 @@
 import { nanoid } from 'nanoid';
-import { getDb } from '../db/index.js';
+import { getDbClient } from '../db/client.js';
+import { ownerIdForWorld } from '../db/ownership.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -276,19 +277,19 @@ export interface GenerateOptions {
   nameComponent?: NameComponent;
 }
 
-export function generateNames(
+export async function generateNames(
   profileId: string,
   entityType: EntityType,
   worldId: string,
   count = 8,
   opts: GenerateOptions = {},
-): string[] {
+): Promise<string[]> {
   const profile = CULTURAL_PROFILES[profileId];
   if (!profile) throw new Error(`Unknown profile: ${profileId}`);
 
   const { gender = 'neutral', socialClass = 'common', nameComponent = 'full' } = opts;
 
-  const existing = listNames(worldId).map((e) => e.name.toLowerCase());
+  const existing = (await listNames(worldId)).map((e) => e.name.toLowerCase());
   const results: string[] = [];
   let attempt = 0;
 
@@ -332,10 +333,9 @@ export interface ListNamesFilter {
   tags?: string[];
 }
 
-export function listNames(worldId: string, entityType?: EntityType, tags?: string[]): NameEntry[];
-export function listNames(worldId: string, filter?: ListNamesFilter): NameEntry[];
-export function listNames(worldId: string, entityTypeOrFilter?: EntityType | ListNamesFilter, tags?: string[]): NameEntry[] {
-  const db = getDb();
+export function listNames(worldId: string, entityType?: EntityType, tags?: string[]): Promise<NameEntry[]>;
+export function listNames(worldId: string, filter?: ListNamesFilter): Promise<NameEntry[]>;
+export async function listNames(worldId: string, entityTypeOrFilter?: EntityType | ListNamesFilter, tags?: string[]): Promise<NameEntry[]> {
   let query = `SELECT * FROM name_bank WHERE world_id = ?`;
   const params: unknown[] = [worldId];
 
@@ -364,7 +364,7 @@ export function listNames(worldId: string, entityTypeOrFilter?: EntityType | Lis
   }
 
   query += ` ORDER BY created_at DESC`;
-  const rows = db.prepare(query).all(...params) as Record<string, unknown>[];
+  const rows = await getDbClient().all<Record<string, unknown>>(query, params);
   let entries = rows.map(parseEntry);
 
   const tagFilter = filter.tags ?? tags;
@@ -375,7 +375,7 @@ export function listNames(worldId: string, entityTypeOrFilter?: EntityType | Lis
   return entries;
 }
 
-export function addNames(
+export async function addNames(
   worldId: string,
   entries: Array<{
     name: string;
@@ -387,22 +387,23 @@ export function addNames(
     tags: string[];
     source?: 'generated' | 'user';
   }>,
-): NameEntry[] {
-  const db = getDb();
+): Promise<NameEntry[]> {
   const now = Date.now();
-  const stmt = db.prepare(`
-    INSERT INTO name_bank (id, world_id, name, profile_id, entity_type, gender, social_class, name_component, tags, source, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `);
+  const exec = getDbClient();
+  const ownerId = await ownerIdForWorld(exec, worldId);
 
-  return db.transaction(() => {
-    return entries.map((e) => {
+  return exec.transaction(async (tx) => {
+    const saved: NameEntry[] = [];
+    for (const e of entries) {
       const id = nanoid();
       const gender = e.gender ?? 'neutral';
       const socialClass = e.socialClass ?? 'common';
       const nameComponent = e.nameComponent ?? 'full';
-      stmt.run(id, worldId, e.name, e.profileId, e.entityType, gender, socialClass, nameComponent, JSON.stringify(e.tags), e.source ?? 'generated', now);
-      return {
+      await tx.run(`
+        INSERT INTO name_bank (id, world_id, owner_id, name, profile_id, entity_type, gender, social_class, name_component, tags, source, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `, [id, worldId, ownerId, e.name, e.profileId, e.entityType, gender, socialClass, nameComponent, JSON.stringify(e.tags), e.source ?? 'generated', now]);
+      saved.push({
         id,
         worldId,
         name: e.name,
@@ -414,11 +415,12 @@ export function addNames(
         tags: e.tags,
         source: e.source ?? 'generated',
         createdAt: now,
-      } as NameEntry;
-    });
-  })();
+      });
+    }
+    return saved;
+  });
 }
 
-export function deleteName(nameId: string): void {
-  getDb().prepare(`DELETE FROM name_bank WHERE id = ?`).run(nameId);
+export async function deleteName(nameId: string): Promise<void> {
+  await getDbClient().run(`DELETE FROM name_bank WHERE id = ?`, [nameId]);
 }

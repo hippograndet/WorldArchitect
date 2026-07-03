@@ -1,7 +1,10 @@
 import { Router } from 'express';
 import { nanoid } from 'nanoid';
 import { z } from 'zod';
-import { getDb } from '../db/index.js';
+import { getDbClient } from '../db/client.js';
+import type { QueryExecutor } from '../db/executor.js';
+import { asyncHandler } from '../middleware/errorHandler.js';
+import { tenantIdFor } from '../tenant.js';
 
 const router = Router({ mergeParams: true });
 
@@ -12,6 +15,7 @@ const router = Router({ mergeParams: true });
 interface SnapshotArticleRow {
   id: string;
   world_id: string;
+  owner_id: string;
   title: string;
   status: string;
   template_type: string;
@@ -27,6 +31,7 @@ interface SnapshotArticleRow {
 interface SnapshotVersionRow {
   id: string;
   article_id: string;
+  owner_id: string;
   version_number: number;
   introduction: string;
   description: string;
@@ -43,12 +48,14 @@ interface SnapshotVersionRow {
 interface SnapshotLinkRow {
   source_article_id: string;
   target_article_id: string;
+  owner_id: string;
   link_type: string;
 }
 
 interface SnapshotBibleEntryRow {
   id: string;
   world_id: string;
+  owner_id: string;
   article_id: string;
   summary: string;
   updated_at: number;
@@ -62,6 +69,7 @@ interface SnapshotBibleMetaRow {
 interface SnapshotWarningRow {
   id: string;
   article_id: string;
+  owner_id: string;
   source_article_id: string | null;
   severity: string;
   description: string;
@@ -82,61 +90,58 @@ interface SnapshotData {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function captureSnapshot(worldId: string): SnapshotData {
-  const db = getDb();
-
-  const articles = db
-    .prepare(`SELECT * FROM articles WHERE world_id = ?`)
-    .all(worldId) as SnapshotArticleRow[];
+async function captureSnapshot(exec: QueryExecutor, worldId: string): Promise<SnapshotData> {
+  const articles = await exec.all<SnapshotArticleRow>(`SELECT * FROM articles WHERE world_id = ?`, [worldId]);
 
   const articleIds = articles.map((a) => a.id);
 
-  const versions =
-    articleIds.length > 0
-      ? (db
-          .prepare(
-            `SELECT * FROM article_versions WHERE article_id IN (${articleIds.map(() => '?').join(',')})`,
-          )
-          .all(...articleIds) as SnapshotVersionRow[])
-      : [];
+  const versions = articleIds.length > 0
+    ? await exec.all<SnapshotVersionRow>(
+        `SELECT * FROM article_versions WHERE article_id IN (${articleIds.map(() => '?').join(',')})`,
+        articleIds,
+      )
+    : [];
 
-  const links =
-    articleIds.length > 0
-      ? (db
-          .prepare(
-            `SELECT * FROM article_links WHERE source_article_id IN (${articleIds.map(() => '?').join(',')})`,
-          )
-          .all(...articleIds) as SnapshotLinkRow[])
-      : [];
+  const links = articleIds.length > 0
+    ? await exec.all<SnapshotLinkRow>(
+        `SELECT * FROM article_links WHERE source_article_id IN (${articleIds.map(() => '?').join(',')})`,
+        articleIds,
+      )
+    : [];
 
-  const bible_entries = db
-    .prepare(`SELECT * FROM world_bible_entries WHERE world_id = ?`)
-    .all(worldId) as SnapshotBibleEntryRow[];
+  const bible_entries = await exec.all<SnapshotBibleEntryRow>(
+    `SELECT * FROM world_bible_entries WHERE world_id = ?`,
+    [worldId],
+  );
 
-  const bible_meta =
-    (db
-      .prepare(`SELECT token_count, updated_at FROM world_bible_meta WHERE world_id = ?`)
-      .get(worldId) as SnapshotBibleMetaRow | undefined) ?? null;
+  const bible_meta = (await exec.get<SnapshotBibleMetaRow>(
+    `SELECT token_count, updated_at FROM world_bible_meta WHERE world_id = ?`,
+    [worldId],
+  )) ?? null;
 
-  const warnings =
-    articleIds.length > 0
-      ? (db
-          .prepare(
-            `SELECT * FROM coherence_warnings WHERE article_id IN (${articleIds.map(() => '?').join(',')})`,
-          )
-          .all(...articleIds) as SnapshotWarningRow[])
-      : [];
+  const warnings = articleIds.length > 0
+    ? await exec.all<SnapshotWarningRow>(
+        `SELECT * FROM coherence_warnings WHERE article_id IN (${articleIds.map(() => '?').join(',')})`,
+        articleIds,
+      )
+    : [];
 
   return { articles, versions, links, bible_entries, bible_meta, warnings };
 }
 
-function persistSnapshot(worldId: string, name: string, data: SnapshotData): { id: string; name: string; created_at: number } {
-  const db = getDb();
+async function persistSnapshot(
+  exec: QueryExecutor,
+  worldId: string,
+  ownerId: string,
+  name: string,
+  data: SnapshotData,
+): Promise<{ id: string; name: string; created_at: number }> {
   const id = nanoid();
   const now = Date.now();
-  db.prepare(
-    `INSERT INTO world_snapshots (id, world_id, name, data, created_at) VALUES (?, ?, ?, ?, ?)`,
-  ).run(id, worldId, name, JSON.stringify(data), now);
+  await exec.run(
+    `INSERT INTO world_snapshots (id, world_id, owner_id, name, data, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+    [id, worldId, ownerId, name, JSON.stringify(data), now],
+  );
   return { id, name, created_at: now };
 }
 
@@ -144,22 +149,23 @@ function persistSnapshot(worldId: string, name: string, data: SnapshotData): { i
 // GET /api/worlds/:wid/snapshots
 // ---------------------------------------------------------------------------
 
-router.get('/', (req, res) => {
-  const db = getDb();
+router.get('/', asyncHandler(async (req, res) => {
+  const exec = getDbClient();
   const { wid } = req.params as Record<string, string>;
 
-  const world = db.prepare(`SELECT id FROM worlds WHERE id = ?`).get(wid);
+  const world = await exec.get(`SELECT id FROM worlds WHERE id = ?`, [wid]);
   if (!world) {
     res.status(404).json({ error: 'World not found.' });
     return;
   }
 
-  const snapshots = db
-    .prepare(`SELECT id, name, created_at FROM world_snapshots WHERE world_id = ? ORDER BY created_at DESC`)
-    .all(wid) as { id: string; name: string; created_at: number }[];
+  const snapshots = await exec.all<{ id: string; name: string; created_at: number }>(
+    `SELECT id, name, created_at FROM world_snapshots WHERE world_id = ? ORDER BY created_at DESC`,
+    [wid],
+  );
 
   res.json(snapshots);
-});
+}));
 
 // ---------------------------------------------------------------------------
 // POST /api/worlds/:wid/snapshots
@@ -169,11 +175,11 @@ const CreateSnapshotSchema = z.object({
   name: z.string().min(1).max(200),
 });
 
-router.post('/', (req, res) => {
+router.post('/', asyncHandler(async (req, res) => {
   const { wid } = req.params as Record<string, string>;
-  const db = getDb();
+  const exec = getDbClient();
 
-  const world = db.prepare(`SELECT id FROM worlds WHERE id = ?`).get(wid);
+  const world = await exec.get(`SELECT id FROM worlds WHERE id = ?`, [wid]);
   if (!world) {
     res.status(404).json({ error: 'World not found.' });
     return;
@@ -185,22 +191,23 @@ router.post('/', (req, res) => {
     return;
   }
 
-  const data = captureSnapshot(wid);
-  const snapshot = persistSnapshot(wid, parsed.data.name, data);
+  const data = await captureSnapshot(exec, wid);
+  const snapshot = await persistSnapshot(exec, wid, tenantIdFor(req), parsed.data.name, data);
   res.status(201).json(snapshot);
-});
+}));
 
 // ---------------------------------------------------------------------------
 // GET /api/worlds/:wid/snapshots/:sid   — preview (article titles only)
 // ---------------------------------------------------------------------------
 
-router.get('/:sid', (req, res) => {
+router.get('/:sid', asyncHandler(async (req, res) => {
   const { wid, sid } = req.params as Record<string, string>;
-  const db = getDb();
+  const exec = getDbClient();
 
-  const row = db
-    .prepare(`SELECT id, name, created_at, data FROM world_snapshots WHERE id = ? AND world_id = ?`)
-    .get(sid, wid) as { id: string; name: string; created_at: number; data: string } | undefined;
+  const row = await exec.get<{ id: string; name: string; created_at: number; data: string }>(
+    `SELECT id, name, created_at, data FROM world_snapshots WHERE id = ? AND world_id = ?`,
+    [sid, wid],
+  );
 
   if (!row) {
     res.status(404).json({ error: 'Snapshot not found.' });
@@ -222,25 +229,26 @@ router.get('/:sid', (req, res) => {
     articleCount: data.articles.length,
     articles: articlePreviews,
   });
-});
+}));
 
 // ---------------------------------------------------------------------------
 // POST /api/worlds/:wid/snapshots/:sid/restore
 // ---------------------------------------------------------------------------
 
-router.post('/:sid/restore', (req, res) => {
+router.post('/:sid/restore', asyncHandler(async (req, res) => {
   const { wid, sid } = req.params as Record<string, string>;
-  const db = getDb();
+  const exec = getDbClient();
 
-  const world = db.prepare(`SELECT id FROM worlds WHERE id = ?`).get(wid);
+  const world = await exec.get(`SELECT id FROM worlds WHERE id = ?`, [wid]);
   if (!world) {
     res.status(404).json({ error: 'World not found.' });
     return;
   }
 
-  const row = db
-    .prepare(`SELECT id, name, data FROM world_snapshots WHERE id = ? AND world_id = ?`)
-    .get(sid, wid) as { id: string; name: string; data: string } | undefined;
+  const row = await exec.get<{ id: string; name: string; data: string }>(
+    `SELECT id, name, data FROM world_snapshots WHERE id = ? AND world_id = ?`,
+    [sid, wid],
+  );
 
   if (!row) {
     res.status(404).json({ error: 'Snapshot not found.' });
@@ -248,88 +256,102 @@ router.post('/:sid/restore', (req, res) => {
   }
 
   // Auto-save current state before overwriting
-  const currentData = captureSnapshot(wid);
+  const currentData = await captureSnapshot(exec, wid);
   const autoSaveName = `Auto-save before restore ${new Date().toISOString().replace('T', ' ').slice(0, 19)}`;
-  const autoSave = persistSnapshot(wid, autoSaveName, currentData);
+  const autoSave = await persistSnapshot(exec, wid, tenantIdFor(req), autoSaveName, currentData);
 
   const target = JSON.parse(row.data) as SnapshotData;
 
-  db.transaction(() => {
+  await exec.transaction(async (tx) => {
     // Wipe current world content (CASCADE handles versions, links, warnings, bible_entries, pending_drafts)
-    db.prepare(`DELETE FROM articles WHERE world_id = ?`).run(wid);
-    db.prepare(`DELETE FROM world_bible_entries WHERE world_id = ?`).run(wid);
+    await tx.run(`DELETE FROM articles WHERE world_id = ?`, [wid]);
+    await tx.run(`DELETE FROM world_bible_entries WHERE world_id = ?`, [wid]);
 
     // Restore articles
-    const insertArticle = db.prepare(`
-      INSERT INTO articles
-        (id, world_id, title, status, template_type,
-         temporal_anchor_start, temporal_anchor_end, is_fixed_point,
-         current_version_id, depth, created_at, updated_at)
-      VALUES
-        (@id, @world_id, @title, @status, @template_type,
-         @temporal_anchor_start, @temporal_anchor_end, @is_fixed_point,
-         @current_version_id, @depth, @created_at, @updated_at)
-    `);
-    for (const a of target.articles) insertArticle.run(a);
+    for (const a of target.articles) {
+      await tx.run(
+        `INSERT INTO articles
+           (id, world_id, owner_id, title, status, template_type,
+            temporal_anchor_start, temporal_anchor_end, is_fixed_point,
+            current_version_id, depth, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          a.id, a.world_id, a.owner_id, a.title, a.status, a.template_type,
+          a.temporal_anchor_start, a.temporal_anchor_end, a.is_fixed_point,
+          a.current_version_id, a.depth, a.created_at, a.updated_at,
+        ],
+      );
+    }
 
     // Restore versions
-    const insertVersion = db.prepare(`
-      INSERT INTO article_versions
-        (id, article_id, version_number, introduction, description, chronology, expansion_params,
-         proposal_used, word_count, is_revert, is_published, reverted_from_version_id, created_at)
-      VALUES
-        (@id, @article_id, @version_number, @introduction, @description, @chronology, @expansion_params,
-         @proposal_used, @word_count, @is_revert, @is_published, @reverted_from_version_id, @created_at)
-    `);
-    for (const v of target.versions) insertVersion.run(v);
+    for (const v of target.versions) {
+      await tx.run(
+        `INSERT INTO article_versions
+           (id, article_id, owner_id, version_number, introduction, description, chronology, expansion_params,
+            proposal_used, word_count, is_revert, is_published, reverted_from_version_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          v.id, v.article_id, v.owner_id, v.version_number, v.introduction, v.description, v.chronology, v.expansion_params,
+          v.proposal_used, v.word_count, v.is_revert, v.is_published, v.reverted_from_version_id, v.created_at,
+        ],
+      );
+    }
 
     // Restore links
-    const insertLink = db.prepare(`
-      INSERT OR IGNORE INTO article_links (source_article_id, target_article_id, link_type)
-      VALUES (@source_article_id, @target_article_id, @link_type)
-    `);
-    for (const l of target.links) insertLink.run(l);
+    for (const l of target.links) {
+      await tx.run(
+        `INSERT INTO article_links (source_article_id, target_article_id, owner_id, link_type)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT (source_article_id, target_article_id) DO NOTHING`,
+        [l.source_article_id, l.target_article_id, l.owner_id, l.link_type],
+      );
+    }
 
     // Restore bible entries
-    const insertBibleEntry = db.prepare(`
-      INSERT INTO world_bible_entries (id, world_id, article_id, summary, updated_at)
-      VALUES (@id, @world_id, @article_id, @summary, @updated_at)
-    `);
-    for (const e of target.bible_entries) insertBibleEntry.run(e);
+    for (const e of target.bible_entries) {
+      await tx.run(
+        `INSERT INTO world_bible_entries (id, world_id, owner_id, article_id, summary, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [e.id, e.world_id, e.owner_id, e.article_id, e.summary, e.updated_at],
+      );
+    }
 
     // Restore bible meta
     if (target.bible_meta) {
-      db.prepare(`
-        INSERT INTO world_bible_meta (world_id, token_count, updated_at)
-        VALUES (?, ?, ?)
-        ON CONFLICT(world_id) DO UPDATE SET token_count = excluded.token_count, updated_at = excluded.updated_at
-      `).run(wid, target.bible_meta.token_count, target.bible_meta.updated_at);
+      await tx.run(
+        `INSERT INTO world_bible_meta (world_id, owner_id, token_count, updated_at)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(world_id) DO UPDATE SET token_count = excluded.token_count, updated_at = excluded.updated_at`,
+        [wid, tenantIdFor(req), target.bible_meta.token_count, target.bible_meta.updated_at],
+      );
     }
 
     // Restore coherence warnings
-    const insertWarning = db.prepare(`
-      INSERT OR IGNORE INTO coherence_warnings
-        (id, article_id, source_article_id, severity, description, status, created_at)
-      VALUES
-        (@id, @article_id, @source_article_id, @severity, @description, @status, @created_at)
-    `);
-    for (const w of target.warnings) insertWarning.run(w);
-  })();
+    for (const w of target.warnings) {
+      await tx.run(
+        `INSERT INTO coherence_warnings
+           (id, article_id, owner_id, source_article_id, severity, description, status, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT (id) DO NOTHING`,
+        [w.id, w.article_id, w.owner_id, w.source_article_id, w.severity, w.description, w.status, w.created_at],
+      );
+    }
+  });
 
   res.json({ restored: row.name, autoSaved: autoSave });
-});
+}));
 
 // ---------------------------------------------------------------------------
 // DELETE /api/worlds/:wid/snapshots/:sid
 // ---------------------------------------------------------------------------
 
-router.delete('/:sid', (req, res) => {
+router.delete('/:sid', asyncHandler(async (req, res) => {
   const { wid, sid } = req.params as Record<string, string>;
-  const db = getDb();
 
-  const result = db
-    .prepare(`DELETE FROM world_snapshots WHERE id = ? AND world_id = ?`)
-    .run(sid, wid);
+  const result = await getDbClient().run(
+    `DELETE FROM world_snapshots WHERE id = ? AND world_id = ?`,
+    [sid, wid],
+  );
 
   if (result.changes === 0) {
     res.status(404).json({ error: 'Snapshot not found.' });
@@ -337,6 +359,6 @@ router.delete('/:sid', (req, res) => {
   }
 
   res.status(204).send();
-});
+}));
 
 export default router;

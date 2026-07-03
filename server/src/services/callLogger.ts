@@ -1,5 +1,6 @@
 import { nanoid } from 'nanoid';
-import { getDb } from '../db/index.js';
+import { getDbClient } from '../db/client.js';
+import { ownerIdForWorld } from '../db/ownership.js';
 import { redactSecrets } from '../security/redaction.js';
 
 export interface CallLogEntry {
@@ -12,16 +13,17 @@ export interface CallLogEntry {
   errorMessage?: string;
 }
 
-export function logCall(entry: CallLogEntry): void {
-  getDb()
-    .prepare(`
+export async function logCall(entry: CallLogEntry): Promise<void> {
+  const exec = getDbClient();
+  const ownerId = await ownerIdForWorld(exec, entry.worldId);
+  await exec.run(`
       INSERT INTO call_log
-        (id, world_id, agent_type, article_id, tokens_in, tokens_out, status, error_message, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `)
-    .run(
+        (id, world_id, owner_id, agent_type, article_id, tokens_in, tokens_out, status, error_message, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [
       nanoid(),
       entry.worldId,
+      ownerId,
       entry.agentType,
       entry.articleId ?? null,
       entry.tokensIn ?? null,
@@ -29,34 +31,32 @@ export function logCall(entry: CallLogEntry): void {
       entry.status,
       entry.errorMessage ? String(redactSecrets(entry.errorMessage)) : null,
       Date.now(),
-    );
+    ]);
 }
 
-export function getDailyCallCount(worldId: string): number {
+export async function getDailyCallCount(worldId: string): Promise<number> {
   const startOfDay = new Date();
   startOfDay.setHours(0, 0, 0, 0);
 
-  const row = getDb()
-    .prepare(`
+  const row = await getDbClient().get<{ count: number }>(`
       SELECT COUNT(*) AS count FROM call_log
       WHERE world_id = ? AND status = 'success' AND created_at >= ?
-    `)
-    .get(worldId, startOfDay.getTime()) as { count: number };
+    `, [worldId, startOfDay.getTime()]);
 
-  return row.count;
+  return row?.count ?? 0;
 }
 
-export function checkDailyCap(worldId: string): {
+export async function checkDailyCap(worldId: string): Promise<{
   allowed: boolean;
   current: number;
   cap: number | null;
-} {
-  const settings = getDb()
-    .prepare('SELECT daily_cap FROM cost_settings WHERE world_id = ?')
-    .get(worldId) as { daily_cap: number | null } | undefined;
+}> {
+  const settings = await getDbClient().get<{ daily_cap: number | null }>(
+    'SELECT daily_cap FROM cost_settings WHERE world_id = ?', [worldId],
+  );
 
   const cap = settings?.daily_cap ?? null;
-  const current = getDailyCallCount(worldId);
+  const current = await getDailyCallCount(worldId);
 
   return { allowed: cap === null || current < cap, current, cap };
 }

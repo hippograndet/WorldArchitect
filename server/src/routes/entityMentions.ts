@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { getDb } from '../db/index.js';
+import { getDbClient } from '../db/client.js';
+import { asyncHandler } from '../middleware/errorHandler.js';
 
 const router = Router({ mergeParams: true });
 
@@ -24,24 +25,23 @@ function parseMention(row: DbRow) {
 // GET /api/worlds/:wid/entity-mentions
 // ---------------------------------------------------------------------------
 
-router.get('/', (req, res) => {
+router.get('/', asyncHandler(async (req, res) => {
   const wid = (req.params as Record<string, string>).wid;
   const status = (req.query as Record<string, string>).status ?? null;
 
-  const db = getDb();
-  let rows: DbRow[];
-  if (status) {
-    rows = db.prepare(
-      `SELECT * FROM entity_mentions WHERE world_id = ? AND status = ? ORDER BY created_at DESC`,
-    ).all(wid, status) as DbRow[];
-  } else {
-    rows = db.prepare(
-      `SELECT * FROM entity_mentions WHERE world_id = ? ORDER BY created_at DESC`,
-    ).all(wid) as DbRow[];
-  }
+  const db = getDbClient();
+  const rows = status
+    ? await db.all<DbRow>(
+        `SELECT * FROM entity_mentions WHERE world_id = ? AND status = ? ORDER BY created_at DESC`,
+        [wid, status],
+      )
+    : await db.all<DbRow>(
+        `SELECT * FROM entity_mentions WHERE world_id = ? ORDER BY created_at DESC`,
+        [wid],
+      );
 
   res.json(rows.map(parseMention));
-});
+}));
 
 // ---------------------------------------------------------------------------
 // PATCH /api/worlds/:wid/entity-mentions/:mid
@@ -51,7 +51,7 @@ const PatchSchema = z.object({
   status: z.enum(['created', 'ignored']),
 });
 
-router.patch('/:mid', (req, res) => {
+router.patch('/:mid', asyncHandler(async (req, res) => {
   const parse = PatchSchema.safeParse(req.body);
   if (!parse.success) {
     res.status(400).json({ error: parse.error.flatten().fieldErrors });
@@ -60,21 +60,22 @@ router.patch('/:mid', (req, res) => {
 
   const wid = (req.params as Record<string, string>).wid;
   const mid = (req.params as Record<string, string>).mid;
-  const db = getDb();
+  const db = getDbClient();
 
-  const existing = db.prepare(
+  const existing = await db.get(
     `SELECT id FROM entity_mentions WHERE id = ? AND world_id = ?`,
-  ).get(mid, wid);
+    [mid, wid],
+  );
 
   if (!existing) {
     res.status(404).json({ error: 'Entity mention not found' });
     return;
   }
 
-  db.prepare(`UPDATE entity_mentions SET status = ? WHERE id = ?`).run(parse.data.status, mid);
+  await db.run(`UPDATE entity_mentions SET status = ? WHERE id = ?`, [parse.data.status, mid]);
 
-  const updated = db.prepare(`SELECT * FROM entity_mentions WHERE id = ?`).get(mid) as DbRow;
-  res.json(parseMention(updated));
-});
+  const updated = await db.get<DbRow>(`SELECT * FROM entity_mentions WHERE id = ?`, [mid]);
+  res.json(parseMention(updated!));
+}));
 
 export default router;

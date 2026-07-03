@@ -1,5 +1,5 @@
 import JSZip from 'jszip';
-import { getDb } from '../db/index.js';
+import { getDbClient } from '../db/client.js';
 
 interface ArticleExportRow {
   id: string;
@@ -66,36 +66,33 @@ function buildMarkdown(row: ArticleExportRow): string {
 }
 
 export async function buildWorldZip(worldId: string): Promise<Buffer> {
-  const db = getDb();
+  const exec = getDbClient();
 
-  const world = db
-    .prepare(`SELECT name FROM worlds WHERE id = ?`)
-    .get(worldId) as { name: string } | undefined;
+  const world = await exec.get<{ name: string }>(`SELECT name FROM worlds WHERE id = ?`, [worldId]);
 
   if (!world) throw new Error('World not found.');
 
-  const articles = db
-    .prepare(
-      `SELECT
-         a.id,
-         a.title,
-         a.status,
-         a.template_type,
-         a.temporal_anchor_start,
-         a.temporal_anchor_end,
-         c.name AS category_name,
-         COALESCE(av.introduction, '') AS introduction,
-         COALESCE(av.description, '')  AS description,
-         COALESCE(av.chronology, '')   AS chronology,
-         COALESCE(wbe.summary, '') AS summary
-       FROM articles a
-       JOIN categories c ON c.id = a.category_id
-       LEFT JOIN article_versions av ON av.id = a.current_version_id
-       LEFT JOIN world_bible_entries wbe ON wbe.article_id = a.id
-       WHERE a.world_id = ?
-       ORDER BY c.sort_order, a.title`,
-    )
-    .all(worldId) as ArticleExportRow[];
+  const articles = await exec.all<ArticleExportRow>(
+    `SELECT
+       a.id,
+       a.title,
+       a.status,
+       a.template_type,
+       a.temporal_anchor_start,
+       a.temporal_anchor_end,
+       c.name AS category_name,
+       COALESCE(av.introduction, '') AS introduction,
+       COALESCE(av.description, '')  AS description,
+       COALESCE(av.chronology, '')   AS chronology,
+       COALESCE(wbe.summary, '') AS summary
+     FROM articles a
+     JOIN categories c ON c.id = a.category_id
+     LEFT JOIN article_versions av ON av.id = a.current_version_id
+     LEFT JOIN world_bible_entries wbe ON wbe.article_id = a.id
+     WHERE a.world_id = ?
+     ORDER BY c.sort_order, a.title`,
+    [worldId],
+  );
 
   const zip = new JSZip();
 

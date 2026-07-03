@@ -1,11 +1,11 @@
 import { Router } from 'express';
 import { nanoid } from 'nanoid';
 import { z } from 'zod';
-import { getDb } from '../db/index.js';
+import { getDbClient } from '../db/client.js';
+import { asyncHandler } from '../middleware/errorHandler.js';
 import { isLLMConfigured, requireLLM } from '../providers/index.js';
 import { PipelineCoordinator } from '../agents/director.js';
 import { StylistAgent } from '../agents/stylist.js';
-import { asyncHandler } from '../middleware/errorHandler.js';
 import type { PromptEngineerFieldType } from '../prompts/promptEngineer.js';
 import { tenantIdFor, worldBelongsToTenant } from '../tenant.js';
 
@@ -70,7 +70,7 @@ router.post('/', asyncHandler(async (req, res) => {
   }
 
   const { name, description, tags, tone, originPoint, styleConfig, generateStubs } = parse.data;
-  const db = getDb();
+  const exec = getDbClient();
   const ownerId = tenantIdFor(req);
   const now = Date.now();
   const worldId = nanoid();
@@ -79,82 +79,83 @@ router.post('/', asyncHandler(async (req, res) => {
   const wordCount = description.split(/\s+/).filter(Boolean).length;
   const styleConfigJson = JSON.stringify(styleConfig ?? {});
 
-  db.transaction(() => {
-    db.prepare(`
+  await exec.transaction(async (tx) => {
+    await tx.run(`
       INSERT INTO worlds (id, owner_id, name, description, tags, tone, origin_point, style_config, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(worldId, ownerId, name, description, JSON.stringify(tags), tone, originPoint ?? null, styleConfigJson, now, now);
+    `, [worldId, ownerId, name, description, JSON.stringify(tags), tone, originPoint ?? null, styleConfigJson, now, now]);
 
-    db.prepare(`
-      INSERT INTO cost_settings (world_id, daily_cap, bible_threshold)
-      VALUES (?, NULL, 80000)
-    `).run(worldId);
+    await tx.run(`
+      INSERT INTO cost_settings (world_id, owner_id, daily_cap, bible_threshold)
+      VALUES (?, ?, NULL, 80000)
+    `, [worldId, ownerId]);
 
-    db.prepare(`
-      INSERT INTO world_bible_meta (world_id, token_count, updated_at)
-      VALUES (?, 0, ?)
-    `).run(worldId, now);
+    await tx.run(`
+      INSERT INTO world_bible_meta (world_id, owner_id, token_count, updated_at)
+      VALUES (?, ?, 0, ?)
+    `, [worldId, ownerId, now]);
 
-    DEFAULT_CATEGORIES.forEach((categoryName, index) => {
-      db.prepare(`
-        INSERT INTO categories (id, world_id, name, sort_order, created_at)
-        VALUES (?, ?, ?, ?, ?)
-      `).run(nanoid(), worldId, categoryName, index, now);
-    });
+    for (const [index, categoryName] of DEFAULT_CATEGORIES.entries()) {
+      await tx.run(`
+        INSERT INTO categories (id, world_id, owner_id, name, sort_order, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `, [nanoid(), worldId, ownerId, categoryName, index, now]);
+    }
 
-    db.prepare(`
-      INSERT INTO articles (id, world_id, title, status, template_type, depth, created_at, updated_at)
-      VALUES (?, ?, ?, 'draft', 'general', 1, ?, ?)
-    `).run(articleId, worldId, name, now, now);
+    await tx.run(`
+      INSERT INTO articles (id, world_id, owner_id, title, status, template_type, depth, created_at, updated_at)
+      VALUES (?, ?, ?, ?, 'draft', 'general', 1, ?, ?)
+    `, [articleId, worldId, ownerId, name, now, now]);
 
-    db.prepare(`
-      INSERT INTO article_versions (id, article_id, version_number, introduction, description, chronology, word_count, created_at)
-      VALUES (?, ?, 1, '', ?, '', ?, ?)
-    `).run(versionId, articleId, description, wordCount, now);
+    await tx.run(`
+      INSERT INTO article_versions (id, article_id, owner_id, version_number, introduction, description, chronology, word_count, created_at)
+      VALUES (?, ?, ?, 1, '', ?, '', ?, ?)
+    `, [versionId, articleId, ownerId, description, wordCount, now]);
 
-    db.prepare(`UPDATE articles SET current_version_id = ? WHERE id = ?`).run(versionId, articleId);
+    await tx.run(`UPDATE articles SET current_version_id = ? WHERE id = ?`, [versionId, articleId]);
 
-    db.prepare(`
-      INSERT INTO world_bible_entries (id, world_id, article_id, summary, updated_at)
-      VALUES (?, ?, ?, ?, ?)
-    `).run(nanoid(), worldId, articleId, description, now);
-  })();
+    await tx.run(`
+      INSERT INTO world_bible_entries (id, world_id, owner_id, article_id, summary, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `, [nanoid(), worldId, ownerId, articleId, description, now]);
+  });
 
-  const world = db.prepare('SELECT * FROM worlds WHERE id = ? AND owner_id = ?').get(worldId, ownerId) as Record<string, unknown>;
-  const categories = db
-    .prepare('SELECT id, name, sort_order AS sortOrder FROM categories WHERE world_id = ? ORDER BY sort_order')
-    .all(worldId);
+  const world = await exec.get<Record<string, unknown>>('SELECT * FROM worlds WHERE id = ? AND owner_id = ?', [worldId, ownerId]);
+  const categories = await exec.all(
+    'SELECT id, name, sort_order AS sortOrder FROM categories WHERE world_id = ? ORDER BY sort_order',
+    [worldId],
+  );
 
-  if (generateStubs && isLLMConfigured()) {
+  if (generateStubs && (await isLLMConfigured())) {
     try {
       const seedText = [description, originPoint].filter(Boolean).join('\n\n');
       const director = new PipelineCoordinator();
       const skeletonResult = await director.createWorld(worldId, seedText);
-      res.status(201).json({ world: parseWorld(world), rootArticleId: articleId, categories, stubs: skeletonResult.stubs });
+      res.status(201).json({ world: parseWorld(world!), rootArticleId: articleId, categories, stubs: skeletonResult.stubs });
       return;
     } catch {
       // SkeletonAgent failure must not block world creation
     }
   }
 
-  res.status(201).json({ world: parseWorld(world), rootArticleId: articleId, categories });
+  res.status(201).json({ world: parseWorld(world!), rootArticleId: articleId, categories });
 }));
 
 // GET /api/worlds — list all worlds
-router.get('/', (req, res) => {
-  const db = getDb();
-  const rows = db
-    .prepare('SELECT * FROM worlds WHERE owner_id = ? ORDER BY updated_at DESC')
-    .all(tenantIdFor(req)) as Record<string, unknown>[];
+router.get('/', asyncHandler(async (req, res) => {
+  const rows = await getDbClient().all<Record<string, unknown>>(
+    'SELECT * FROM worlds WHERE owner_id = ? ORDER BY updated_at DESC',
+    [tenantIdFor(req)],
+  );
   res.json(rows.map(parseWorld));
-});
+}));
 
 // GET /api/worlds/:wid — get single world
-router.get('/:wid', (req, res) => {
-  const db = getDb();
-  const row = db
-    .prepare('SELECT * FROM worlds WHERE id = ? AND owner_id = ?')
-    .get(req.params.wid, tenantIdFor(req)) as Record<string, unknown> | undefined;
+router.get('/:wid', asyncHandler(async (req, res) => {
+  const row = await getDbClient().get<Record<string, unknown>>(
+    'SELECT * FROM worlds WHERE id = ? AND owner_id = ?',
+    [req.params.wid, tenantIdFor(req)],
+  );
 
   if (!row) {
     res.status(404).json({ error: 'World not found' });
@@ -162,20 +163,21 @@ router.get('/:wid', (req, res) => {
   }
 
   res.json(parseWorld(row));
-});
+}));
 
 // PATCH /api/worlds/:wid — update world fields
-router.patch('/:wid', (req, res) => {
+router.patch('/:wid', asyncHandler(async (req, res) => {
   const parse = UpdateWorldSchema.safeParse(req.body);
   if (!parse.success) {
     res.status(400).json({ error: parse.error.flatten().fieldErrors });
     return;
   }
 
-  const db = getDb();
-  const existing = db
-    .prepare('SELECT * FROM worlds WHERE id = ? AND owner_id = ?')
-    .get(req.params.wid, tenantIdFor(req)) as Record<string, unknown> | undefined;
+  const exec = getDbClient();
+  const existing = await exec.get<Record<string, unknown>>(
+    'SELECT * FROM worlds WHERE id = ? AND owner_id = ?',
+    [req.params.wid, tenantIdFor(req)],
+  );
 
   if (!existing) {
     res.status(404).json({ error: 'World not found' });
@@ -203,26 +205,27 @@ router.patch('/:wid', (req, res) => {
   values.push(req.params.wid);
   values.push(tenantIdFor(req));
 
-  db.prepare(`UPDATE worlds SET ${fields.join(', ')} WHERE id = ? AND owner_id = ?`).run(...values);
+  await exec.run(`UPDATE worlds SET ${fields.join(', ')} WHERE id = ? AND owner_id = ?`, values);
 
-  const updated = db
-    .prepare('SELECT * FROM worlds WHERE id = ? AND owner_id = ?')
-    .get(req.params.wid, tenantIdFor(req)) as Record<string, unknown>;
+  const updated = await exec.get<Record<string, unknown>>(
+    'SELECT * FROM worlds WHERE id = ? AND owner_id = ?',
+    [req.params.wid, tenantIdFor(req)],
+  );
 
-  res.json(parseWorld(updated));
-});
+  res.json(parseWorld(updated!));
+}));
 
 // DELETE /api/worlds/:wid
-router.delete('/:wid', (req, res) => {
-  const db = getDb();
-  const existing = db.prepare('SELECT id FROM worlds WHERE id = ? AND owner_id = ?').get(req.params.wid, tenantIdFor(req));
+router.delete('/:wid', asyncHandler(async (req, res) => {
+  const exec = getDbClient();
+  const existing = await exec.get('SELECT id FROM worlds WHERE id = ? AND owner_id = ?', [req.params.wid, tenantIdFor(req)]);
   if (!existing) {
     res.status(404).json({ error: 'World not found' });
     return;
   }
-  db.prepare('DELETE FROM worlds WHERE id = ? AND owner_id = ?').run(req.params.wid, tenantIdFor(req));
+  await exec.run('DELETE FROM worlds WHERE id = ? AND owner_id = ?', [req.params.wid, tenantIdFor(req)]);
   res.status(204).send();
-});
+}));
 
 // ---------------------------------------------------------------------------
 // POST /api/worlds/prompt-engineer — PromptEngineerAgent (no wid needed)
@@ -250,7 +253,7 @@ const handlePromptEngineer = asyncHandler(async (req, res) => {
 
   const { fieldType, rawText, worldName, worldDescription, currentVibe, currentWritingStyle, articleTitle, articleType, focus } = parse.data;
   const worldId = (req.params as Record<string, string>).wid ?? 'wizard';
-  if (worldId !== 'wizard' && !worldBelongsToTenant(worldId, tenantIdFor(req))) {
+  if (worldId !== 'wizard' && !(await worldBelongsToTenant(worldId, tenantIdFor(req)))) {
     res.status(404).json({ error: 'World not found', code: 'NOT_FOUND' });
     return;
   }

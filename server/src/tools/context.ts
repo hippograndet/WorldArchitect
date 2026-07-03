@@ -1,4 +1,4 @@
-import { getDb } from '../db/index.js';
+import { getDbClient } from '../db/client.js';
 import { renderBible } from '../services/worldBible.js';
 import { listNames, type ListNamesFilter } from '../services/nameBank.js';
 import { dataBlock } from '../prompts/shared.js';
@@ -90,24 +90,23 @@ export const LOOKUP_NAMES_TOOL: Tool = {
   },
 };
 
-export function executeContextTool(worldId: string, call: ToolCall): string {
-  const db = getDb();
+export async function executeContextTool(worldId: string, call: ToolCall): Promise<string> {
+  const exec = getDbClient();
 
   switch (call.name) {
     case 'get_world_bible':
-      return dataBlock('worldBible', renderBible(worldId) || '(World Bible is empty)');
+      return dataBlock('worldBible', (await renderBible(worldId)) || '(World Bible is empty)');
 
     case 'get_article': {
       const { articleId } = call.input as { articleId: string };
-      const row = db
-        .prepare(
-          `SELECT a.id, a.title, a.template_type, a.temporal_anchor_start, a.temporal_anchor_end,
-                  a.is_fixed_point, av.introduction, av.description, av.chronology
-           FROM articles a
-           LEFT JOIN article_versions av ON av.id = a.current_version_id
-           WHERE a.id = ? AND a.world_id = ?`,
-        )
-        .get(articleId, worldId) as Record<string, unknown> | undefined;
+      const row = await exec.get<Record<string, unknown>>(
+        `SELECT a.id, a.title, a.template_type, a.temporal_anchor_start, a.temporal_anchor_end,
+                a.is_fixed_point, av.introduction, av.description, av.chronology
+         FROM articles a
+         LEFT JOIN article_versions av ON av.id = a.current_version_id
+         WHERE a.id = ? AND a.world_id = ?`,
+        [articleId, worldId],
+      );
       if (!row) return JSON.stringify({ error: 'Article not found' });
       return dataBlock('article', {
         id: row.id,
@@ -124,30 +123,28 @@ export function executeContextTool(worldId: string, call: ToolCall): string {
 
     case 'search_articles': {
       const { query } = call.input as { query: string };
-      const rows = db
-        .prepare(
-          `SELECT a.id, a.title, av.introduction
-           FROM articles a
-           LEFT JOIN article_versions av ON av.id = a.current_version_id
-           WHERE a.world_id = ? AND (a.title LIKE ? OR av.description LIKE ?)
-           LIMIT 10`,
-        )
-        .all(worldId, `%${query}%`, `%${query}%`) as Record<string, unknown>[];
+      const rows = await exec.all<Record<string, unknown>>(
+        `SELECT a.id, a.title, av.introduction
+         FROM articles a
+         LEFT JOIN article_versions av ON av.id = a.current_version_id
+         WHERE a.world_id = ? AND (a.title LIKE ? OR av.description LIKE ?)
+         LIMIT 10`,
+        [worldId, `%${query}%`, `%${query}%`],
+      );
       return dataBlock('searchResults',
         rows.map((r) => ({ id: r.id, title: r.title, introduction: (r.introduction as string) ?? '' })),
       );
     }
 
     case 'get_timeline': {
-      const rows = db
-        .prepare(
-          `SELECT a.id, a.title, a.temporal_anchor_start, a.temporal_anchor_end, av.summary
-           FROM articles a
-           LEFT JOIN article_versions av ON av.id = a.current_version_id
-           WHERE a.world_id = ? AND a.temporal_anchor_start IS NOT NULL
-           ORDER BY a.temporal_anchor_start ASC`,
-        )
-        .all(worldId) as Record<string, unknown>[];
+      const rows = await exec.all<Record<string, unknown>>(
+        `SELECT a.id, a.title, a.temporal_anchor_start, a.temporal_anchor_end, av.summary
+         FROM articles a
+         LEFT JOIN article_versions av ON av.id = a.current_version_id
+         WHERE a.world_id = ? AND a.temporal_anchor_start IS NOT NULL
+         ORDER BY a.temporal_anchor_start ASC`,
+        [worldId],
+      );
       return dataBlock('timeline',
         rows.map((r) => ({
           id: r.id,
@@ -161,20 +158,18 @@ export function executeContextTool(worldId: string, call: ToolCall): string {
 
     case 'get_article_links': {
       const { articleId } = call.input as { articleId: string };
-      const outgoing = db
-        .prepare(
-          `SELECT al.target_article_id AS id, a.title, al.link_type
-           FROM article_links al JOIN articles a ON a.id = al.target_article_id
-           WHERE al.source_article_id = ?`,
-        )
-        .all(articleId) as Record<string, unknown>[];
-      const incoming = db
-        .prepare(
-          `SELECT al.source_article_id AS id, a.title, al.link_type
-           FROM article_links al JOIN articles a ON a.id = al.source_article_id
-           WHERE al.target_article_id = ?`,
-        )
-        .all(articleId) as Record<string, unknown>[];
+      const outgoing = await exec.all<Record<string, unknown>>(
+        `SELECT al.target_article_id AS id, a.title, al.link_type
+         FROM article_links al JOIN articles a ON a.id = al.target_article_id
+         WHERE al.source_article_id = ?`,
+        [articleId],
+      );
+      const incoming = await exec.all<Record<string, unknown>>(
+        `SELECT al.source_article_id AS id, a.title, al.link_type
+         FROM article_links al JOIN articles a ON a.id = al.source_article_id
+         WHERE al.target_article_id = ?`,
+        [articleId],
+      );
       return dataBlock('articleLinks', { outgoing, incoming });
     }
 
@@ -189,7 +184,7 @@ export function executeContextTool(worldId: string, call: ToolCall): string {
         nameComponent: name_component as ListNamesFilter['nameComponent'],
         tags,
       };
-      const entries = listNames(worldId, filter);
+      const entries = await listNames(worldId, filter);
       return dataBlock('nameBank', entries.map((e) => ({
         name: e.name, entityType: e.entityType,
         gender: e.gender, socialClass: e.socialClass, nameComponent: e.nameComponent, tags: e.tags,
