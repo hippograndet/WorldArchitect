@@ -32,6 +32,7 @@ export interface ResearcherInput {
 
 export class ResearcherAgent extends BaseAgent<ResearcherInput, ResearcherOutput> {
   readonly agentType = 'researcher';
+  readonly mode = 'write';
   readonly outputToolName = 'submit_research_brief';
 
   protected getMaxTokens(): number { return 800; }

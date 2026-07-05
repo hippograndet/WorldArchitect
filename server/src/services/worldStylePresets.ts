@@ -1,6 +1,13 @@
 export interface WorldStyleConfig {
   preset?: string;
+  tonePreset?: string;
+  tonePresetValue?: string;
+  toneGuidance?: string;
+  vibePreset?: string;
+  vibePresetValue?: string;
   vibe: string;
+  writingStylePreset?: string;
+  writingStylePresetValue?: string;
   writingStyle: string;
   inspirations: Array<{ name: string; expandedDescription: string }>;
   constraints?: string;

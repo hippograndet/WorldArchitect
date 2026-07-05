@@ -310,6 +310,69 @@ export function runMigrations(db: Database.Database): void {
 
   // M15: hosted multi-tenancy ownership columns and inheritance triggers.
   addOwnerColumnsAndTriggers(db);
+
+  // M16: Runs — server-side LangGraph run tracking + article locking.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS runs (
+      id             TEXT PRIMARY KEY,
+      world_id       TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
+      owner_id       TEXT NOT NULL DEFAULT '${LOCAL_USER_ID}',
+      status         TEXT NOT NULL DEFAULT 'pending',
+      graph_type     TEXT NOT NULL DEFAULT 'forge',
+      checkpoint_id  TEXT NOT NULL,
+      article_ids    TEXT NOT NULL DEFAULT '[]',
+      budget_used    INTEGER NOT NULL DEFAULT 0,
+      budget_limit   INTEGER NOT NULL DEFAULT 200000,
+      error_message  TEXT,
+      items_completed INTEGER NOT NULL DEFAULT 0,
+      items_total    INTEGER NOT NULL DEFAULT 0,
+      created_at     INTEGER NOT NULL,
+      updated_at     INTEGER NOT NULL
+    )
+  `);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_runs_world ON runs(world_id, status)`);
+  addWorldOwnerTrigger(db, 'runs', 'id = NEW.id');
+
+  tryAlter(db, `ALTER TABLE articles ADD COLUMN locked_by_run_id TEXT REFERENCES runs(id) ON DELETE SET NULL`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_articles_locked_by_run ON articles(locked_by_run_id)`);
+
+  // M17: Forge migrated server-side — rename the leftover 'spark' graph_type
+  // value, drop the now-unused interrupt-review column (Forge has no content
+  // review gate), and add a queryable per-run event log replacing the
+  // client-only forgeLog array.
+  // runs.status values: pending | running | paused | completed | stopped | failed
+  db.exec(`UPDATE runs SET graph_type = 'forge' WHERE graph_type = 'spark'`);
+  {
+    const hasPendingReview = (db.prepare(
+      `SELECT COUNT(*) AS n FROM pragma_table_info('runs') WHERE name = 'pending_review'`,
+    ).get() as { n: number }).n > 0;
+    if (hasPendingReview) db.exec(`ALTER TABLE runs DROP COLUMN pending_review`);
+  }
+  // Queue progress, surfaced to the client's forgeCompleted/forgeTotal UI —
+  // CREATE TABLE IF NOT EXISTS above doesn't retrofit these onto a runs table
+  // that already existed before this migration, hence the explicit ALTERs.
+  tryAlter(db, `ALTER TABLE runs ADD COLUMN items_completed INTEGER NOT NULL DEFAULT 0`);
+  tryAlter(db, `ALTER TABLE runs ADD COLUMN items_total INTEGER NOT NULL DEFAULT 0`);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS run_events (
+      id         TEXT PRIMARY KEY,
+      run_id     TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+      step       TEXT NOT NULL,
+      title      TEXT NOT NULL,
+      ok         INTEGER NOT NULL DEFAULT 1,
+      message    TEXT,
+      created_at INTEGER NOT NULL
+    )
+  `);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_run_events_run ON run_events(run_id, created_at)`);
+  // No owner_id here — run_events has no direct world_id/article_id to derive
+  // it from (unlike the tables addWorldOwnerTrigger/addArticleOwnerTrigger
+  // handle); every read joins through runs(run_id) for tenant scoping instead.
+  // Drop a stray owner-trigger from an earlier draft of this migration that
+  // referenced run_events.article_id (a column it never had) — CREATE TRIGGER
+  // IF NOT EXISTS never removes triggers a later code change stops creating,
+  // so any environment that ran that draft needs this explicit cleanup.
+  db.exec(`DROP TRIGGER IF EXISTS trg_run_events_owner_from_article`);
 }
 
 export function applySchema(db: Database.Database): void {

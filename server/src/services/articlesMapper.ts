@@ -1,0 +1,106 @@
+import type { QueryExecutor } from '../db/executor.js';
+
+export type DbRow = Record<string, unknown>;
+
+export function parseArticle(row: DbRow) {
+  return {
+    id: row.id,
+    worldId: row.world_id,
+    title: row.title,
+    status: row.status,
+    templateType: row.template_type,
+    depth: row.depth ?? 1,
+    temporalAnchorStart: row.temporal_anchor_start ?? null,
+    temporalAnchorEnd: row.temporal_anchor_end ?? null,
+    isFixedPoint: row.is_fixed_point === 1,
+    currentVersionId: row.current_version_id ?? null,
+    lockedByRunId: row.locked_by_run_id ?? null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+export function parseVersion(row: DbRow) {
+  const introduction = (row.introduction as string) ?? '';
+  const description = (row.description as string) ?? '';
+  const chronology = (row.chronology as string) ?? '';
+  const body = [
+    introduction ? `## Introduction\n\n${introduction}` : '',
+    description ? `## Description\n\n${description}` : '',
+    chronology ? `## Chronology\n\n${chronology}` : '',
+  ].filter(Boolean).join('\n\n');
+  const summary = introduction || description.split(/\s+/).filter(Boolean).slice(0, 50).join(' ');
+
+  return {
+    id: row.id,
+    articleId: row.article_id,
+    versionNumber: row.version_number,
+    introduction,
+    description,
+    chronology,
+    body,
+    summary,
+    expansionParams: row.expansion_params
+      ? JSON.parse(row.expansion_params as string)
+      : null,
+    proposalUsed: row.proposal_used
+      ? JSON.parse(row.proposal_used as string)
+      : null,
+    wordCount: row.word_count,
+    isRevert: row.is_revert === 1,
+    revertedFromVersionId: row.reverted_from_version_id ?? null,
+    createdAt: row.created_at,
+  };
+}
+
+export function parseDraft(row: DbRow) {
+  return {
+    id: row.id,
+    articleId: row.article_id,
+    selectedProposal: row.selected_proposal
+      ? JSON.parse(row.selected_proposal as string)
+      : null,
+    pipelineType: (row.pipeline_type as string) ?? 'expand_description',
+    autoSelect: row.auto_select === 1,
+    expansionParams: row.expansion_params
+      ? JSON.parse(row.expansion_params as string)
+      : {},
+    phase: row.phase,
+    contextPackage: row.context_package
+      ? JSON.parse(row.context_package as string)
+      : null,
+    concepts: row.concepts ? JSON.parse(row.concepts as string) : null,
+    parentUpdate: row.parent_update
+      ? JSON.parse(row.parent_update as string)
+      : null,
+    draftContent: row.draft_content
+      ? JSON.parse(row.draft_content as string)
+      : null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+export function countWords(text: string): number {
+  return text.trim() === '' ? 0 : text.trim().split(/\s+/).length;
+}
+
+export function bodyToDescription(body: string | undefined, fallback?: string): string | undefined {
+  if (body === undefined) return fallback;
+  return body
+    .replace(/^##\s+Description\s*/i, '')
+    .replace(/^##\s+Introduction\s*[\s\S]*?##\s+Description\s*/i, '')
+    .trim();
+}
+
+export async function getNextVersionNumber(exec: QueryExecutor, articleId: string): Promise<number> {
+  const row = await exec.get<{ max: number | null }>(
+    'SELECT MAX(version_number) as max FROM article_versions WHERE article_id = ?',
+    [articleId],
+  );
+  return (row?.max ?? 0) + 1;
+}
+
+export async function requireArticle(exec: QueryExecutor, worldId: string, articleId: string): Promise<DbRow | null> {
+  return (await exec.get<DbRow>('SELECT * FROM articles WHERE id = ? AND world_id = ?', [articleId, worldId])) ?? null;
+}

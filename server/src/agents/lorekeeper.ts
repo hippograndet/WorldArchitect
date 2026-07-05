@@ -35,6 +35,7 @@ export interface LorekeepInput {
 
 export class LorekeepAgent extends BaseAgent<LorekeepInput, LorekeepOutput> {
   readonly agentType = 'lorekeeper';
+  readonly mode = 'write';
   readonly outputToolName = 'submit_introduction';
 
   protected buildMessages(_worldId: string, input: LorekeepInput): ChatMessage[] {

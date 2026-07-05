@@ -39,6 +39,7 @@ export interface StyleWardenInput {
 
 export class StyleWardenAgent extends BaseAgent<StyleWardenInput, StyleWardenOutput> {
   readonly agentType = 'style_warden';
+  readonly mode = 'check';
   readonly outputToolName = 'submit_style_check';
 
   protected buildMessages(_worldId: string, input: StyleWardenInput): ChatMessage[] {

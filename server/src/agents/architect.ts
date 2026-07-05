@@ -37,6 +37,7 @@ export interface ArchitectInput {
 
 export class ArchitectAgent extends BaseAgent<ArchitectInput, ArchitectOutput> {
   readonly agentType = 'architect';
+  readonly mode = 'write';
   readonly outputToolName = 'submit_stubs';
 
   protected buildMessages(_worldId: string, input: ArchitectInput): ChatMessage[] {

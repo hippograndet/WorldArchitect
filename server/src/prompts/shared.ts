@@ -31,7 +31,8 @@ export function buildWorldHeader(world: WorldContext): string {
   ];
 
   if (world.styleConfig) {
-    const { vibe, writingStyle, inspirations, constraints } = world.styleConfig;
+    const { toneGuidance, vibe, writingStyle, inspirations, constraints } = world.styleConfig;
+    if (toneGuidance) lines.push(dataBlock('world.toneGuidance', toneGuidance));
     if (vibe)         lines.push(dataBlock('world.vibe', vibe));
     if (writingStyle) lines.push(dataBlock('world.writingStyle', writingStyle));
     for (const ins of (inspirations ?? [])) {

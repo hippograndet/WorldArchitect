@@ -158,17 +158,23 @@ export async function executeContextTool(worldId: string, call: ToolCall): Promi
 
     case 'get_article_links': {
       const { articleId } = call.input as { articleId: string };
+      // Scoped by world_id on both ends (like get_article) so a model-supplied
+      // articleId from outside this world can't surface another world's titles.
       const outgoing = await exec.all<Record<string, unknown>>(
         `SELECT al.target_article_id AS id, a.title, al.link_type
-         FROM article_links al JOIN articles a ON a.id = al.target_article_id
-         WHERE al.source_article_id = ?`,
-        [articleId],
+         FROM article_links al
+         JOIN articles src ON src.id = al.source_article_id
+         JOIN articles a ON a.id = al.target_article_id
+         WHERE al.source_article_id = ? AND src.world_id = ? AND a.world_id = ?`,
+        [articleId, worldId, worldId],
       );
       const incoming = await exec.all<Record<string, unknown>>(
         `SELECT al.source_article_id AS id, a.title, al.link_type
-         FROM article_links al JOIN articles a ON a.id = al.source_article_id
-         WHERE al.target_article_id = ?`,
-        [articleId],
+         FROM article_links al
+         JOIN articles tgt ON tgt.id = al.target_article_id
+         JOIN articles a ON a.id = al.source_article_id
+         WHERE al.target_article_id = ? AND tgt.world_id = ? AND a.world_id = ?`,
+        [articleId, worldId, worldId],
       );
       return dataBlock('articleLinks', { outgoing, incoming });
     }

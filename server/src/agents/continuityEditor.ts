@@ -48,6 +48,7 @@ export interface ContinuityEditorInput {
 
 export class ContinuityEditorAgent extends BaseAgent<ContinuityEditorInput, ContinuityEditorOutput> {
   readonly agentType = 'continuity_editor';
+  readonly mode = 'write';
   readonly outputToolName = 'submit_continuity_check';
 
   protected getMaxTokens(): number { return 1000; }

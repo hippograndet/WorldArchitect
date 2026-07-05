@@ -33,6 +33,7 @@ export interface FixerInput {
 
 export class FixerAgent extends BaseAgent<FixerInput, FixerOutput> {
   readonly agentType = 'fixer';
+  readonly mode = 'write';
   readonly outputToolName = 'submit_fix';
 
   protected getMaxTokens(): number { return 2048; }

@@ -1,0 +1,62 @@
+import { StateGraph } from '@langchain/langgraph';
+import { OrchestrationAnnotation } from '../state.js';
+import { articleContract, contractState } from '../masContract.js';
+import {
+  fetchWorldContextNode,
+  buildContextPackageNode,
+  scribeNode,
+  sentinelNode,
+  lorekeeperSummarizeUnconditionalNode,
+} from '../nodes.js';
+import type { ContextDepth } from '../../../services/archivist.js';
+import type { RetentionIssue } from '../../sentinel.js';
+
+const graph = new StateGraph(OrchestrationAnnotation)
+  .addNode('fetchWorldContext', fetchWorldContextNode)
+  .addNode('buildContextPackage', buildContextPackageNode)
+  .addNode('scribe', scribeNode)
+  .addNode('sentinel', sentinelNode)
+  .addNode('lorekeeperSummarize', lorekeeperSummarizeUnconditionalNode)
+  .addEdge('__start__', 'fetchWorldContext')
+  .addEdge('fetchWorldContext', 'buildContextPackage')
+  .addEdge('buildContextPackage', 'scribe')
+  .addEdge('scribe', 'sentinel')
+  .addEdge('sentinel', 'lorekeeperSummarize')
+  .addEdge('lorekeeperSummarize', '__end__')
+  .compile();
+
+export interface ReorganizeGraphOutput {
+  description: string;
+  introduction: string;
+  retentionIssues: RetentionIssue[];
+  tokensIn: number;
+  tokensOut: number;
+}
+
+export async function runReorganizeGraph(params: {
+  worldId: string;
+  articleId: string;
+  contextDepth?: ContextDepth;
+}): Promise<ReorganizeGraphOutput> {
+  const result = await graph.invoke({
+    worldId: params.worldId,
+    articleId: params.articleId,
+    ...contractState(articleContract({
+      articleId: params.articleId,
+      intent: 'reorganize',
+      reviewPolicy: 'user_must_accept',
+      commitPolicy: 'pending_draft',
+    })),
+    contextDepth: params.contextDepth ?? 'mid',
+    contextMode: 'reorganize',
+    expanderMode: 'reorganize',
+  });
+
+  return {
+    description: result.description!,
+    introduction: result.introduction!,
+    retentionIssues: result.retentionIssues,
+    tokensIn: result.tokensIn,
+    tokensOut: result.tokensOut,
+  };
+}

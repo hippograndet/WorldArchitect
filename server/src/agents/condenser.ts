@@ -39,6 +39,7 @@ export interface CondenserInput {
 
 export class CondenserAgent extends BaseAgent<CondenserInput, CondenserOutput> {
   readonly agentType = 'condenser';
+  readonly mode = 'write';
   readonly outputToolName = 'submit_compression';
 
   protected buildMessages(_worldId: string, input: CondenserInput): ChatMessage[] {

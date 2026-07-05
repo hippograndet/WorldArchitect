@@ -3,6 +3,7 @@ import { logCall } from '../services/callLogger.js';
 import { executeContextTool, CONTEXT_TOOLS } from '../tools/context.js';
 import type { ChatMessage } from '../providers/types.js';
 import type { Tool, ToolCall } from '../tools/types.js';
+import type { ArticleDependencyReference, ProposedArticleMetadataChange } from '../types/articleSemantics.js';
 
 // ---------------------------------------------------------------------------
 // tool_use_failed recovery
@@ -30,8 +31,24 @@ function tryRecoverToolUseFailed(err: unknown): Record<string, unknown> | null {
 
 const MAX_ITERATIONS = 10;
 
+/**
+ * Optional, structured data an agent may leave alongside its main output —
+ * dependencies it noticed, metadata changes it wants to propose, coherence
+ * warnings, or issues. Reuses the same forward-compatible types context
+ * assembly already tags items with (`types/articleSemantics.ts`), so an agent
+ * that starts actually proposing e.g. metadata changes has a channel ready
+ * with no new shape to invent.
+ */
+export interface AgentSideChannel {
+  proposedDependencies?: ArticleDependencyReference[];
+  proposedMetadataChanges?: ProposedArticleMetadataChange[];
+  coherenceWarnings?: Array<{ severity: string; description: string; involvedArticleIds?: string[] }>;
+  issues?: Array<{ severity: string; code?: string; excerpt?: string; explanation: string; suggestion?: string }>;
+}
+
 export interface AgentResult<TOutput> {
   output: TOutput;
+  sideChannel?: AgentSideChannel;
   tokensIn: number;
   tokensOut: number;
 }
@@ -49,6 +66,8 @@ export interface AgentResult<TOutput> {
 export abstract class BaseAgent<TInput, TOutput> {
   abstract readonly agentType: string;
   abstract readonly outputToolName: string;
+  /** 'write' agents produce/alter prose; 'check' agents only produce judgments and never alter article content. */
+  abstract readonly mode: 'write' | 'check';
 
   protected abstract buildMessages(worldId: string, input: TInput): ChatMessage[] | Promise<ChatMessage[]>;
   protected abstract buildOutputTool(): Tool;

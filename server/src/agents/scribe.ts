@@ -64,6 +64,7 @@ export interface ResearchBrief {
 
 export class ScribeAgent extends BaseAgent<ScribeInput, ScribeOutput> {
   readonly agentType = 'scribe';
+  readonly mode = 'write';
 
   get outputToolName(): string {
     return this._mode === 'create_child' ? 'submit_child_description' : 'submit_description';

@@ -30,6 +30,7 @@ export interface ChroniclerInput {
 
 export class ChroniclerAgent extends BaseAgent<ChroniclerInput, ChroniclerOutput> {
   readonly agentType = 'chronicler';
+  readonly mode = 'write';
   readonly outputToolName = 'submit_chronology';
 
   protected buildMessages(_worldId: string, input: ChroniclerInput): ChatMessage[] {

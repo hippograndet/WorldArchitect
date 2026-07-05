@@ -1,4 +1,13 @@
 import { getDbClient } from '../db/client.js';
+import type {
+  ArticleContextMode,
+  ArticleContextSource,
+  ArticleDependencyReference,
+  ArticleDependencyType,
+  ArticleFactAuthority,
+  ArticleMetadataFact,
+  ArticleSubjectType,
+} from '../types/articleSemantics.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -9,21 +18,32 @@ export interface ContextArticle {
   title: string;
   summary: string;
   description?: string; // populated in deep mode for L1 relations
+  source?: ArticleContextSource;
 }
 
+/**
+ * The single seam all context reaches agents through. A future RAG tier is a new
+ * optional array field here (e.g. `retrievedArticles?: ContextArticle[]`), not a
+ * new agent-facing tool — retrieval stays internal to this context orchestrator.
+ */
 export interface ContextPackage {
   targetId: string;
+  targetVersionId?: string | null;
   targetTitle: string;
   targetTemplateType: string;
+  targetSubjectType?: ArticleSubjectType;
   targetDescription: string;
   targetChronology: string;
   targetIntroduction: string;
+  contextMode?: ArticleContextMode;
   parents: ContextArticle[];
   siblings: ContextArticle[];
   children: ContextArticle[];
   fixedPoints: ContextArticle[];
   temporalNeighbors: Array<ContextArticle & { temporalAnchorStart: string }>;
   referencedArticles: Array<{ id: string; title: string }>;
+  dependencies?: ArticleDependencyReference[];
+  metadataFacts?: ArticleMetadataFact[];
   estimatedTokens: number;
 }
 
@@ -47,6 +67,57 @@ export interface ArchivistOptions {
 
 function est(text: string): number {
   return Math.ceil(text.length / 4);
+}
+
+// ---------------------------------------------------------------------------
+// Status → semantic-authority mapping (source-aware, forward-compatible with
+// version-aware canon: today authority/contextMode are derived from
+// articles.status, since no separate canon/authority table exists yet)
+// ---------------------------------------------------------------------------
+
+function toContextMode(status: string | null | undefined): ArticleContextMode {
+  if (status === 'published') return 'published';
+  if (status === 'reviewed') return 'reviewed';
+  return 'working_current';
+}
+
+function toAuthority(status: string | null | undefined): ArticleFactAuthority {
+  if (status === 'published') return 'published';
+  if (status === 'reviewed') return 'reviewed';
+  return 'draft';
+}
+
+function buildContextSource(row: Record<string, unknown>): ArticleContextSource {
+  const status = (row.status as string | null) ?? null;
+  return {
+    articleId: row.id as string,
+    versionId: (row.current_version_id as string | null) ?? null,
+    contextMode: toContextMode(status),
+    authority: toAuthority(status),
+  };
+}
+
+const KNOWN_SUBJECT_TYPES = new Set<string>([
+  'general', 'character', 'location', 'faction', 'event', 'concept', 'object', 'organization',
+]);
+
+function toSubjectType(templateType: string): ArticleSubjectType {
+  if (templateType === 'historical_event') return 'event';
+  return (KNOWN_SUBJECT_TYPES.has(templateType) ? templateType : 'general') as ArticleSubjectType;
+}
+
+function toDependency(
+  sourceRow: { id: string; versionId?: string | null },
+  targetRow: { id: string; versionId?: string | null },
+  dependencyType: ArticleDependencyType,
+): ArticleDependencyReference {
+  return {
+    sourceArticleId: sourceRow.id,
+    sourceVersionId: sourceRow.versionId ?? null,
+    targetArticleId: targetRow.id,
+    targetVersionId: targetRow.versionId ?? null,
+    dependencyType,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -85,7 +156,7 @@ export async function buildContextPackage(
 
   // Fetch target
   const target = await exec.get<Record<string, unknown>>(
-    `SELECT a.id, a.title, a.template_type, a.temporal_anchor_start,
+    `SELECT a.id, a.title, a.template_type, a.temporal_anchor_start, a.status, a.current_version_id,
             av.introduction, av.description, av.chronology
      FROM articles a
      LEFT JOIN article_versions av ON av.id = a.current_version_id
@@ -100,7 +171,12 @@ export async function buildContextPackage(
   const targetIntroduction = (target.introduction as string) ?? '';
   const targetTitle = target.title as string;
   const targetTemplateType = target.template_type as string;
+  const targetVersionId = (target.current_version_id as string | null) ?? null;
+  const targetSubjectType = toSubjectType(targetTemplateType);
+  const contextMode = toContextMode((target.status as string | null) ?? null);
   const targetAnchor = (target.temporal_anchor_start as string | null) ?? null;
+
+  const dependencies: ArticleDependencyReference[] = [];
 
   let budget = maxTokens;
 
@@ -122,6 +198,28 @@ export async function buildContextPackage(
     return ver?.description ?? '';
   };
 
+  /**
+   * In 'deep' mode, opportunistically attaches a linked article's full description
+   * if it still fits the remaining budget alongside its summary; otherwise falls
+   * back to summary-only. Shared by every tier that offers deep-mode descriptions
+   * (parents/children/siblings) so the fetch-then-cost-check logic lives in one place.
+   */
+  const withDeepDescription = async (
+    r: Record<string, unknown>,
+    label: string,
+    currentBudget: number,
+  ): Promise<{ description?: string; cost: number }> => {
+    let description: string | undefined;
+    if (contextDepth === 'deep') {
+      const desc = await fetchDescription(r.id as string);
+      const descCost = est(desc);
+      if (desc && currentBudget - est(label) - descCost >= 0) {
+        description = desc;
+      }
+    }
+    return { description, cost: est(label) + (description ? est(description) : 0) };
+  };
+
   // Status ordering: published > reviewed > draft > stub (anything else last)
   const STATUS_ORDER = `CASE a.status WHEN 'published' THEN 0 WHEN 'reviewed' THEN 1 WHEN 'draft' THEN 2 ELSE 3 END`;
 
@@ -129,52 +227,52 @@ export async function buildContextPackage(
     if (contextDepth === 'shallow') {
       // Shallow: only direct parents, intro only
       const rows = await exec.all<Record<string, unknown>>(
-        `SELECT a.id, a.title, wbe.summary
+        `SELECT a.id, a.title, a.status, a.current_version_id, wbe.summary
          FROM article_links al
          JOIN articles a ON a.id = al.source_article_id
          LEFT JOIN world_bible_entries wbe ON wbe.article_id = a.id
-         WHERE al.target_article_id = ? AND al.link_type = 'hierarchical'
+         WHERE al.target_article_id = ? AND al.link_type = 'hierarchical' AND a.world_id = ?
          ORDER BY ${STATUS_ORDER}, a.title
          LIMIT 2`,
-        [articleId],
+        [articleId, worldId],
       );
 
       for (const r of rows) {
         const summary = (r.summary as string) ?? '';
         const cost = est(`### ${r.title}\n${summary}\n`);
         if (budget - cost < 0) break;
-        parents.push({ id: r.id as string, title: r.title as string, summary });
+        parents.push({ id: r.id as string, title: r.title as string, summary, source: buildContextSource(r) });
+        dependencies.push(toDependency(
+          { id: r.id as string, versionId: r.current_version_id as string | null },
+          { id: articleId, versionId: targetVersionId },
+          'hierarchy',
+        ));
         budget -= cost;
       }
       return;
     }
 
     const rows = await exec.all<Record<string, unknown>>(
-      `SELECT a.id, a.title, wbe.summary
+      `SELECT a.id, a.title, a.status, a.current_version_id, wbe.summary
        FROM article_links al
        JOIN articles a ON a.id = al.source_article_id
        LEFT JOIN world_bible_entries wbe ON wbe.article_id = a.id
-       WHERE al.target_article_id = ? AND al.link_type = 'hierarchical'
+       WHERE al.target_article_id = ? AND al.link_type = 'hierarchical' AND a.world_id = ?
        ORDER BY ${STATUS_ORDER}, a.title
        LIMIT 4`,
-      [articleId],
+      [articleId, worldId],
     );
 
     for (const r of rows) {
       const summary = (r.summary as string) ?? '';
-      let description: string | undefined;
-
-      if (contextDepth === 'deep') {
-        const desc = await fetchDescription(r.id as string);
-        const descCost = est(desc);
-        if (desc && budget - est(`### ${r.title}\n${summary}\n`) - descCost >= 0) {
-          description = desc;
-        }
-      }
-
-      const cost = est(`### ${r.title}\n${summary}\n`) + (description ? est(description) : 0);
+      const { description, cost } = await withDeepDescription(r, `### ${r.title}\n${summary}\n`, budget);
       if (budget - cost < 0) break;
-      parents.push({ id: r.id as string, title: r.title as string, summary, description });
+      parents.push({ id: r.id as string, title: r.title as string, summary, description, source: buildContextSource(r) });
+      dependencies.push(toDependency(
+        { id: r.id as string, versionId: r.current_version_id as string | null },
+        { id: articleId, versionId: targetVersionId },
+        'hierarchy',
+      ));
       budget -= cost;
     }
   };
@@ -184,7 +282,7 @@ export async function buildContextPackage(
     const anchor = targetAnchor ?? '0000';
 
     const before = await exec.all<Record<string, unknown>>(
-      `SELECT a.id, a.title, a.temporal_anchor_start, wbe.summary
+      `SELECT a.id, a.title, a.temporal_anchor_start, a.status, a.current_version_id, wbe.summary
        FROM articles a
        LEFT JOIN world_bible_entries wbe ON wbe.article_id = a.id
        WHERE a.world_id = ? AND a.temporal_anchor_start IS NOT NULL
@@ -194,7 +292,7 @@ export async function buildContextPackage(
     );
 
     const after = await exec.all<Record<string, unknown>>(
-      `SELECT a.id, a.title, a.temporal_anchor_start, wbe.summary
+      `SELECT a.id, a.title, a.temporal_anchor_start, a.status, a.current_version_id, wbe.summary
        FROM articles a
        LEFT JOIN world_bible_entries wbe ON wbe.article_id = a.id
        WHERE a.world_id = ? AND a.temporal_anchor_start IS NOT NULL
@@ -212,6 +310,7 @@ export async function buildContextPackage(
         title: r.title as string,
         summary,
         temporalAnchorStart: r.temporal_anchor_start as string,
+        source: buildContextSource(r),
       });
       budget -= cost;
     }
@@ -221,31 +320,26 @@ export async function buildContextPackage(
     if (contextDepth === 'shallow') return;
 
     const rows = await exec.all<Record<string, unknown>>(
-      `SELECT a.id, a.title, wbe.summary
+      `SELECT a.id, a.title, a.status, a.current_version_id, wbe.summary
        FROM article_links al
        JOIN articles a ON a.id = al.target_article_id
        LEFT JOIN world_bible_entries wbe ON wbe.article_id = a.id
-       WHERE al.source_article_id = ? AND al.link_type = 'hierarchical'
+       WHERE al.source_article_id = ? AND al.link_type = 'hierarchical' AND a.world_id = ?
        ORDER BY ${STATUS_ORDER}, a.title
        LIMIT 12`,
-      [articleId],
+      [articleId, worldId],
     );
 
     for (const r of rows) {
       const summary = (r.summary as string) ?? '';
-      let description: string | undefined;
-
-      if (contextDepth === 'deep') {
-        const desc = await fetchDescription(r.id as string);
-        const descCost = est(desc);
-        if (desc && budget - est(`- ${r.title}: ${summary}\n`) - descCost >= 0) {
-          description = desc;
-        }
-      }
-
-      const cost = est(`- ${r.title}: ${summary}\n`) + (description ? est(description) : 0);
+      const { description, cost } = await withDeepDescription(r, `- ${r.title}: ${summary}\n`, budget);
       if (budget - cost < 0) break;
-      children.push({ id: r.id as string, title: r.title as string, summary, description });
+      children.push({ id: r.id as string, title: r.title as string, summary, description, source: buildContextSource(r) });
+      dependencies.push(toDependency(
+        { id: articleId, versionId: targetVersionId },
+        { id: r.id as string, versionId: r.current_version_id as string | null },
+        'hierarchy',
+      ));
       budget -= cost;
     }
   };
@@ -264,32 +358,22 @@ export async function buildContextPackage(
   if (parents.length > 0 && contextDepth !== 'shallow') {
     const placeholders = parents.map(() => '?').join(', ');
     const siblingRows = await exec.all<Record<string, unknown>>(
-      `SELECT DISTINCT a.id, a.title, wbe.summary
+      `SELECT DISTINCT a.id, a.title, a.status, a.current_version_id, wbe.summary
        FROM article_links al
        JOIN articles a ON a.id = al.target_article_id
        LEFT JOIN world_bible_entries wbe ON wbe.article_id = a.id
        WHERE al.source_article_id IN (${placeholders})
-         AND al.link_type = 'hierarchical' AND a.id != ?
+         AND al.link_type = 'hierarchical' AND a.id != ? AND a.world_id = ?
        ORDER BY ${STATUS_ORDER}, a.title
        LIMIT 6`,
-      [...parents.map((p) => p.id), articleId],
+      [...parents.map((p) => p.id), articleId, worldId],
     );
 
     for (const r of siblingRows) {
       const summary = (r.summary as string) ?? '';
-      let description: string | undefined;
-
-      if (contextDepth === 'deep') {
-        const desc = await fetchDescription(r.id as string);
-        const descCost = est(desc);
-        if (desc && budget - est(`- ${r.title}: ${summary}\n`) - descCost >= 0) {
-          description = desc;
-        }
-      }
-
-      const cost = est(`- ${r.title}: ${summary}\n`) + (description ? est(description) : 0);
+      const { description, cost } = await withDeepDescription(r, `- ${r.title}: ${summary}\n`, budget);
       if (budget - cost < 0) break;
-      siblings.push({ id: r.id as string, title: r.title as string, summary, description });
+      siblings.push({ id: r.id as string, title: r.title as string, summary, description, source: buildContextSource(r) });
       budget -= cost;
     }
   }
@@ -302,7 +386,7 @@ export async function buildContextPackage(
   // Fixed points — skip in shallow mode (L2+)
   if (contextDepth !== 'shallow') {
     const fixedRows = await exec.all<Record<string, unknown>>(
-      `SELECT a.id, a.title, wbe.summary
+      `SELECT a.id, a.title, a.status, a.current_version_id, wbe.summary
        FROM articles a
        LEFT JOIN world_bible_entries wbe ON wbe.article_id = a.id
        WHERE a.world_id = ? AND a.is_fixed_point = 1 AND a.id != ?
@@ -315,7 +399,7 @@ export async function buildContextPackage(
       const summary = (r.summary as string) ?? '';
       const cost = est(`### ${r.title}\n${summary}\n`);
       if (budget - cost < 0) break;
-      fixedPoints.push({ id: r.id as string, title: r.title as string, summary });
+      fixedPoints.push({ id: r.id as string, title: r.title as string, summary, source: buildContextSource(r) });
       budget -= cost;
     }
   }
@@ -323,35 +407,44 @@ export async function buildContextPackage(
   // Referenced articles — titles only, skip in shallow mode
   if (contextDepth !== 'shallow') {
     const refRows = await exec.all<Record<string, unknown>>(
-      `SELECT a.id, a.title
+      `SELECT a.id, a.title, a.current_version_id
        FROM article_links al
        JOIN articles a ON a.id = al.target_article_id
-       WHERE al.source_article_id = ? AND al.link_type = 'references'
+       WHERE al.source_article_id = ? AND al.link_type = 'references' AND a.world_id = ?
        LIMIT 10`,
-      [articleId],
+      [articleId, worldId],
     );
 
     for (const r of refRows) {
       const cost = est(`- ${r.title}\n`);
       if (budget - cost < 0) break;
       referencedArticles.push({ id: r.id as string, title: r.title as string });
+      dependencies.push(toDependency(
+        { id: articleId, versionId: targetVersionId },
+        { id: r.id as string, versionId: r.current_version_id as string | null },
+        'reference',
+      ));
       budget -= cost;
     }
   }
 
   return {
     targetId: articleId,
+    targetVersionId,
     targetTitle,
     targetTemplateType,
+    targetSubjectType,
     targetDescription,
     targetChronology,
     targetIntroduction,
+    contextMode,
     parents,
     siblings,
     children,
     fixedPoints,
     temporalNeighbors,
     referencedArticles,
+    dependencies,
     estimatedTokens: maxTokens - budget,
   };
 }

@@ -39,6 +39,7 @@ export interface CartographerInput {
 
 export class CartographerAgent extends BaseAgent<CartographerInput, CartographerOutput> {
   readonly agentType = 'cartographer';
+  readonly mode = 'write';
   readonly outputToolName = 'submit_child_proposals';
 
   protected buildMessages(_worldId: string, input: CartographerInput): ChatMessage[] {

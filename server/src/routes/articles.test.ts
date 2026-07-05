@@ -44,6 +44,15 @@ beforeAll(() => {
 const WID = 'test-world';
 const CAT_ID = 'test-cat';
 
+// locked_by_run_id has an FK to runs(id) — seed a minimal row before locking an article.
+function seedRun(runId: string) {
+  const now = Date.now();
+  dbRef.db!.prepare(`
+    INSERT OR IGNORE INTO runs (id, world_id, status, graph_type, checkpoint_id, article_ids, budget_used, budget_limit, created_at, updated_at)
+    VALUES (?, ?, 'running', 'spark', ?, '[]', 0, 200000, ?, ?)
+  `).run(runId, WID, runId, now, now);
+}
+
 function clearArticles() {
   dbRef.db!.exec(`
     DELETE FROM coherence_warnings;
@@ -306,6 +315,71 @@ describe('PATCH /api/worlds/:wid/articles/:aid', () => {
     expect(res.status).toBe(404);
   });
 
+  it('rejects an edit to a published article without force, leaving it untouched', async () => {
+    const { body: { article } } = await createArticle({ body: '## Description\n\nOriginal.' });
+    dbRef.db!.prepare(`UPDATE articles SET status = 'published' WHERE id = ?`).run(article.id);
+
+    const res = await req
+      .patch(`/api/worlds/${WID}/articles/${article.id}`)
+      .send({ body: '## Description\n\nSneaky overwrite.' });
+
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe('PUBLISHED_CONTENT_OVERWRITE');
+
+    const after = await req.get(`/api/worlds/${WID}/articles/${article.id}`);
+    expect(after.body.article.status).toBe('published');
+    expect(after.body.version.description).toBe('Original.');
+  });
+
+  it('allows an edit to a published article when force=true', async () => {
+    const { body: { article } } = await createArticle({ body: '## Description\n\nOriginal.' });
+    dbRef.db!.prepare(`UPDATE articles SET status = 'published' WHERE id = ?`).run(article.id);
+
+    const res = await req
+      .patch(`/api/worlds/${WID}/articles/${article.id}`)
+      .send({ body: '## Description\n\nDeliberate overwrite.', force: true });
+
+    expect(res.status).toBe(200);
+    expect(res.body.version.description).toBe('Deliberate overwrite.');
+  });
+
+  it('does not require force for a non-published article (draft/reviewed/stub unaffected)', async () => {
+    const { body: { article } } = await createArticle({ body: '## Description\n\nOriginal.' });
+    const res = await req
+      .patch(`/api/worlds/${WID}/articles/${article.id}`)
+      .send({ body: '## Description\n\nUpdated.' });
+    expect(res.status).toBe(200);
+  });
+
+  it('rejects a manual edit to an article locked by an active run, leaving it untouched', async () => {
+    const { body: { article } } = await createArticle({ body: '## Description\n\nOriginal.' });
+    seedRun('run-1');
+    dbRef.db!.prepare(`UPDATE articles SET locked_by_run_id = 'run-1' WHERE id = ?`).run(article.id);
+
+    const res = await req
+      .patch(`/api/worlds/${WID}/articles/${article.id}`)
+      .send({ body: '## Description\n\nSneaky overwrite while locked.' });
+
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe('ARTICLE_LOCKED');
+
+    const after = await req.get(`/api/worlds/${WID}/articles/${article.id}`);
+    expect(after.body.version.description).toBe('Original.');
+  });
+
+  it('allows a manual edit once the lock is cleared', async () => {
+    const { body: { article } } = await createArticle({ body: '## Description\n\nOriginal.' });
+    seedRun('run-1');
+    dbRef.db!.prepare(`UPDATE articles SET locked_by_run_id = 'run-1' WHERE id = ?`).run(article.id);
+    dbRef.db!.prepare(`UPDATE articles SET locked_by_run_id = NULL WHERE id = ?`).run(article.id);
+
+    const res = await req
+      .patch(`/api/worlds/${WID}/articles/${article.id}`)
+      .send({ body: '## Description\n\nUpdated after unlock.' });
+
+    expect(res.status).toBe(200);
+  });
+
   it('derives summary from body first 50 words when summary not provided', async () => {
     const { body: { article } } = await createArticle();
     const longBody = 'word '.repeat(60).trim();
@@ -506,5 +580,111 @@ describe('Draft workflow (save / get / discard)', () => {
 
     const after = await req.get(`/api/worlds/${WID}/articles/${article.id}`);
     expect(after.body.article.currentVersionId).toBe(before.body.article.currentVersionId);
+  });
+
+  it('rejects accepting a draft onto a published article without force, leaving the draft and article untouched', async () => {
+    const { body: { article } } = await createArticle({ body: '## Description\n\nOriginal.' });
+    dbRef.db!.prepare(`UPDATE articles SET status = 'published' WHERE id = ?`).run(article.id);
+    await req
+      .post(`/api/worlds/${WID}/articles/${article.id}/draft`)
+      .send(draftPayload)
+      .expect(200);
+
+    const res = await req.post(`/api/worlds/${WID}/articles/${article.id}/accept`).send({});
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe('PUBLISHED_CONTENT_OVERWRITE');
+
+    const after = await req.get(`/api/worlds/${WID}/articles/${article.id}`);
+    expect(after.body.article.status).toBe('published');
+    expect(after.body.version.description).toBe('Original.');
+
+    const draft = dbRef.db!.prepare('SELECT * FROM pending_drafts WHERE article_id = ?').get(article.id);
+    expect(draft).not.toBeUndefined();
+  });
+
+  it('accepts a draft onto a published article when force=true, matching the normal accept result', async () => {
+    const { body: { article } } = await createArticle({ body: '## Description\n\nOriginal.' });
+    dbRef.db!.prepare(`UPDATE articles SET status = 'published' WHERE id = ?`).run(article.id);
+    await req
+      .post(`/api/worlds/${WID}/articles/${article.id}/draft`)
+      .send(draftPayload)
+      .expect(200);
+
+    const res = await req.post(`/api/worlds/${WID}/articles/${article.id}/accept`).send({ force: true });
+    expect(res.status).toBe(201);
+    expect(res.body.version.description).toBe('A brand new description');
+  });
+
+  it('rejects accepting a draft onto an article locked by an active run, leaving it untouched', async () => {
+    const { body: { article } } = await createArticle({ body: '## Description\n\nOriginal.' });
+    await req
+      .post(`/api/worlds/${WID}/articles/${article.id}/draft`)
+      .send(draftPayload)
+      .expect(200);
+    seedRun('run-1');
+    dbRef.db!.prepare(`UPDATE articles SET locked_by_run_id = 'run-1' WHERE id = ?`).run(article.id);
+
+    const res = await req.post(`/api/worlds/${WID}/articles/${article.id}/accept`).send({});
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe('ARTICLE_LOCKED');
+
+    const after = await req.get(`/api/worlds/${WID}/articles/${article.id}`);
+    expect(after.body.version.description).toBe('Original.');
+  });
+
+  it('accepts an expand_description draft, creates a new version, and deletes the draft', async () => {
+    const { body: { article } } = await createArticle({ body: '## Description\n\nOriginal.' });
+    await req
+      .post(`/api/worlds/${WID}/articles/${article.id}/draft`)
+      .send(draftPayload)
+      .expect(200);
+
+    const res = await req.post(`/api/worlds/${WID}/articles/${article.id}/accept`).send({});
+    expect(res.status).toBe(201);
+    expect(res.body.article.id).toBe(article.id);
+    expect(res.body.version.versionNumber).toBe(2);
+    expect(res.body.version.description).toBe('A brand new description');
+
+    const draft = dbRef.db!
+      .prepare('SELECT * FROM pending_drafts WHERE article_id = ?')
+      .get(article.id);
+    expect(draft).toBeUndefined();
+  });
+
+  it('accepts a create_child draft and returns the child article/version shape', async () => {
+    const { body: { article } } = await createArticle({
+      title: 'Parent Article',
+      body: '## Description\n\nParent body.',
+    });
+
+    await req
+      .post(`/api/worlds/${WID}/articles/${article.id}/draft`)
+      .send({
+        phase: 'draft_ready',
+        pipelineType: 'create_child',
+        draftContent: {
+          introduction: 'Child introduction.',
+          coherenceWarnings: [],
+          suggestedLinks: [],
+          retentionIssues: [],
+        },
+      })
+      .expect(200);
+
+    const res = await req.post(`/api/worlds/${WID}/articles/${article.id}/accept`).send({});
+    expect(res.status).toBe(201);
+    expect(res.body.article.id).toBe(article.id);
+    expect(res.body.childArticle).toBeDefined();
+    expect(res.body.childVersion).toBeDefined();
+    expect(res.body.childVersion.versionNumber).toBe(1);
+    expect(res.body.childVersion.introduction).toBe('Child introduction.');
+
+    const link = dbRef.db!
+      .prepare(`
+        SELECT * FROM article_links
+        WHERE source_article_id = ? AND target_article_id = ? AND link_type = 'hierarchical'
+      `)
+      .get(article.id, res.body.childArticle.id);
+    expect(link).toBeDefined();
   });
 });

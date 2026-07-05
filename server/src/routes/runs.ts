@@ -1,0 +1,164 @@
+import { Router } from 'express';
+import { z } from 'zod';
+import type { Request } from 'express';
+import { asyncHandler, AppError } from '../middleware/errorHandler.js';
+import { tenantIdFor } from '../tenant.js';
+import { getDbClient } from '../db/client.js';
+import { createRun, getRun, listRuns, cancelRun, markRunStatus, listRunEvents, RunConflictError } from '../services/runsService.js';
+import { startForgeRun, resumeForgeRun } from '../agents/graphs/forgeGraph.js';
+
+const router = Router({ mergeParams: true });
+
+function wid(req: Request): string {
+  return (req.params as Record<string, string>).wid;
+}
+
+function rid(req: Request): string {
+  return (req.params as Record<string, string>).rid;
+}
+
+router.get('/', asyncHandler(async (req, res) => {
+  res.json(await listRuns(wid(req), tenantIdFor(req)));
+}));
+
+router.get('/:rid', asyncHandler(async (req, res) => {
+  const run = await getRun(wid(req), tenantIdFor(req), rid(req));
+  if (!run) throw new AppError(404, 'NOT_FOUND', 'Run not found');
+  const events = await listRunEvents(rid(req));
+  res.json({ ...run, events });
+}));
+
+const CreateRunSchema = z.object({
+  articleIds: z.array(z.string().min(1)).min(1),
+  budgetLimit: z.number().int().positive().optional(),
+  pipelineType: z.enum([
+    'expand_description', 'create_child', 'propose_children', 'expand_chronology',
+    'reorganize', 'summarize', 'improve_intro', 'cohere', 'forge_expand', 'audit',
+  ]),
+  contextDepth: z.enum(['shallow', 'mid', 'deep']).optional().default('mid'),
+  branchingMode: z.enum(['conceptual', 'specific']).optional().default('conceptual'),
+  forgeMode: z.enum(['breadth', 'depth']).optional().default('breadth'),
+  forgeMaxDepth: z.number().int().min(0).max(10).optional().default(2),
+  forgeMaxChildren: z.number().int().min(0).max(20).optional().default(5),
+  forgeUseOracle: z.boolean().optional().default(false),
+  forgeUseContinuityEditor: z.boolean().optional().default(false),
+});
+
+/** Same derivation forgeSlice.ts's startForge already used client-side. */
+function deriveStartStep(pipelineType: string): 'inception' | 'expansion' | 'branching' {
+  if (pipelineType === 'propose_children') return 'branching';
+  if (pipelineType === 'forge_expand' || pipelineType === 'expand_description') return 'expansion';
+  return 'inception';
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/worlds/:wid/runs — create + start a Forge run
+//
+// Fires the graph without awaiting it: a Forge run can recurse across many
+// articles (Inception/Expansion/Branching per item) and must not hold this
+// HTTP request open for its full duration. Progress is observed via GET /:rid
+// (status/budgetUsed/events) — the same "no streaming, poll instead"
+// limitation already accepted for single agent calls elsewhere in this
+// codebase (see the streaming row in dev-docs/engineering/practices.md).
+//
+// Forge only ever starts from one root article (articleIds[0]) — the array
+// shape is kept because createRun()/locking already operate on article lists.
+// ---------------------------------------------------------------------------
+
+router.post('/', asyncHandler(async (req, res) => {
+  const parse = CreateRunSchema.safeParse(req.body);
+  if (!parse.success) throw new AppError(400, 'VALIDATION_ERROR', 'Invalid request', parse.error.flatten().fieldErrors);
+
+  const worldId = wid(req);
+  const ownerId = tenantIdFor(req);
+  const { articleIds } = parse.data;
+  const rootArticleId = articleIds[0];
+
+  const placeholders = articleIds.map(() => '?').join(',');
+  const existing = await getDbClient().all<{ id: string; title: string }>(
+    `SELECT id, title FROM articles WHERE world_id = ? AND id IN (${placeholders})`,
+    [worldId, ...articleIds],
+  );
+  if (existing.length !== articleIds.length) {
+    throw new AppError(404, 'NOT_FOUND', 'One or more articles not found in this world');
+  }
+  const rootArticle = existing.find((a) => a.id === rootArticleId)!;
+
+  let run;
+  try {
+    run = await createRun({ worldId, ownerId, articleIds, budgetLimit: parse.data.budgetLimit });
+  } catch (err) {
+    if (err instanceof RunConflictError) {
+      throw new AppError(409, 'ARTICLE_LOCKED', err.message, { articleIds: err.lockedArticleIds });
+    }
+    throw err;
+  }
+
+  void startForgeRun({
+    runId: run.id,
+    worldId,
+    ownerId,
+    articleId: rootArticleId,
+    articleTitle: rootArticle.title,
+    startStep: deriveStartStep(parse.data.pipelineType),
+    contextDepth: parse.data.contextDepth,
+    branchingMode: parse.data.branchingMode,
+    forgeMode: parse.data.forgeMode,
+    forgeMaxDepth: parse.data.forgeMaxDepth,
+    forgeMaxChildren: parse.data.forgeMaxChildren,
+    forgeUseOracle: parse.data.forgeUseOracle,
+    forgeUseContinuityEditor: parse.data.forgeUseContinuityEditor,
+  }).catch((err) => {
+    // eslint-disable-next-line no-console
+    console.error(`Forge run ${run.id} crashed outside its own error handling`, err);
+  });
+
+  res.status(202).json(run);
+}));
+
+router.post('/:rid/cancel', asyncHandler(async (req, res) => {
+  const run = await cancelRun(wid(req), tenantIdFor(req), rid(req));
+  if (!run) throw new AppError(404, 'NOT_FOUND', 'Run not found');
+  res.json(run);
+}));
+
+router.post('/:rid/pause', asyncHandler(async (req, res) => {
+  const worldId = wid(req);
+  const run = await getRun(worldId, tenantIdFor(req), rid(req));
+  if (!run) throw new AppError(404, 'NOT_FOUND', 'Run not found');
+  if (run.status !== 'running' && run.status !== 'pending') {
+    throw new AppError(409, 'RUN_NOT_RUNNING', 'Run is not currently running');
+  }
+
+  // Takes effect at the next per-item queue boundary — the Forge graph's
+  // dequeue node checks status before popping the next item, same
+  // granularity forgeSlice.ts's client-side pauseForge already had.
+  await markRunStatus(run.id, 'paused');
+  res.json({ ...run, status: 'paused' });
+}));
+
+// A 'running' run whose updated_at hasn't moved in this long almost certainly
+// belongs to a process that crashed or was killed mid-invoke (fire-and-forget
+// startForgeRun/resumeForgeRun never get the chance to mark a terminal status
+// in that case) — the checkpointer already made this recoverable, so treat it
+// the same as an explicitly paused run rather than leaving it stuck forever.
+const STALE_RUN_MS = 60_000;
+
+router.post('/:rid/resume', asyncHandler(async (req, res) => {
+  const worldId = wid(req);
+  const run = await getRun(worldId, tenantIdFor(req), rid(req));
+  if (!run) throw new AppError(404, 'NOT_FOUND', 'Run not found');
+  const isStaleRunning = run.status === 'running' && Date.now() - run.updatedAt > STALE_RUN_MS;
+  if (run.status !== 'paused' && !isStaleRunning) {
+    throw new AppError(409, 'RUN_NOT_PAUSED', 'Run is not currently paused');
+  }
+
+  void resumeForgeRun({ worldId, runId: run.id }).catch((err) => {
+    // eslint-disable-next-line no-console
+    console.error(`Forge run ${run.id} crashed on resume`, err);
+  });
+
+  res.status(202).json({ ...run, status: 'running' });
+}));
+
+export default router;

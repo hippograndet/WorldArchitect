@@ -14,3 +14,10 @@ export function getPgPool(): pg.Pool {
   if (!pool) pool = new Pool({ connectionString: process.env.DATABASE_URL, ...getPgPoolConfig() });
   return pool;
 }
+
+export async function closePgPool(): Promise<void> {
+  if (!pool) return;
+  const poolToClose = pool;
+  pool = null;
+  await poolToClose.end();
+}

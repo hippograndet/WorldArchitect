@@ -12,6 +12,7 @@ const { Client } = pg;
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS_DIR = join(__dirname, 'migrations', 'postgres');
+const POSTGRES_MIGRATIONS = ['001_initial.sql', '002_full_schema.sql', '003_runs.sql'];
 const DATABASE_URL = process.env.DRIFT_TEST_DATABASE_URL
   ?? 'postgres://worldarchitect:worldarchitect@localhost:5432/worldarchitect';
 
@@ -105,8 +106,9 @@ describe('SQLite / Postgres schema drift', () => {
     // to only the throwaway schema can leak to the next session sharing that
     // pooled backend and break it once this schema is dropped.
     await client.query(`SET search_path TO "${schemaName}", public`);
-    await client.query(readFileSync(join(MIGRATIONS_DIR, '001_initial.sql'), 'utf8'));
-    await client.query(readFileSync(join(MIGRATIONS_DIR, '002_full_schema.sql'), 'utf8'));
+    for (const migration of POSTGRES_MIGRATIONS) {
+      await client.query(readFileSync(join(MIGRATIONS_DIR, migration), 'utf8'));
+    }
   });
 
   afterAll(async () => {

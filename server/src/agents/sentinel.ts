@@ -36,6 +36,7 @@ export interface SentinelInput {
 
 export class SentinelAgent extends BaseAgent<SentinelInput, SentinelOutput> {
   readonly agentType = 'sentinel';
+  readonly mode = 'check';
   readonly outputToolName = 'submit_retention_check';
 
   protected buildMessages(_worldId: string, input: SentinelInput): ChatMessage[] {

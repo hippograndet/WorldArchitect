@@ -51,6 +51,7 @@ export interface AuditorInput {
 
 export class AuditorAgent extends BaseAgent<AuditorInput, AuditorOutput> {
   readonly agentType = 'auditor';
+  readonly mode = 'check';
   readonly outputToolName = 'submit_audit';
 
   protected buildMessages(_worldId: string, input: AuditorInput): ChatMessage[] {

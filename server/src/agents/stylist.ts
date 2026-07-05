@@ -50,6 +50,7 @@ export interface StylistInput {
 
 export class StylistAgent extends BaseAgent<StylistInput, StylistOutput> {
   readonly agentType = 'stylist';
+  readonly mode = 'write';
 
   private _input: StylistInput | null = null;
 

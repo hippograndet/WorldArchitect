@@ -8,6 +8,8 @@ import { PipelineCoordinator } from '../agents/director.js';
 import { AppError, asyncHandler } from '../middleware/errorHandler.js';
 import { getDbClient } from '../db/client.js';
 import { tenantIdFor } from '../tenant.js';
+import { recordArticleIssues, recordWorldIssues, recordProposedLinks } from '../services/issueRecorder.js';
+import { assertArticleUnlocked } from '../services/runsService.js';
 import type { Request, Response, NextFunction } from 'express';
 
 const router = Router({ mergeParams: true });
@@ -97,6 +99,7 @@ router.post('/propose', requireLLM, checkCap, asyncHandler(async (req, res) => {
   if (!parse.success) throw new AppError(400, 'VALIDATION_ERROR', 'Invalid request', parse.error.flatten().fieldErrors);
 
   const worldId = wid(req);
+  await assertArticleUnlocked(worldId, parse.data.articleId);
   const result = await coordinator.propose(
     worldId,
     parse.data.articleId,
@@ -140,6 +143,7 @@ router.post('/expand', requireLLM, checkCap, asyncHandler(async (req, res) => {
   if (!selectedProposal) throw new AppError(400, 'VALIDATION_ERROR', 'Invalid selectedProposalIndex');
 
   const worldId = wid(req);
+  await assertArticleUnlocked(worldId, articleId);
   const result = await coordinator.expand(worldId, articleId, pipelineType, selectedProposal, userSpec, contextDepth, selectedIdeas, runStyleWarden, runContinuityEditor, wordCountPreset);
 
   // Persist draft so POST /accept can commit it
@@ -187,6 +191,7 @@ router.post('/propose-children', requireLLM, checkCap, asyncHandler(async (req, 
   if (!parse.success) throw new AppError(400, 'VALIDATION_ERROR', 'Invalid request', parse.error.flatten().fieldErrors);
 
   const worldId = wid(req);
+  await assertArticleUnlocked(worldId, parse.data.articleId);
   const result = await coordinator.proposeChildren(worldId, parse.data.articleId, parse.data.userSpec, parse.data.contextDepth);
   res.json({ proposals: result.proposals });
 }));
@@ -203,6 +208,7 @@ router.post('/summarize', requireLLM, checkCap, asyncHandler(async (req, res) =>
   if (!parse.success) throw new AppError(400, 'VALIDATION_ERROR', 'Invalid request', parse.error.flatten().fieldErrors);
 
   const worldId = wid(req);
+  await assertArticleUnlocked(worldId, parse.data.articleId);
   const result = await coordinator.summarize(worldId, parse.data.articleId, parse.data.mode);
   res.json({ introduction: result.introduction });
 }));
@@ -220,6 +226,7 @@ router.post('/reorganize', requireLLM, checkCap, asyncHandler(async (req, res) =
   if (!parse.success) throw new AppError(400, 'VALIDATION_ERROR', 'Invalid request', parse.error.flatten().fieldErrors);
 
   const worldId = wid(req);
+  await assertArticleUnlocked(worldId, parse.data.articleId);
   const result = await coordinator.reorganize(worldId, parse.data.articleId, parse.data.contextDepth);
   res.json(result);
 }));
@@ -237,20 +244,22 @@ router.post('/cohere', requireLLM, checkCap, asyncHandler(async (req, res) => {
 
   const worldId = wid(req);
   const { articleId } = parse.data;
+  await assertArticleUnlocked(worldId, articleId);
   const result = await coordinator.cohere(worldId, articleId, parse.data.contextDepth);
 
   // Persist Warden warnings to article_issues (replacing previous warden issues for this article)
   if (result.warnings.length > 0) {
-    const exec = getDbClient();
-    const now = Date.now();
-    await exec.run(`DELETE FROM article_issues WHERE article_id = ? AND source = 'warden'`, [articleId]);
-    for (const w of result.warnings) {
-      await exec.run(
-        `INSERT INTO article_issues (id, world_id, owner_id, article_id, source, severity, code, excerpt, explanation, suggestion, status, created_at)
-         VALUES (?, ?, ?, ?, 'warden', ?, 'COHERENCE_WARNING', NULL, ?, NULL, 'open', ?)`,
-        [nanoid(), worldId, tenantIdFor(req), articleId, w.severity === 'conflict' ? 'blocking' : 'warning', w.description, now],
-      );
-    }
+    await recordArticleIssues(getDbClient(), {
+      worldId,
+      ownerId: tenantIdFor(req),
+      articleId,
+      source: 'warden',
+      issues: result.warnings.map((w) => ({
+        severity: w.severity === 'conflict' ? 'blocking' : 'warning',
+        code: 'COHERENCE_WARNING',
+        explanation: w.description,
+      })),
+    });
   }
 
   res.json({ warnings: result.warnings, suggestedLinks: result.suggestedLinks });
@@ -270,6 +279,7 @@ router.post('/chronology', requireLLM, checkCap, asyncHandler(async (req, res) =
   if (!parse.success) throw new AppError(400, 'VALIDATION_ERROR', 'Invalid request', parse.error.flatten().fieldErrors);
 
   const worldId = wid(req);
+  await assertArticleUnlocked(worldId, parse.data.articleId);
   const result = await coordinator.expandChronology(worldId, parse.data.articleId, parse.data.userSpec, parse.data.contextDepth);
   res.json({
     chronologySection: result.chronologySection,
@@ -304,6 +314,7 @@ router.post('/propose-ideas', requireLLM, checkCap, asyncHandler(async (req, res
   if (!parse.success) throw new AppError(400, 'VALIDATION_ERROR', 'Invalid request', parse.error.flatten().fieldErrors);
 
   const worldId = wid(req);
+  await assertArticleUnlocked(worldId, parse.data.articleId);
   const result = await coordinator.proposeIdeas(
     worldId,
     parse.data.articleId,
@@ -331,34 +342,13 @@ router.post('/audit', requireLLM, checkCap, asyncHandler(async (req, res) => {
   const worldId = wid(req);
   const ownerId = tenantIdFor(req);
   const result = await coordinator.audit(worldId, parse.data.sampleSize, parse.data.focus);
-
   const exec = getDbClient();
-  const now = Date.now();
 
   // Persist edge proposals for later acceptance
-  for (const ep of result.edgeProposals) {
-    const sourceExists = await exec.get('SELECT id FROM articles WHERE id = ? AND world_id = ?', [ep.sourceArticleId, worldId]);
-    const targetExists = await exec.get('SELECT id FROM articles WHERE id = ? AND world_id = ?', [ep.targetArticleId, worldId]);
-    if (!sourceExists || !targetExists) continue;
-
-    await exec.run(
-      `INSERT INTO auditor_edge_proposals
-         (id, world_id, owner_id, source_article_id, target_article_id, link_type, rationale, status, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)
-       ON CONFLICT (id) DO NOTHING`,
-      [nanoid(), worldId, ownerId, ep.sourceArticleId, ep.targetArticleId, ep.linkType, ep.rationale, now],
-    );
-  }
+  await recordProposedLinks(exec, { worldId, ownerId, proposals: result.edgeProposals });
 
   // Persist global warnings to world_issues (replace open ones, preserve dismissed/resolved/in_review)
-  await exec.run(`DELETE FROM world_issues WHERE world_id = ? AND status = 'open'`, [worldId]);
-  for (const gw of result.globalWarnings) {
-    await exec.run(
-      `INSERT INTO world_issues (id, world_id, owner_id, severity, type, description, article_ids, source, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'auditor', 'open', ?, ?)`,
-      [nanoid(), worldId, ownerId, gw.severity, gw.type, gw.description, JSON.stringify(gw.involvedArticleIds), now, now],
-    );
-  }
+  await recordWorldIssues(exec, { worldId, ownerId, source: 'auditor', warnings: result.globalWarnings });
 
   res.json({
     edgeProposals: result.edgeProposals,

@@ -7,13 +7,21 @@ import { isLLMConfigured, requireLLM } from '../providers/index.js';
 import { PipelineCoordinator } from '../agents/director.js';
 import { StylistAgent } from '../agents/stylist.js';
 import type { PromptEngineerFieldType } from '../prompts/promptEngineer.js';
+import { writeArticleVersionAndSetCurrent } from '../services/articleVersions.js';
 import { tenantIdFor, worldBelongsToTenant } from '../tenant.js';
 
 const router = Router();
 
 const StyleConfigSchema = z.object({
   preset:       z.string().optional(),
+  tonePreset:   z.string().optional(),
+  tonePresetValue: z.string().optional(),
+  toneGuidance: z.string().optional().default(''),
+  vibePreset:   z.string().optional(),
+  vibePresetValue: z.string().optional(),
   vibe:         z.string().optional().default(''),
+  writingStylePreset: z.string().optional(),
+  writingStylePresetValue: z.string().optional(),
   writingStyle: z.string().optional().default(''),
   inspirations: z.array(z.object({
     name: z.string(),
@@ -107,12 +115,17 @@ router.post('/', asyncHandler(async (req, res) => {
       VALUES (?, ?, ?, ?, 'draft', 'general', 1, ?, ?)
     `, [articleId, worldId, ownerId, name, now, now]);
 
-    await tx.run(`
-      INSERT INTO article_versions (id, article_id, owner_id, version_number, introduction, description, chronology, word_count, created_at)
-      VALUES (?, ?, ?, 1, '', ?, '', ?, ?)
-    `, [versionId, articleId, ownerId, description, wordCount, now]);
-
-    await tx.run(`UPDATE articles SET current_version_id = ? WHERE id = ?`, [versionId, articleId]);
+    await writeArticleVersionAndSetCurrent(tx, {
+      articleId,
+      ownerId,
+      versionId,
+      versionNumber: 1,
+      introduction: '',
+      description,
+      chronology: '',
+      wordCount,
+      now,
+    });
 
     await tx.run(`
       INSERT INTO world_bible_entries (id, world_id, owner_id, article_id, summary, updated_at)

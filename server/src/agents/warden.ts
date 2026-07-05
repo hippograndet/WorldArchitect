@@ -44,6 +44,7 @@ export interface WardenInput {
 
 export class WardenAgent extends BaseAgent<WardenInput, WardenOutput> {
   readonly agentType = 'warden';
+  readonly mode = 'check';
   readonly outputToolName = 'submit_coherence_check';
 
   protected buildMessages(_worldId: string, input: WardenInput): ChatMessage[] {

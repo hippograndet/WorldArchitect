@@ -12,7 +12,7 @@ import type { Tool } from '../tools/types.js';
 // ---------------------------------------------------------------------------
 
 const SubmitCuratorSchema = z.object({
-  selectedIndex: z.number().int().min(0).max(4),
+  selectedIndex: z.number().int().min(0),
   rationale: z.string().min(1),
 });
 
@@ -32,9 +32,13 @@ export interface CuratorInput {
 
 export class CuratorAgent extends BaseAgent<CuratorInput, CuratorOutput> {
   readonly agentType = 'curator';
+  readonly mode = 'check';
   readonly outputToolName = 'submit_taste_selection';
 
+  private _proposalCount: number | null = null;
+
   protected buildMessages(_worldId: string, input: CuratorInput): ChatMessage[] {
+    this._proposalCount = input.proposals.length;
     return [
       {
         role: 'system',
@@ -62,6 +66,10 @@ export class CuratorAgent extends BaseAgent<CuratorInput, CuratorOutput> {
 
   protected parseOutput(input: Record<string, unknown>): CuratorOutput {
     const parsed = SubmitCuratorSchema.parse(input);
+    const count = this._proposalCount ?? 0;
+    if (parsed.selectedIndex >= count) {
+      throw new Error(`selectedIndex ${parsed.selectedIndex} is out of range — there are only ${count} proposals (valid range: 0-${count - 1}).`);
+    }
     return { selectedIndex: parsed.selectedIndex, rationale: parsed.rationale };
   }
 }

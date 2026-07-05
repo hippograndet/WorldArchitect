@@ -41,6 +41,7 @@ export interface MuseInput {
 
 export class MuseAgent extends BaseAgent<MuseInput, MuseOutput> {
   readonly agentType = 'muse';
+  readonly mode = 'write';
   readonly outputToolName = 'submit_proposals';
 
   protected buildMessages(_worldId: string, input: MuseInput): ChatMessage[] {

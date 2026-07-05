@@ -46,6 +46,7 @@ export interface OracleInput {
 
 export class OracleAgent extends BaseAgent<OracleInput, OracleOutput> {
   readonly agentType = 'oracle';
+  readonly mode = 'write';
   readonly outputToolName = 'submit_ideas';
 
   protected buildMessages(_worldId: string, input: OracleInput): ChatMessage[] {
