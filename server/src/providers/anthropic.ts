@@ -33,7 +33,15 @@ export class AnthropicProvider implements LLMProvider {
         () => this.client.messages.create({
           model: this.model,
           max_tokens: options?.maxTokens ?? 4096,
-          ...(systemMsg ? { system: systemMsg.content } : {}),
+          // Every agent's system prompt is a pure function of worldContext (+ mode for
+          // Scribe) — see prompts/*.ts's build*SystemPrompt() signatures — so it's
+          // byte-identical across every call to the same agent/mode/world, including
+          // every turn within one agent's own multi-turn tool-use loop (base.ts).
+          // Caching it turns those repeats into ~10%-cost cache reads instead of
+          // full-price input tokens, with zero change to any prompt content.
+          ...(systemMsg
+            ? { system: [{ type: 'text' as const, text: systemMsg.content, cache_control: { type: 'ephemeral' as const } }] }
+            : {}),
           messages: apiMessages,
           ...(anthropicTools?.length ? { tools: anthropicTools } : {}),
           ...(anthropicTools?.length && options?.toolChoice === 'required' ? { tool_choice: { type: 'any' as const } } : {}),
@@ -63,9 +71,17 @@ export class AnthropicProvider implements LLMProvider {
       response.stop_reason === 'tool_use' ? 'tool_use' :
       response.stop_reason === 'max_tokens' ? 'max_tokens' : 'end_turn';
 
+    // With caching on, Anthropic reports cache-write/cache-read tokens separately
+    // from input_tokens rather than folding them in — sum all three so tokensIn
+    // (call_log, the Usage page) still reflects total context processed instead
+    // of silently shrinking once a call hits a cache read.
+    const tokensIn = response.usage.input_tokens
+      + (response.usage.cache_creation_input_tokens ?? 0)
+      + (response.usage.cache_read_input_tokens ?? 0);
+
     return {
       content,
-      tokensIn: response.usage.input_tokens,
+      tokensIn,
       tokensOut: response.usage.output_tokens,
       stopReason,
       toolCalls: toolCalls.length ? toolCalls : undefined,

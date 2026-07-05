@@ -91,11 +91,16 @@ WorldArchitect uses specialized agents for different jobs:
 WorldArchitect is intentionally explicit about AI use:
 
 - Agent routes are disabled when no provider is configured.
-- Calls are logged.
+- Calls are logged, with a Usage page showing a raw call-by-call log, a per-agent
+  rollup (calls, average tokens, average tool-use turns), and a per-pipeline-run
+  view grouping the agent calls behind a single Spark or Forge action together.
 - Daily caps can be configured.
 - Drafts can be reviewed before commit in normal workflows.
 - Version history makes accepted changes reversible.
 - Snapshots can preserve an entire world before large operations.
+- Repeated calls to the same agent within a world are cheaper than they look — the
+  system prompt is cached (Anthropic provider), so the model doesn't pay full price
+  to re-read the same instructions on every turn or every subsequent call.
 
 The goal is not to replace the writer. The goal is to make a complex fictional world easier to grow, inspect, and maintain.
 
