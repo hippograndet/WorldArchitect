@@ -10,6 +10,14 @@ The MAS is designed around user control. Agents can propose, draft, summarize, c
 
 Forge is the exception: it is an optional automation mode for recursively expanding article trees. It should be used when you want faster generation and are comfortable reviewing the results afterward.
 
+Internally, Spark and Forge are not separate agent systems. They are different policies over the same MAS:
+
+- **Spark** is article-scoped, manual, and review-before-commit.
+- **Forge** is subtree-scoped, automatic, and review-after-generation.
+- **World Tools** are world-scoped and proposal/review oriented.
+
+The shared contract is location, intent, autonomy mode, review policy, and commit policy. This keeps future agent workflows modular while making it clear when the system should ask the user, create a pending draft, or commit automatically.
+
 ## Main Entry Points
 
 ### Spark
@@ -49,7 +57,7 @@ Solidify is best after an article already has useful material but needs structur
 
 Forge automates expansion across an article subtree. It can run inception, expansion, and branching over multiple articles using breadth-first or depth-first traversal.
 
-Forge is powerful, but because it can auto-accept generated drafts, it is best used on stubs or experimental branches of a world.
+Forge runs on the server as a resumable run with progress logs, pause, resume, and stop controls. It is powerful, but because it can auto-accept generated drafts, it is best used on stubs or experimental branches of a world.
 
 ### World Tools
 
@@ -90,3 +98,9 @@ WorldArchitect is intentionally explicit about AI use:
 - Snapshots can preserve an entire world before large operations.
 
 The goal is not to replace the writer. The goal is to make a complex fictional world easier to grow, inspect, and maintain.
+
+## Context Package Boundary
+
+Agents receive curated article context from the server rather than reading the database directly. Today, that package contains the target article, parents, siblings, children, fixed points, temporal neighbors, referenced articles, and an estimated token budget.
+
+The context package boundary keeps agent workflows modular: agents consume one curated package instead of many low-level database, vector, and metadata tools.

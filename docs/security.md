@@ -14,9 +14,20 @@ WorldArchitect also supports an opt-in hosted mode (`APP_MODE=hosted`) for self-
 ## Provider Secrets
 
 - Users can enter provider keys in the app Settings screen.
-- Keys are stored in the local SQLite database and are returned to the client only as masked values.
+- Keys are stored in SQLite for local mode or Postgres for hosted mode and are returned to the client only as masked values. Hosted-mode stored provider keys are encrypted with `PROVIDER_SETTINGS_ENCRYPTION_KEY`.
 - Environment variables can override stored keys for operator workflows, but env keys are not persisted.
 - Startup scans tracked project files for obvious committed provider keys and fails loudly if one is found.
+
+## Self-Hosted Security Checklist
+
+- Generate a strong `PROVIDER_SETTINGS_ENCRYPTION_KEY` and keep it stable across deploys.
+- Never commit `.env`, `.env.local`, database URLs, provider keys, Clerk secrets, or encryption keys.
+- Use HTTPS for hosted mode.
+- Set `PUBLIC_BASE_URL` to the exact deployed `https://` origin so CORS allows only the intended browser origin.
+- Configure `CLERK_ISSUER` and `CLERK_JWKS_URL` from the same Clerk application used by `VITE_CLERK_PUBLISHABLE_KEY`.
+- Configure Clerk allowed origins/callbacks for the deployed domain.
+- Keep `ALLOW_DEV_AUTH_HEADER` disabled in production.
+- Rotate provider keys and deployment secrets if they are exposed.
 
 ## Data Egress
 

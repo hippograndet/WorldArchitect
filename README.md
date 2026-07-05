@@ -4,6 +4,16 @@ WorldArchitect is a local-first fiction worldbuilding app for writers, game mast
 
 The app is fully usable without an LLM. When you do connect a provider, WorldArchitect adds a multi-agent creative system that can propose ideas, expand articles, check continuity, create child entries, and help maintain a coherent World Bible while keeping you in control of what gets accepted.
 
+## Project Status
+
+WorldArchitect is currently `v0.5.0`: usable locally and prepared for hosted self-deployment, but not yet a `v1.0` stable release.
+
+The intended release path is:
+
+- `v0.6.0` - self-hosted beta with a tested deployment guide, backup/restore notes, and complete environment examples.
+- `v1.0.0` - stable self-hostable release.
+- `v2.0.0` - possible hosted SaaS direction, after the self-hosted foundation is dependable.
+
 ![WorldArchitect world dashboard](docs/assets/Screenshot_World_Home_Page.png)
 
 ## Why WorldArchitect?
@@ -23,7 +33,6 @@ The app is fully usable without an LLM. When you do connect a provider, WorldArc
 - Graph view for navigating article hierarchy and references
 - Manual editing with TipTap and Markdown-oriented article content
 - Version history, non-destructive reverts, and named world snapshots
-- Timeline view for temporally anchored articles
 - World Bible summaries used for continuity and context
 - Optional multi-agent system for proposals, expansion, cleanup, auditing, naming, and publishing
 - Provider support for Anthropic, OpenAI-compatible APIs, Groq, and Ollama
@@ -86,17 +95,19 @@ WorldArchitect has two processes:
 
 The browser talks only to the server. The server owns the database, export system, provider settings, agent calls, and versioning.
 
-By default (`APP_MODE=local`) the server runs unauthenticated against a local SQLite file with a single implicit user, which is the setup this Quick Start walks through. It can instead be run as `APP_MODE=hosted`, which requires Clerk-based authentication and Postgres storage and scopes every world to its owner. Hosted mode is meant for self-deployment (Docker, Railway, Fly.io), not for local development — see [DEPLOY.md](DEPLOY.md) for the required environment variables and deploy steps.
+By default (`APP_MODE=local`) the server runs unauthenticated against a local SQLite file with a single implicit user, which is the setup this Quick Start walks through. It can instead be run as `APP_MODE=hosted`, which requires Clerk-based authentication and Postgres storage and scopes every world to its owner. Hosted mode is meant for self-deployment (Docker, Render, Railway, Fly.io), not for local development — see [DEPLOY.md](DEPLOY.md) for the required environment variables and deploy steps.
 
 ## Documentation
 
 Public, reader-friendly docs live in [`docs/`](docs/):
 
 - [How WorldArchitect Works](docs/how-it-works.md)
+- [Article Lifecycle And Versioning](docs/articles.md)
 - [Multi-Agent System Overview](docs/mas-overview.md)
 - [Local-First Data And Privacy](docs/local-first.md)
 - [Security Notes](docs/security.md)
 - [Hosted Deployment](DEPLOY.md)
+- [Self-Hosted Operations](docs/self-hosted-operations.md)
 
 Developer notes and older design documents are kept locally in `dev-docs/` and are intentionally ignored by Git.
 
