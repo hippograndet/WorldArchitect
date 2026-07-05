@@ -1,4 +1,5 @@
 import { StateGraph } from '@langchain/langgraph';
+import { nanoid } from 'nanoid';
 import { OrchestrationAnnotation } from '../state.js';
 import { articleContract, contractState } from '../masContract.js';
 import { fetchWorldContextNode, buildContextPackageNode, wardenNode } from '../nodes.js';
@@ -19,10 +20,13 @@ export async function runCohereGraph(params: {
   worldId: string;
   articleId: string;
   contextDepth?: ContextDepth;
+  pipelineRunId?: string;
 }): Promise<{ warnings: CoherenceWarning[]; suggestedLinks: SuggestedLink[]; tokensIn: number; tokensOut: number }> {
   const result = await graph.invoke({
     worldId: params.worldId,
     articleId: params.articleId,
+    pipelineRunId: params.pipelineRunId ?? nanoid(),
+    pipelineType: 'cohere',
     ...contractState(articleContract({
       articleId: params.articleId,
       intent: 'cohere',

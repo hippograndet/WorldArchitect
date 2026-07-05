@@ -137,7 +137,7 @@ describe('museProposeNode', () => {
     const state = baseState({ proposalMode: 'expand_description', userSpec: 'more drama' });
     const result = await museProposeNode(state);
 
-    expect(runSpy).toHaveBeenCalledWith('world1', expect.objectContaining({ mode: 'expand_description', userSpec: 'more drama' }));
+    expect(runSpy).toHaveBeenCalledWith('world1', expect.objectContaining({ mode: 'expand_description', userSpec: 'more drama' }), expect.anything());
     expect(result.proposals).toEqual([{ title: 'A', direction: 'B' }]);
     expect(result.tokensIn).toBe(10);
     expect(result.tokensOut).toBe(5);
@@ -298,7 +298,7 @@ describe('architectNode', () => {
     const state = baseState({ seedText: 'a fantasy world', categories: [{ id: 'cat1', name: 'Lore' }] });
     const result = await architectNode(state);
 
-    expect(runSpy).toHaveBeenCalledWith('world1', expect.objectContaining({ seedText: 'a fantasy world' }));
+    expect(runSpy).toHaveBeenCalledWith('world1', expect.objectContaining({ seedText: 'a fantasy world' }), expect.anything());
     expect(result.stubs).toHaveLength(1);
   });
 });

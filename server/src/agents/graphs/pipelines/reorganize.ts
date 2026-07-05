@@ -1,4 +1,5 @@
 import { StateGraph } from '@langchain/langgraph';
+import { nanoid } from 'nanoid';
 import { OrchestrationAnnotation } from '../state.js';
 import { articleContract, contractState } from '../masContract.js';
 import {
@@ -37,10 +38,13 @@ export async function runReorganizeGraph(params: {
   worldId: string;
   articleId: string;
   contextDepth?: ContextDepth;
+  pipelineRunId?: string;
 }): Promise<ReorganizeGraphOutput> {
   const result = await graph.invoke({
     worldId: params.worldId,
     articleId: params.articleId,
+    pipelineRunId: params.pipelineRunId ?? nanoid(),
+    pipelineType: 'reorganize',
     ...contractState(articleContract({
       articleId: params.articleId,
       intent: 'reorganize',

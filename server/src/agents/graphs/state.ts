@@ -49,6 +49,9 @@ export const OrchestrationAnnotation = Annotation.Root({
   autonomyMode: Annotation<AutonomyMode>({ reducer: replace, default: () => 'manual' }),
   reviewPolicy: Annotation<ReviewPolicy>({ reducer: replace, default: () => 'user_must_accept' }),
   commitPolicy: Annotation<CommitPolicy>({ reducer: replace, default: () => 'no_commit' }),
+  /** Correlates every agent call within this pipeline invocation in call_log — see routes/callLog.ts's /runs grouping. */
+  pipelineRunId: Annotation<string>({ reducer: replace, default: () => '' }),
+  pipelineType: Annotation<string>({ reducer: replace, default: () => '' }),
 
   // --- createWorld (Architect) ---
   seedText: Annotation<string | undefined>({ reducer: replace, default: () => undefined }),

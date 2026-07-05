@@ -373,6 +373,14 @@ export function runMigrations(db: Database.Database): void {
   // IF NOT EXISTS never removes triggers a later code change stops creating,
   // so any environment that ran that draft needs this explicit cleanup.
   db.exec(`DROP TRIGGER IF EXISTS trg_run_events_owner_from_article`);
+
+  // M18: call_log — tool-loop iteration count + pipeline-run correlation, so
+  // the Usage page can group agent calls by the pipeline invocation they
+  // belonged to and compare real vs. expected iteration counts per agent.
+  tryAlter(db, `ALTER TABLE call_log ADD COLUMN iterations INTEGER`);
+  tryAlter(db, `ALTER TABLE call_log ADD COLUMN pipeline_run_id TEXT`);
+  tryAlter(db, `ALTER TABLE call_log ADD COLUMN pipeline_type TEXT`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_call_log_pipeline_run ON call_log(world_id, pipeline_run_id)`);
 }
 
 export function applySchema(db: Database.Database): void {

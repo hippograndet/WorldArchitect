@@ -1,4 +1,5 @@
 import { StateGraph } from '@langchain/langgraph';
+import { nanoid } from 'nanoid';
 import { OrchestrationAnnotation } from '../state.js';
 import { fetchWorldContextNode, buildContextPackageNode, museProposeNode, curatorAutoSelectNode } from '../nodes.js';
 import { articleContract, contractState, proposalIntent } from '../masContract.js';
@@ -33,10 +34,13 @@ export async function runProposeGraph(params: {
   userSpec?: string;
   autoSelect?: boolean;
   contextDepth?: ContextDepth;
+  pipelineRunId?: string;
 }): Promise<ProposeGraphOutput> {
   const result = await graph.invoke({
     worldId: params.worldId,
     articleId: params.articleId,
+    pipelineRunId: params.pipelineRunId ?? nanoid(),
+    pipelineType: 'propose',
     ...contractState(articleContract({
       articleId: params.articleId,
       intent: proposalIntent(params.pipelineType),

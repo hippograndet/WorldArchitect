@@ -1,4 +1,5 @@
 import { StateGraph } from '@langchain/langgraph';
+import { nanoid } from 'nanoid';
 import { OrchestrationAnnotation } from '../state.js';
 import { articleContract, contractState } from '../masContract.js';
 import { fetchWorldContextNode, buildContextPackageNode, chroniclerNode, wardenNode, styleWardenNode } from '../nodes.js';
@@ -35,10 +36,13 @@ export async function runChronologyGraph(params: {
   userSpec?: string;
   contextDepth?: ContextDepth;
   runStyleWarden?: boolean;
+  pipelineRunId?: string;
 }): Promise<ChronologyGraphOutput> {
   const result = await graph.invoke({
     worldId: params.worldId,
     articleId: params.articleId,
+    pipelineRunId: params.pipelineRunId ?? nanoid(),
+    pipelineType: 'chronology',
     ...contractState(articleContract({
       articleId: params.articleId,
       intent: 'chronology',

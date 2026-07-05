@@ -52,7 +52,7 @@ class PostgresStorageAdapter implements StorageAdapter {
 
   async migrate(): Promise<void> {
     if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is required for Postgres migrations');
-    const files = ['001_initial.sql', '002_full_schema.sql', '003_runs.sql'];
+    const files = ['001_initial.sql', '002_full_schema.sql', '003_runs.sql', '004_call_log_instrumentation.sql'];
     const client = await getPgPool().connect();
     try {
       await client.query('BEGIN');

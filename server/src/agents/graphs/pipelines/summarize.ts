@@ -1,4 +1,5 @@
 import { StateGraph } from '@langchain/langgraph';
+import { nanoid } from 'nanoid';
 import { OrchestrationAnnotation } from '../state.js';
 import { articleContract, contractState } from '../masContract.js';
 import { fetchWorldContextNode, lorekeeperSummarizeNode } from '../nodes.js';
@@ -16,10 +17,13 @@ export async function runSummarizeGraph(params: {
   worldId: string;
   articleId: string;
   mode?: LorekeepMode;
+  pipelineRunId?: string;
 }): Promise<{ introduction: string; tokensIn: number; tokensOut: number }> {
   const result = await graph.invoke({
     worldId: params.worldId,
     articleId: params.articleId,
+    pipelineRunId: params.pipelineRunId ?? nanoid(),
+    pipelineType: 'summarize',
     ...contractState(articleContract({
       articleId: params.articleId,
       intent: 'summarize',

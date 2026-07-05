@@ -21,6 +21,11 @@ import type { OrchestrationState } from './state.js';
 
 type Partial_ = Partial<OrchestrationState>;
 
+/** Shared call_log correlation context passed as every agent.run()'s third argument below. */
+function callCtx(state: OrchestrationState): { pipelineRunId: string; pipelineType: string } {
+  return { pipelineRunId: state.pipelineRunId, pipelineType: state.pipelineType };
+}
+
 /** Returns true if the world bible has enough entries for a coherence check to be meaningful. */
 export async function hasSufficientBibleContent(worldId: string): Promise<boolean> {
   const row = await getDbClient().get<{ n: number }>(
@@ -56,7 +61,7 @@ export async function architectNode(state: OrchestrationState): Promise<Partial_
     seedText: state.seedText!,
     categories: state.categories,
     worldContext: state.worldContext,
-  });
+  }, callCtx(state));
   return { stubs: result.output.stubs, tokensIn: result.tokensIn, tokensOut: result.tokensOut };
 }
 
@@ -71,7 +76,7 @@ export async function museProposeNode(state: OrchestrationState): Promise<Partia
     worldContext: state.worldContext!,
     mode: state.proposalMode!,
     userSpec: state.userSpec,
-  });
+  }, callCtx(state));
   return { proposals: result.output.proposals, tokensIn: result.tokensIn, tokensOut: result.tokensOut };
 }
 
@@ -91,7 +96,7 @@ export async function curatorAutoSelectNode(state: OrchestrationState): Promise<
     articleTemplateType: article?.template_type ?? 'general',
     currentSummary: state.contextPackage?.targetIntroduction,
     worldContext: state.worldContext!,
-  });
+  }, callCtx(state));
 
   return {
     autoSelectedIndex: result.output.selectedIndex,
@@ -119,7 +124,7 @@ export async function oracleNode(state: OrchestrationState): Promise<Partial_> {
     introduction: state.introduction!,
     selectedProposal: state.selectedProposal!,
     userSpec: state.userSpec,
-  });
+  }, callCtx(state));
 
   return { ideas: result.output.ideas, tokensIn: result.tokensIn, tokensOut: result.tokensOut };
 }
@@ -134,7 +139,7 @@ export async function researcherNode(state: OrchestrationState): Promise<Partial
   const result = await agent.run(state.worldId, {
     contextPackage: state.contextPackage!,
     worldContext: state.worldContext!,
-  });
+  }, callCtx(state));
   return { researchBrief: result.output, tokensIn: result.tokensIn, tokensOut: result.tokensOut };
 }
 
@@ -156,7 +161,7 @@ export async function scribeNode(state: OrchestrationState): Promise<Partial_> {
     selectedIdeas: state.selectedIdeas,
     researchBrief: state.researchBrief,
     wordCountPreset: state.wordCountPreset,
-  });
+  }, callCtx(state));
   let tokensIn = expandResult.tokensIn;
   let tokensOut = expandResult.tokensOut;
   let scribeOutput = expandResult.output;
@@ -171,7 +176,7 @@ export async function scribeNode(state: OrchestrationState): Promise<Partial_> {
         worldContext: state.worldContext!,
         draft: currentDesc,
         researchBrief: state.researchBrief!,
-      });
+      }, callCtx(state));
       tokensIn += ceResult.tokensIn;
       tokensOut += ceResult.tokensOut;
       continuityCheck = ceResult.output;
@@ -192,7 +197,7 @@ export async function scribeNode(state: OrchestrationState): Promise<Partial_> {
           selectedIdeas: state.selectedIdeas,
           researchBrief: state.researchBrief,
           wordCountPreset: state.wordCountPreset,
-        });
+        }, callCtx(state));
         tokensIn += revisionResult.tokensIn;
         tokensOut += revisionResult.tokensOut;
         scribeOutput = revisionResult.output;
@@ -227,7 +232,7 @@ export async function lorekeeperSummarizeUnconditionalNode(state: OrchestrationS
     articleTitle: state.contextPackage!.targetTitle,
     description: state.description!,
     worldContext: state.worldContext!,
-  });
+  }, callCtx(state));
   return { introduction: result.output.introduction, tokensIn: result.tokensIn, tokensOut: result.tokensOut };
 }
 
@@ -249,7 +254,7 @@ export async function styleWardenNode(state: OrchestrationState): Promise<Partia
     content,
     contentLabel,
     worldContext: state.worldContext!,
-  });
+  }, callCtx(state));
   return { styleCheck: result.output, tokensIn: result.tokensIn, tokensOut: result.tokensOut };
 }
 
@@ -278,7 +283,7 @@ export async function lorekeeperSummarizeNode(state: OrchestrationState): Promis
     worldContext: state.worldContext!,
     mode: effectiveMode,
     existingIntro: effectiveMode === 'improve' ? existingIntro : undefined,
-  });
+  }, callCtx(state));
 
   return { introduction: result.output.introduction, tokensIn: result.tokensIn, tokensOut: result.tokensOut };
 }
@@ -293,7 +298,7 @@ export async function cartographerNode(state: OrchestrationState): Promise<Parti
     contextPackage: state.contextPackage!,
     worldContext: state.worldContext!,
     userSpec: state.userSpec,
-  });
+  }, callCtx(state));
   return { childProposals: result.output.proposals, tokensIn: result.tokensIn, tokensOut: result.tokensOut };
 }
 
@@ -308,7 +313,7 @@ export async function sentinelNode(state: OrchestrationState): Promise<Partial_>
     originalBody: state.contextPackage!.targetDescription,
     reorganizedDescription: state.description!,
     worldContext: state.worldContext!,
-  });
+  }, callCtx(state));
   return { retentionIssues: result.output.issues, tokensIn: result.tokensIn, tokensOut: result.tokensOut };
 }
 
@@ -322,7 +327,7 @@ export async function chroniclerNode(state: OrchestrationState): Promise<Partial
     contextPackage: state.contextPackage!,
     worldContext: state.worldContext!,
     userSpec: state.userSpec,
-  });
+  }, callCtx(state));
   return { chronologySection: result.output.chronologySection, tokensIn: result.tokensIn, tokensOut: result.tokensOut };
 }
 
@@ -344,7 +349,7 @@ export async function wardenNode(state: OrchestrationState): Promise<Partial_> {
     worldContext: state.worldContext!,
     newContent,
     contentLabel,
-  });
+  }, callCtx(state));
   return { warnings: result.output.warnings, suggestedLinks: result.output.suggestedLinks, tokensIn: result.tokensIn, tokensOut: result.tokensOut };
 }
 
@@ -361,7 +366,7 @@ export async function loadBibleEntriesNode(state: OrchestrationState): Promise<P
 
 export async function condenserNode(state: OrchestrationState): Promise<Partial_> {
   const agent = new CondenserAgent();
-  const result = await agent.run(state.worldId, { worldContext: state.worldContext!, entries: state.bibleEntries });
+  const result = await agent.run(state.worldId, { worldContext: state.worldContext!, entries: state.bibleEntries }, callCtx(state));
   return { compressedEntries: result.output.entries, tokensIn: result.tokensIn, tokensOut: result.tokensOut };
 }
 
@@ -429,6 +434,6 @@ export async function auditorNode(state: OrchestrationState): Promise<Partial_> 
     worldContext: state.worldContext!,
     articleSummaries: state.articleSummaries,
     sampleSize: state.sampleSize,
-  });
+  }, callCtx(state));
   return { edgeProposals: result.output.edgeProposals, globalWarnings: result.output.globalWarnings, tokensIn: result.tokensIn, tokensOut: result.tokensOut };
 }

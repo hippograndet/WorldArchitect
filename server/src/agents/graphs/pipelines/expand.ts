@@ -1,4 +1,5 @@
 import { StateGraph } from '@langchain/langgraph';
+import { nanoid } from 'nanoid';
 import { OrchestrationAnnotation } from '../state.js';
 import {
   fetchWorldContextNode,
@@ -55,12 +56,15 @@ export async function runExpandGraph(params: {
   runStyleWarden?: boolean;
   runContinuityEditor?: boolean;
   wordCountPreset?: 'short' | 'medium' | 'long';
+  pipelineRunId?: string;
 }): Promise<ExpandGraphOutput> {
   const contextMode: ArchivistMode = params.pipelineType === 'reorganize' ? 'reorganize' : 'default';
 
   const result = await graph.invoke({
     worldId: params.worldId,
     articleId: params.articleId,
+    pipelineRunId: params.pipelineRunId ?? nanoid(),
+    pipelineType: 'expand',
     ...contractState(articleContract({
       articleId: params.articleId,
       intent: expanderIntent(params.pipelineType),

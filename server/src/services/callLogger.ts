@@ -11,6 +11,11 @@ export interface CallLogEntry {
   tokensOut?: number;
   status: 'success' | 'error' | 'rejected';
   errorMessage?: string;
+  /** Tool-loop round-trips the call took (see agents/base.ts's run() loop). */
+  iterations?: number;
+  /** Correlates every agent call within one pipeline-graph invocation (see graphs/pipelines/*.ts). */
+  pipelineRunId?: string;
+  pipelineType?: string;
 }
 
 export async function logCall(entry: CallLogEntry): Promise<void> {
@@ -18,8 +23,9 @@ export async function logCall(entry: CallLogEntry): Promise<void> {
   const ownerId = await ownerIdForWorld(exec, entry.worldId);
   await exec.run(`
       INSERT INTO call_log
-        (id, world_id, owner_id, agent_type, article_id, tokens_in, tokens_out, status, error_message, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (id, world_id, owner_id, agent_type, article_id, tokens_in, tokens_out, status, error_message,
+         iterations, pipeline_run_id, pipeline_type, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [
       nanoid(),
       entry.worldId,
@@ -30,6 +36,9 @@ export async function logCall(entry: CallLogEntry): Promise<void> {
       entry.tokensOut ?? null,
       entry.status,
       entry.errorMessage ? String(redactSecrets(entry.errorMessage)) : null,
+      entry.iterations ?? null,
+      entry.pipelineRunId ?? null,
+      entry.pipelineType ?? null,
       Date.now(),
     ]);
 }

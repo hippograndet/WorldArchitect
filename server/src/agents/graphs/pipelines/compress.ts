@@ -1,4 +1,5 @@
 import { StateGraph } from '@langchain/langgraph';
+import { nanoid } from 'nanoid';
 import { OrchestrationAnnotation } from '../state.js';
 import { contractState, worldContract } from '../masContract.js';
 import { fetchWorldContextNode, loadBibleEntriesNode, condenserNode } from '../nodes.js';
@@ -16,7 +17,13 @@ const graph = new StateGraph(OrchestrationAnnotation)
 
 export async function runCompressGraph(params: {
   worldId: string;
+  pipelineRunId?: string;
 }): Promise<{ entries: CompressionEntry[]; tokensIn: number; tokensOut: number }> {
-  const result = await graph.invoke({ worldId: params.worldId, ...contractState(worldContract('compress')) });
+  const result = await graph.invoke({
+    worldId: params.worldId,
+    pipelineRunId: params.pipelineRunId ?? nanoid(),
+    pipelineType: 'compress',
+    ...contractState(worldContract('compress')),
+  });
   return { entries: result.compressedEntries, tokensIn: result.tokensIn, tokensOut: result.tokensOut };
 }

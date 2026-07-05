@@ -12,7 +12,7 @@ const { Client } = pg;
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS_DIR = join(__dirname, 'migrations', 'postgres');
-const POSTGRES_MIGRATIONS = ['001_initial.sql', '002_full_schema.sql', '003_runs.sql'];
+const POSTGRES_MIGRATIONS = ['001_initial.sql', '002_full_schema.sql', '003_runs.sql', '004_call_log_instrumentation.sql'];
 const DATABASE_URL = process.env.DRIFT_TEST_DATABASE_URL
   ?? 'postgres://worldarchitect:worldarchitect@localhost:5432/worldarchitect';
 

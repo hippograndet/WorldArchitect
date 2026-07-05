@@ -242,11 +242,29 @@ export const api = {
           id: string; agentType: string; articleId: string | null;
           tokensIn: number | null; tokensOut: number | null;
           status: 'success' | 'error' | 'cap_exceeded';
-          errorMessage: string | null; createdAt: number;
+          errorMessage: string | null;
+          iterations: number | null; pipelineRunId: string | null; pipelineType: string | null;
+          createdAt: number;
         }>;
         pagination: { page: number; limit: number; total: number; pages: number };
         todayCount: number;
       }>(`/worlds/${wid}/call-log?page=${page}`),
+    summary: (wid: string) =>
+      get<{
+        agents: Array<{
+          agentType: string; calls: number;
+          avgTokensIn: number | null; avgTokensOut: number | null; avgIterations: number | null;
+        }>;
+      }>(`/worlds/${wid}/call-log/summary`),
+    runs: (wid: string, page = 1) =>
+      get<{
+        runs: Array<{
+          pipelineRunId: string; pipelineType: string | null; calls: number;
+          totalTokensIn: number; totalTokensOut: number;
+          startedAt: number; endedAt: number; agents: string[];
+        }>;
+        pagination: { page: number; limit: number; total: number; pages: number };
+      }>(`/worlds/${wid}/call-log/runs?page=${page}`),
   },
 
   export: {

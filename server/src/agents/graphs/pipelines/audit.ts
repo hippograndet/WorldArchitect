@@ -1,4 +1,5 @@
 import { StateGraph } from '@langchain/langgraph';
+import { nanoid } from 'nanoid';
 import { OrchestrationAnnotation } from '../state.js';
 import { contractState, worldContract } from '../masContract.js';
 import { fetchWorldContextNode, loadAuditSummariesNode, auditorNode } from '../nodes.js';
@@ -18,9 +19,12 @@ export async function runAuditGraph(params: {
   worldId: string;
   sampleSize?: number;
   focus?: 'all' | 'recent';
+  pipelineRunId?: string;
 }): Promise<{ edgeProposals: EdgeProposal[]; globalWarnings: GlobalWarning[]; tokensIn: number; tokensOut: number }> {
   const result = await graph.invoke({
     worldId: params.worldId,
+    pipelineRunId: params.pipelineRunId ?? nanoid(),
+    pipelineType: 'audit',
     ...contractState(worldContract('audit')),
     sampleSize: params.sampleSize,
     focus: params.focus ?? 'all',

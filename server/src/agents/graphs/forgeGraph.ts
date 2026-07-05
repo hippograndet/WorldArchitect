@@ -108,7 +108,7 @@ async function inceptionNode(state: ForgeState): Promise<Partial<ForgeState>> {
   if (item.startStep !== 'inception' || state.currentItemStepsDone.includes('inception')) return {};
 
   try {
-    const result = await runSummarizeGraph({ worldId: state.worldId, articleId: item.articleId, mode: 'improve' });
+    const result = await runSummarizeGraph({ worldId: state.worldId, articleId: item.articleId, mode: 'improve', pipelineRunId: state.runId });
     await upsertEntry(getDbClient(), state.worldId, item.articleId, result.introduction);
     await bumpRunBudget(state.runId, result.tokensIn + result.tokensOut);
     await logEvent(state.runId, 'Inception', item.title, true);
@@ -131,6 +131,7 @@ async function expansionNode(state: ForgeState): Promise<Partial<ForgeState>> {
       pipelineType: 'expand_description',
       autoSelect: true,
       contextDepth: state.contextDepth,
+      pipelineRunId: state.runId,
     });
     const selectedIndex = proposeResult.autoSelectedIndex ?? 0;
     const selectedProposal = proposeResult.proposals[selectedIndex];
@@ -145,6 +146,7 @@ async function expansionNode(state: ForgeState): Promise<Partial<ForgeState>> {
           introduction: state.inceptionIntro,
           selectedProposal,
           contextDepth: state.contextDepth,
+          pipelineRunId: state.runId,
         });
         selectedIdeas = ideasResult.ideas;
         await bumpRunBudget(state.runId, ideasResult.tokensIn + ideasResult.tokensOut);
@@ -161,6 +163,7 @@ async function expansionNode(state: ForgeState): Promise<Partial<ForgeState>> {
       contextDepth: state.contextDepth,
       selectedIdeas,
       runContinuityEditor: state.forgeUseContinuityEditor,
+      pipelineRunId: state.runId,
     });
     await bumpRunBudget(state.runId, expandResult.tokensIn + expandResult.tokensOut);
 
@@ -195,6 +198,7 @@ async function branchingNode(state: ForgeState): Promise<Partial<ForgeState>> {
       articleId: item.articleId,
       contextDepth: state.contextDepth,
       userSpec: branchHint,
+      pipelineRunId: state.runId,
     });
     await bumpRunBudget(state.runId, childResult.tokensIn + childResult.tokensOut);
 

@@ -1,4 +1,5 @@
 import { StateGraph } from '@langchain/langgraph';
+import { nanoid } from 'nanoid';
 import { OrchestrationAnnotation } from '../state.js';
 import { articleContract, contractState } from '../masContract.js';
 import { fetchWorldContextNode, buildContextPackageNode, oracleNode } from '../nodes.js';
@@ -23,10 +24,13 @@ export async function runProposeIdeasGraph(params: {
   selectedProposal: ProposalItem;
   userSpec?: string;
   contextDepth?: ContextDepth;
+  pipelineRunId?: string;
 }): Promise<{ ideas: IdeaItem[]; tokensIn: number; tokensOut: number }> {
   const result = await graph.invoke({
     worldId: params.worldId,
     articleId: params.articleId,
+    pipelineRunId: params.pipelineRunId ?? nanoid(),
+    pipelineType: 'propose_ideas',
     ...contractState(articleContract({
       articleId: params.articleId,
       intent: 'ideate',

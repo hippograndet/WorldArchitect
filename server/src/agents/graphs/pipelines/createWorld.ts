@@ -1,4 +1,5 @@
 import { StateGraph } from '@langchain/langgraph';
+import { nanoid } from 'nanoid';
 import { OrchestrationAnnotation } from '../state.js';
 import { contractState, worldContract } from '../masContract.js';
 import { fetchWorldContextNode, architectNode } from '../nodes.js';
@@ -16,9 +17,12 @@ export async function runCreateWorldGraph(params: {
   worldId: string;
   seedText: string;
   categories: Array<{ id: string; name: string }>;
+  pipelineRunId?: string;
 }): Promise<{ stubs: Stub[]; tokensIn: number; tokensOut: number }> {
   const result = await graph.invoke({
     worldId: params.worldId,
+    pipelineRunId: params.pipelineRunId ?? nanoid(),
+    pipelineType: 'create_world',
     ...contractState(worldContract('create_world')),
     seedText: params.seedText,
     categories: params.categories,

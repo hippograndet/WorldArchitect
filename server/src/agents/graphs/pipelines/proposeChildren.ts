@@ -1,4 +1,5 @@
 import { StateGraph } from '@langchain/langgraph';
+import { nanoid } from 'nanoid';
 import { OrchestrationAnnotation } from '../state.js';
 import { articleContract, contractState } from '../masContract.js';
 import { fetchWorldContextNode, buildContextPackageNode, cartographerNode } from '../nodes.js';
@@ -20,10 +21,13 @@ export async function runProposeChildrenGraph(params: {
   articleId: string;
   userSpec?: string;
   contextDepth?: ContextDepth;
+  pipelineRunId?: string;
 }): Promise<{ proposals: ChildProposalItem[]; tokensIn: number; tokensOut: number }> {
   const result = await graph.invoke({
     worldId: params.worldId,
     articleId: params.articleId,
+    pipelineRunId: params.pipelineRunId ?? nanoid(),
+    pipelineType: 'propose_children',
     ...contractState(articleContract({
       articleId: params.articleId,
       intent: 'branch',

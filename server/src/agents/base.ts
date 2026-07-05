@@ -87,7 +87,11 @@ export abstract class BaseAgent<TInput, TOutput> {
   /** Override to return undefined in agents that may produce free-text responses. */
   protected getToolChoice(): 'required' | undefined { return 'required'; }
 
-  async run(worldId: string, input: TInput): Promise<AgentResult<TOutput>> {
+  async run(
+    worldId: string,
+    input: TInput,
+    callCtx?: { pipelineRunId?: string; pipelineType?: string },
+  ): Promise<AgentResult<TOutput>> {
     const provider = await getProvider();
     const messages: ChatMessage[] = await this.buildMessages(worldId, input);
     const tools: Tool[] = [...this.getContextTools(), this.buildOutputTool()];
@@ -96,9 +100,11 @@ export abstract class BaseAgent<TInput, TOutput> {
     let tokensOut = 0;
     let status: 'success' | 'error' = 'error';
     let output: TOutput | null = null;
+    let iterations = 0;
 
     try {
       for (let iter = 0; iter < this.getMaxIterations(); iter++) {
+        iterations++;
         const toolChoice = this.getToolChoice();
         let result;
         try {
@@ -151,7 +157,16 @@ export abstract class BaseAgent<TInput, TOutput> {
       }
     } finally {
       try {
-        await logCall({ worldId, agentType: this.agentType, tokensIn, tokensOut, status });
+        await logCall({
+          worldId,
+          agentType: this.agentType,
+          tokensIn,
+          tokensOut,
+          status,
+          iterations,
+          pipelineRunId: callCtx?.pipelineRunId,
+          pipelineType: callCtx?.pipelineType,
+        });
       } catch { /* logging must never crash the agent */ }
     }
 
