@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Hammer } from 'lucide-react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useStore } from '../stores/index.ts';
 import BibleCompressorModal from '../components/bible/BibleCompressorModal.tsx';
@@ -10,6 +11,7 @@ export default function WorldOverviewPage() {
   const {
     worlds, treeNodes, bibleTokenCount, bibleThreshold,
     startAudit, agentPanelOpen,
+    selectArticle, openAgentPanel, setAgentParams,
   } = useStore();
 
   const world = worlds.find((w) => w.id === wid);
@@ -43,6 +45,14 @@ export default function WorldOverviewPage() {
   const handleBrowse = () => {
     if (!wid || treeNodes.length === 0) return;
     navigate(`/worlds/${wid}/articles/${treeNodes[0].id}`);
+  };
+
+  const handleForgeWorld = async () => {
+    if (!wid || treeNodes.length === 0 || agentPanelOpen) return;
+    const root = treeNodes[0];
+    await selectArticle(wid, root.id);
+    openAgentPanel(root.id, root.title, 'spark', 'forge_expand');
+    setAgentParams({ forgeEnabled: true, forgeMaxDepth: 1, forgeMaxChildren: 3 });
   };
 
   if (!world) {
@@ -131,6 +141,19 @@ export default function WorldOverviewPage() {
               <p className="text-sm font-semibold text-gray-800">Audit World</p>
               <p className="text-xs text-gray-500 mt-0.5">
                 Scan the full article graph for missing links and cross-article contradictions.
+              </p>
+            </div>
+          </button>
+          <button
+            onClick={handleForgeWorld}
+            disabled={agentPanelOpen || treeNodes.length === 0}
+            className="w-full flex items-start gap-4 p-4 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-left"
+          >
+            <span className="text-amber-600 leading-none mt-0.5"><Hammer size={20} /></span>
+            <div>
+              <p className="text-sm font-semibold text-gray-800">Forge World</p>
+              <p className="text-xs text-gray-500 mt-0.5">
+                Recursively expand the root article into a small reviewed-afterward article tree.
               </p>
             </div>
           </button>

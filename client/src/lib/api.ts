@@ -1,13 +1,20 @@
 import type { World, CreateWorldInput, BibleMeta, WorldIssue } from '../types/world.ts';
+import type { Run, RunWithEvents } from '../types/run.ts';
+import type { PipelineType } from '../stores/agentSlice.ts';
 import type { FlatArticle } from './tree.ts';
-import type { Article, ArticleDetail, ArticleGraph, ArticleGraphEdge, ArticleVersion, PendingDraft, CoherenceWarning } from '../types/article.ts';
+import type { Article, ArticleDetail, ArticleGraph, ArticleGraphEdge, ArticleVersion, PendingDraft, CoherenceWarning, AcceptDraftResult } from '../types/article.ts';
 import type { ContextDepth, IdeaItem, EdgeProposal, GlobalWarning, StyleWardenResult } from '../types/agent.ts';
 import { getAuthToken } from './authToken.ts';
 
 const BASE = '/api';
 
 async function authHeaders(): Promise<Record<string, string>> {
-  const token = await getAuthToken();
+  let token: string | null = null;
+  try {
+    token = await getAuthToken();
+  } catch (err) {
+    console.warn('Auth token unavailable; continuing without Authorization header.', err);
+  }
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
@@ -124,7 +131,7 @@ export const api = {
     draft: {
       get:     (wid: string, aid: string)              => get<PendingDraft | null>(`/worlds/${wid}/articles/${aid}/draft`),
       accept:  (wid: string, aid: string, input?: { descriptionOverride?: string; introductionOverride?: string }) =>
-        post<{ article: Article; version: ArticleVersion }>(`/worlds/${wid}/articles/${aid}/accept`, input ?? {}),
+        post<AcceptDraftResult>(`/worlds/${wid}/articles/${aid}/accept`, input ?? {}),
       discard: (wid: string, aid: string)              => del(`/worlds/${wid}/articles/${aid}/draft`),
     },
 
@@ -322,6 +329,26 @@ export const api = {
       patch<{ ok: true }>(`/worlds/${wid}/world-issues/${iid}`, { status }),
     forArticle: (wid: string, aid: string) =>
       get<WorldIssue[]>(`/worlds/${wid}/articles/${aid}/world-issues`),
+  },
+
+  runs: {
+    list:   (wid: string)               => get<Run[]>(`/worlds/${wid}/runs`),
+    get:    (wid: string, rid: string)  => get<RunWithEvents>(`/worlds/${wid}/runs/${rid}`),
+    create: (wid: string, input: {
+      articleIds: string[];
+      pipelineType: PipelineType;
+      budgetLimit?: number;
+      contextDepth?: ContextDepth;
+      branchingMode?: 'conceptual' | 'specific';
+      forgeMode?: 'breadth' | 'depth';
+      forgeMaxDepth?: number;
+      forgeMaxChildren?: number;
+      forgeUseOracle?: boolean;
+      forgeUseContinuityEditor?: boolean;
+    }) => post<Run>(`/worlds/${wid}/runs`, input),
+    cancel: (wid: string, rid: string)  => post<Run>(`/worlds/${wid}/runs/${rid}/cancel`),
+    pause:  (wid: string, rid: string)  => post<Run>(`/worlds/${wid}/runs/${rid}/pause`),
+    resume: (wid: string, rid: string)  => post<Run>(`/worlds/${wid}/runs/${rid}/resume`),
   },
 
   publish: {

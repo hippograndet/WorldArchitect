@@ -4,7 +4,11 @@ import { setTokenGetter } from '../../lib/authToken.ts';
 
 const CLERK_PUBLISHABLE_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY as string | undefined;
 
-export const hostedAuthEnabled = Boolean(CLERK_PUBLISHABLE_KEY);
+export function isValidClerkPublishableKey(key: string | undefined): key is string {
+  return /^pk_(test|live)_[A-Za-z0-9_-]+$/.test(key ?? '');
+}
+
+export const hostedAuthEnabled = isValidClerkPublishableKey(CLERK_PUBLISHABLE_KEY);
 
 // Registers Clerk's getToken during render (not a useEffect) so it's available
 // before any gated child's own data-fetch effect can run.

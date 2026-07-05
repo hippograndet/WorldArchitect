@@ -8,6 +8,7 @@ import RouteErrorBoundary from './components/shared/RouteErrorBoundary.tsx';
 import WorldList from './components/world/WorldList.tsx';
 import WorldCreationWizard from './components/world/WorldCreationWizard.tsx';
 import WorldSettings from './components/world/WorldSettings.tsx';
+import AppSettingsPage from './pages/AppSettingsPage.tsx';
 import ArticlePage from './components/article/ArticlePage.tsx';
 
 // Lazy-loaded: secondary pages loaded on first navigation
@@ -36,6 +37,7 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: <WorldList /> },
       { path: 'new',  element: <WorldCreationWizard /> },
+      { path: 'settings', element: <AppSettingsPage /> },
       {
         path: 'worlds/:wid',
         element: <AppShell />,

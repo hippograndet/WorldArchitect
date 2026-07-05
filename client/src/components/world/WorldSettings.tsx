@@ -1,93 +1,167 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { ArrowLeft, X, Sparkles } from 'lucide-react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useStore } from '../../stores/index.ts';
 import { api } from '../../lib/api.ts';
-import type { ProviderSettingsResponse } from '../../lib/api.ts';
-import type { VisualTheme } from '../../types/world.ts';
+import type { WorldStyleConfig } from '../../types/world.ts';
 
-// ---------------------------------------------------------------------------
-// Appearance constants (theme previews + font size steps)
-// ---------------------------------------------------------------------------
-
-interface ThemePreview {
-  value: VisualTheme;
+interface GuidancePreset {
+  key: string;
   label: string;
-  desc: string;
-  preview: { bg: string; surface: string; ink: string; accent: string; font: string; texture: string; textureSize: string };
+  value: string;
 }
 
-const THEME_PREVIEWS: ThemePreview[] = [
+const TONE_PRESETS: GuidancePreset[] = [
   {
-    value: 'default',
-    label: 'Luminary',
-    desc: 'Clean & modern',
-    preview: {
-      bg: '#ffffff', surface: '#f8fafc', ink: '#0f172a', accent: '#6d28d9',
-      font: 'system-ui, sans-serif',
-      texture: 'radial-gradient(rgba(15,23,42,0.04) 1px, transparent 1px)',
-      textureSize: '20px 20px',
-    },
+    key: 'story_companion',
+    label: 'Story Companion',
+    value: 'Write in an engaging, clear worldbuilding voice: authoritative enough to feel reliable, but evocative enough to carry atmosphere, character, and conflict. Treat each entry like part of a living story bible.',
   },
   {
-    value: 'arcane_scroll',
-    label: 'Arcane Scroll',
-    desc: 'Parchment fantasy',
-    preview: {
-      bg: '#f4e8d0', surface: '#e8d5b0', ink: '#3d2b1f', accent: '#8b4513',
-      font: "'IM Fell English', Georgia, serif",
-      texture: "repeating-linear-gradient(45deg,transparent 0px,transparent 10px,rgba(139,90,43,0.07) 10px,rgba(139,90,43,0.07) 11px),repeating-linear-gradient(-45deg,transparent 0px,transparent 10px,rgba(139,90,43,0.07) 10px,rgba(139,90,43,0.07) 11px)",
-      textureSize: 'auto',
-    },
+    key: 'archive_record',
+    label: 'Archive Record',
+    value: 'Write with restrained authority, as if compiling records for an internal archive. Prioritize clarity, continuity, dates, causes, consequences, and relationships over dramatic flourish.',
   },
   {
-    value: 'data_link',
-    label: 'Data-Link',
-    desc: 'Dark sci-fi',
-    preview: {
-      bg: '#0a0e1a', surface: '#0d1220', ink: '#c8d8f0', accent: '#00d4ff',
-      font: "'IBM Plex Mono', monospace",
-      texture: "repeating-linear-gradient(0deg,transparent 0px,transparent 3px,rgba(0,200,255,0.03) 3px,rgba(0,200,255,0.03) 4px)",
-      textureSize: 'auto',
-    },
-  },
-  {
-    value: 'dossier',
-    label: 'The Dossier',
-    desc: 'Typewriter noir',
-    preview: {
-      bg: '#f5f0e8', surface: '#ebe4d5', ink: '#2c2416', accent: '#8b6914',
-      font: "'Courier Prime', 'Courier New', monospace",
-      texture: "repeating-linear-gradient(180deg,transparent 0px,transparent 13px,rgba(100,80,50,0.1) 13px,rgba(100,80,50,0.1) 14px)",
-      textureSize: 'auto',
-    },
-  },
-  {
-    value: 'obsidian_codex',
-    label: 'Obsidian Codex',
-    desc: 'Dark fantasy',
-    preview: {
-      bg: '#0b0810', surface: '#0f0c18', ink: '#d4c8f0', accent: '#9b72cf',
-      font: "'Crimson Pro', Georgia, serif",
-      texture: "repeating-linear-gradient(0deg,transparent 0px,transparent 15px,rgba(120,80,180,0.06) 15px,rgba(120,80,180,0.06) 16px),repeating-linear-gradient(90deg,transparent 0px,transparent 15px,rgba(120,80,180,0.06) 15px,rgba(120,80,180,0.06) 16px)",
-      textureSize: 'auto',
-    },
-  },
-  {
-    value: 'verdant_atlas',
-    label: 'Verdant Atlas',
-    desc: 'Field journal',
-    preview: {
-      bg: '#f2f5ee', surface: '#e8ede3', ink: '#1c3a1c', accent: '#2e6b42',
-      font: "'Lora', Georgia, serif",
-      texture: 'radial-gradient(rgba(30,60,30,0.07) 1.2px, transparent 1.2px)',
-      textureSize: '14px 14px',
-    },
+    key: 'mythic_chronicle',
+    label: 'Mythic Chronicle',
+    value: 'Write with a sense of age, consequence, and remembered grandeur. Let entries feel like chronicles of events that shaped peoples, places, institutions, and beliefs over generations.',
   },
 ];
 
-const FONT_SIZE_STEPS = [0.85, 0.925, 1, 1.1, 1.2];
-const FONT_SIZE_LABELS = ['XS', 'S', 'M', 'L', 'XL'];
+const VIBE_PRESETS: GuidancePreset[] = [
+  {
+    key: 'epic_fantasy',
+    label: 'Epic Fantasy',
+    value: 'Grand, mythic, ancient. A world where the weight of history is felt in every stone and the stakes of every conflict echo across ages. Magic is real but costly. Heroes are forged by sacrifice.',
+  },
+  {
+    key: 'gritty_realism',
+    label: 'Gritty Realism',
+    value: 'Low-magic, brutal, political. Power is held by those willing to do what others will not. Moral ambiguity is the rule. Even heroic figures have blood on their hands. No clean victories.',
+  },
+  {
+    key: 'cosmic_horror',
+    label: 'Cosmic Horror',
+    value: 'Vast indifference, dread, and the creeping sense that human understanding is a thin veil over an incomprehensible reality. Knowledge is dangerous. Sanity is fragile.',
+  },
+  {
+    key: 'space_opera',
+    label: 'Space Opera',
+    value: 'Interstellar scale, wonder, and conflict. Empires span star systems. Individual heroes shape galactic events. Technology is indistinguishable from magic. The universe is vast but populated and alive.',
+  },
+];
+
+const WRITING_STYLE_PRESETS: GuidancePreset[] = [
+  {
+    key: 'elevated',
+    label: 'Elevated',
+    value: 'Use elevated, lyrical prose with deliberate rhythm. Favor precise imagery, resonant proper nouns, lineage references, and in-world terminology. Avoid irony unless the world itself calls for it.',
+  },
+  {
+    key: 'lean_visceral',
+    label: 'Lean & Visceral',
+    value: 'Use sparse, direct prose. Shorten sentences under pressure. Keep vocabulary earthy and concrete. Violence and conflict should carry consequences. Avoid decorative prose that does not reveal character, place, or tension.',
+  },
+  {
+    key: 'slow_dread',
+    label: 'Slow Dread',
+    value: 'Build unease gradually. Let matter-of-fact description give way to implication, contradiction, and uncertainty. Avoid overexplaining mysteries; make absence, silence, and incomplete knowledge do work.',
+  },
+  {
+    key: 'cinematic',
+    label: 'Cinematic',
+    value: 'Write with clear scene momentum, ensemble awareness, and strong visual composition. Balance action, political movement, and character stakes. Exposition should feel embedded in decisions and conflict.',
+  },
+];
+
+interface GuidanceParameterProps {
+  name: string;
+  presets: GuidancePreset[];
+  selectedPreset: string;
+  value: string;
+  placeholder: string;
+  rows?: number;
+  onPreset: (key: string) => void;
+  onChange: (value: string) => void;
+  onRefine?: () => void;
+  refining?: boolean;
+}
+
+function GuidanceParameter({
+  name,
+  presets,
+  selectedPreset,
+  value,
+  placeholder,
+  rows = 4,
+  onPreset,
+  onChange,
+  onRefine,
+  refining = false,
+}: GuidanceParameterProps) {
+  return (
+    <section className="rounded-lg border border-gray-200 p-4">
+      <div className="flex items-center justify-between gap-3 mb-3">
+        <h2 className="text-sm font-semibold text-gray-800">{name}</h2>
+        <span className="text-xs text-gray-400">Prompt context</span>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 mb-3 sm:grid-cols-3">
+        {presets.map((preset) => (
+          <button
+            key={preset.key}
+            type="button"
+            onClick={() => onPreset(preset.key)}
+            className={`min-h-10 rounded-md border px-3 py-2 text-left text-xs font-medium transition-colors ${
+              selectedPreset === preset.key
+                ? 'border-blue-500 bg-blue-50 text-blue-700'
+                : 'border-gray-200 text-gray-700 hover:border-gray-300 hover:bg-gray-50'
+            }`}
+          >
+            {preset.label}
+          </button>
+        ))}
+      </div>
+
+      <textarea
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        rows={rows}
+        placeholder={placeholder}
+        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
+      />
+
+      {onRefine && (
+        <button
+          type="button"
+          disabled={!value.trim() || refining}
+          onClick={onRefine}
+          className="mt-2 inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          <Sparkles size={12} />
+          {refining ? 'Refining...' : 'Refine with AI'}
+        </button>
+      )}
+    </section>
+  );
+}
+
+const presetKeyFromName = (presets: GuidancePreset[], name: string | undefined) => {
+  if (!name) return '';
+  const baseName = name.endsWith(' - Custom') ? name.slice(0, -' - Custom'.length) : name;
+  return presets.find((preset) => preset.label === baseName)?.key ?? '';
+};
+
+const presetNameFor = (presets: GuidancePreset[], selectedKey: string, currentValue: string) => {
+  const preset = presets.find((p) => p.key === selectedKey);
+  if (!preset) return 'Custom';
+  return currentValue.trim() === preset.value.trim() ? preset.label : `${preset.label} - Custom`;
+};
+
+const presetValueFor = (presets: GuidancePreset[], selectedKey: string) => {
+  return presets.find((p) => p.key === selectedKey)?.value;
+};
 
 // ---------------------------------------------------------------------------
 // Main WorldSettings component
@@ -96,7 +170,7 @@ const FONT_SIZE_LABELS = ['XS', 'S', 'M', 'L', 'XL'];
 export default function WorldSettings() {
   const { wid } = useParams<{ wid: string }>();
   const navigate = useNavigate();
-  const { worlds, updateWorld, deleteWorld, addToast, globalTheme, setGlobalTheme, fontSize, setFontSize } = useStore();
+  const { worlds, updateWorld, deleteWorld, addToast } = useStore();
 
   const world = worlds.find((w) => w.id === wid);
 
@@ -105,7 +179,17 @@ export default function WorldSettings() {
   const [saving, setSaving]             = useState(false);
 
   // Style fields
+  const [selectedTonePreset, setSelectedTonePreset] = useState(
+    () => presetKeyFromName(TONE_PRESETS, world?.styleConfig?.tonePreset),
+  );
+  const [toneGuidance, setToneGuidance] = useState(world?.styleConfig?.toneGuidance ?? '');
+  const [selectedVibePreset, setSelectedVibePreset] = useState(
+    () => presetKeyFromName(VIBE_PRESETS, world?.styleConfig?.vibePreset),
+  );
   const [vibe, setVibe]                   = useState(world?.styleConfig?.vibe ?? '');
+  const [selectedWritingPreset, setSelectedWritingPreset] = useState(
+    () => presetKeyFromName(WRITING_STYLE_PRESETS, world?.styleConfig?.writingStylePreset),
+  );
   const [writingStyle, setWritingStyle]   = useState(world?.styleConfig?.writingStyle ?? '');
   const [inspirations, setInspirations]   = useState<string[]>(
     () => (world?.styleConfig?.inspirations ?? []).map((i) => i.name),
@@ -116,26 +200,6 @@ export default function WorldSettings() {
   // Distill state
   const [distilling, setDistilling]     = useState(false);
   const [distillPatch, setDistillPatch] = useState<{ vibe_append: string; writingStyle_append: string } | null>(null);
-  const [providerSettings, setProviderSettings] = useState<ProviderSettingsResponse | null>(null);
-  const [provider, setProvider] = useState<ProviderSettingsResponse['provider']>('none');
-  const [apiKey, setApiKey] = useState('');
-  const [model, setModel] = useState('');
-  const [ollamaUrl, setOllamaUrl] = useState('');
-  const [localOnly, setLocalOnly] = useState(false);
-  const [savingProvider, setSavingProvider] = useState(false);
-
-  useEffect(() => {
-    api.settings.get()
-      .then((settings) => {
-        setProviderSettings(settings);
-        setProvider(settings.provider);
-        setLocalOnly(settings.localOnly.enabled);
-        const active = settings[settings.provider as keyof ProviderSettingsResponse] as { model?: string; url?: string } | undefined;
-        setModel(active?.model ?? '');
-        setOllamaUrl(settings.ollama.url);
-      })
-      .catch((err) => addToast({ message: (err as Error).message, type: 'error' }));
-  }, [addToast]);
 
   if (!world) {
     return <div className="p-8 text-sm text-gray-400">World not found.</div>;
@@ -158,21 +222,51 @@ export default function WorldSettings() {
   const handleSaveStyle = async () => {
     if (!wid || saving) return;
     setSaving(true);
+    const styleConfig: Partial<WorldStyleConfig> = {
+      ...world.styleConfig,
+      preset: selectedVibePreset || selectedWritingPreset || selectedTonePreset || world.styleConfig?.preset,
+      tonePreset: presetNameFor(TONE_PRESETS, selectedTonePreset, toneGuidance),
+      tonePresetValue: presetValueFor(TONE_PRESETS, selectedTonePreset),
+      toneGuidance: toneGuidance.trim(),
+      vibePreset: presetNameFor(VIBE_PRESETS, selectedVibePreset, vibe),
+      vibePresetValue: presetValueFor(VIBE_PRESETS, selectedVibePreset),
+      vibe: vibe.trim(),
+      writingStylePreset: presetNameFor(WRITING_STYLE_PRESETS, selectedWritingPreset, writingStyle),
+      writingStylePresetValue: presetValueFor(WRITING_STYLE_PRESETS, selectedWritingPreset),
+      writingStyle: writingStyle.trim(),
+      inspirations: inspirations.map((name) => ({ name })),
+      constraints: world.styleConfig?.constraints,
+    };
+
     try {
-      await updateWorld(wid, {
-        styleConfig: {
-          vibe,
-          writingStyle,
-          inspirations: inspirations.map((name) => ({ name })),
-          constraints: world.styleConfig?.constraints,
-        },
-      });
+      await updateWorld(wid, { tone: 'custom', styleConfig });
       addToast({ message: 'Style saved.', type: 'success' });
     } catch (err) {
       addToast({ message: (err as Error).message, type: 'error' });
     } finally {
       setSaving(false);
     }
+  };
+
+  const applyTonePreset = (key: string) => {
+    const preset = TONE_PRESETS.find((p) => p.key === key);
+    if (!preset) return;
+    setSelectedTonePreset(key);
+    setToneGuidance(preset.value);
+  };
+
+  const applyVibePreset = (key: string) => {
+    const preset = VIBE_PRESETS.find((p) => p.key === key);
+    if (!preset) return;
+    setSelectedVibePreset(key);
+    setVibe(preset.value);
+  };
+
+  const applyWritingPreset = (key: string) => {
+    const preset = WRITING_STYLE_PRESETS.find((p) => p.key === key);
+    if (!preset) return;
+    setSelectedWritingPreset(key);
+    setWritingStyle(preset.value);
   };
 
   const handleExpandField = async (fieldType: 'vibe' | 'writingStyle') => {
@@ -237,28 +331,6 @@ export default function WorldSettings() {
     setNewInspirationName('');
   };
 
-  const handleSaveProvider = async () => {
-    setSavingProvider(true);
-    try {
-      const input: { provider: string; apiKey?: string; model?: string; ollamaUrl?: string; localOnly?: boolean } = {
-        provider,
-        localOnly,
-      };
-      if (apiKey.trim() && provider !== 'none' && provider !== 'ollama') input.apiKey = apiKey.trim();
-      if (model.trim() && provider !== 'none') input.model = model.trim();
-      if (ollamaUrl.trim() && provider === 'ollama') input.ollamaUrl = ollamaUrl.trim();
-      await api.settings.update(input);
-      const refreshed = await api.settings.get();
-      setProviderSettings(refreshed);
-      setApiKey('');
-      addToast({ message: 'Provider settings saved.', type: 'success' });
-    } catch (err) {
-      addToast({ message: (err as Error).message, type: 'error' });
-    } finally {
-      setSavingProvider(false);
-    }
-  };
-
   return (
     <div className="max-w-xl mx-auto py-10 px-6">
       <Link to={`/worlds/${wid ?? ''}`} className="text-sm text-gray-400 hover:text-gray-700 flex items-center gap-1 w-fit">
@@ -283,137 +355,47 @@ export default function WorldSettings() {
         </dl>
       </section>
 
-      {/* App Appearance — global, instant */}
-      <section className="mb-10 border border-gray-200 rounded-xl p-5">
-        <h2 className="text-sm font-semibold text-gray-800 mb-1">Appearance</h2>
-        <p className="text-xs text-gray-400 mb-5">Global settings — apply instantly and persist across worlds.</p>
-
-        {/* Theme grid */}
-        <div className="mb-6">
-          <label className="text-xs font-medium text-gray-700 block mb-2">Theme</label>
-          <div className="grid grid-cols-3 gap-2">
-            {(THEME_PREVIEWS as ThemePreview[]).map((t) => (
-              <button
-                key={t.value}
-                type="button"
-                onClick={() => setGlobalTheme(t.value)}
-                className="cursor-pointer text-left focus:outline-none transition-transform hover:scale-[1.02]"
-                style={{
-                  outline: globalTheme === t.value ? `2px solid ${t.preview.accent}` : '2px solid transparent',
-                  outlineOffset: '2px',
-                  borderRadius: '10px',
-                }}
-              >
-                {/* Swatch */}
-                <div
-                  className="h-14 w-full overflow-hidden flex items-center justify-center"
-                  style={{
-                    background: t.preview.bg,
-                    backgroundImage: t.preview.texture,
-                    backgroundSize: t.preview.textureSize,
-                    borderRadius: '8px 8px 0 0',
-                    fontFamily: t.preview.font,
-                    color: t.preview.ink,
-                  }}
-                >
-                  <span style={{ fontSize: '1.6rem', lineHeight: 1, opacity: 0.85 }}>Aa</span>
-                </div>
-                {/* Accent strip */}
-                <div style={{ height: '3px', background: t.preview.accent }} />
-                {/* Label — uses this card's own font */}
-                <div
-                  className="px-2 py-1.5"
-                  style={{
-                    background: t.preview.surface,
-                    borderRadius: '0 0 8px 8px',
-                    border: `1px solid ${t.preview.accent}20`,
-                    borderTop: 'none',
-                    fontFamily: t.preview.font,
-                  }}
-                >
-                  <p className="text-xs font-medium leading-tight" style={{ color: t.preview.ink, fontSize: '0.7rem' }}>{t.label}</p>
-                  <p className="leading-tight mt-0.5" style={{ color: t.preview.ink, opacity: 0.5, fontSize: '0.62rem' }}>{t.desc}</p>
-                </div>
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Font size slider */}
-        <div>
-          {(() => {
-            const stepIdx = FONT_SIZE_STEPS.reduce((best, s, i) =>
-              Math.abs(s - fontSize) < Math.abs(FONT_SIZE_STEPS[best] - fontSize) ? i : best, 2);
-            return (
-              <>
-                <div className="flex items-center justify-between mb-2">
-                  <label className="text-xs font-medium text-gray-700">Text Size</label>
-                  <span className="text-xs text-gray-400">{FONT_SIZE_LABELS[stepIdx]}</span>
-                </div>
-                <input
-                  type="range"
-                  min={0}
-                  max={FONT_SIZE_STEPS.length - 1}
-                  step={1}
-                  value={stepIdx}
-                  onChange={(e) => setFontSize(FONT_SIZE_STEPS[Number(e.target.value)])}
-                  className="w-full wa-slider"
-                />
-              </>
-            );
-          })()}
-          <div className="flex justify-between mt-1">
-            {FONT_SIZE_LABELS.map((lbl) => (
-              <span key={lbl} className="text-xs text-gray-400" style={{ fontSize: '0.6rem' }}>{lbl}</span>
-            ))}
-          </div>
-        </div>
-      </section>
-
       {/* Style config */}
       <section className="mb-10 border border-gray-200 rounded-xl p-5">
         <h2 className="text-sm font-semibold text-gray-800 mb-1">World Style</h2>
-        <p className="text-xs text-gray-400 mb-5">Controls the AI's aesthetic direction for all generated content.</p>
+        <p className="text-xs text-gray-400 mb-5">World-level prompt context used by this world's AI generation.</p>
 
-        {/* Vibe */}
-        <div className="mb-4">
-          <div className="flex items-center justify-between mb-1.5">
-            <label className="text-xs font-medium text-gray-700">Vibe & Atmosphere</label>
-            <button
-              onClick={() => handleExpandField('vibe')}
-              disabled={!vibe.trim() || expandingField === 'vibe'}
-              className="text-xs text-purple-600 hover:text-purple-800 disabled:opacity-40"
-            >
-              {expandingField === 'vibe' ? 'Expanding…' : '✦ Expand with AI'}
-            </button>
-          </div>
-          <textarea
-            value={vibe}
-            onChange={(e) => setVibe(e.target.value)}
-            rows={3}
-            placeholder="e.g. bleak industrial, grey skies, tension beneath the surface…"
-            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs resize-none focus:outline-none focus:ring-2 focus:ring-purple-300 placeholder:text-gray-300"
+        <div className="flex flex-col gap-4 mb-5">
+          <GuidanceParameter
+            name="Writing Tone"
+            presets={TONE_PRESETS}
+            selectedPreset={selectedTonePreset}
+            value={toneGuidance}
+            placeholder="Select a preset or write the tone guidance that should steer this world's generated articles."
+            rows={4}
+            onPreset={applyTonePreset}
+            onChange={setToneGuidance}
           />
-        </div>
 
-        {/* Writing style */}
-        <div className="mb-4">
-          <div className="flex items-center justify-between mb-1.5">
-            <label className="text-xs font-medium text-gray-700">Writing Style</label>
-            <button
-              onClick={() => handleExpandField('writingStyle')}
-              disabled={!writingStyle.trim() || expandingField === 'writingStyle'}
-              className="text-xs text-purple-600 hover:text-purple-800 disabled:opacity-40"
-            >
-              {expandingField === 'writingStyle' ? 'Expanding…' : '✦ Expand with AI'}
-            </button>
-          </div>
-          <textarea
+          <GuidanceParameter
+            name="Vibe & Atmosphere"
+            presets={VIBE_PRESETS}
+            selectedPreset={selectedVibePreset}
+            value={vibe}
+            placeholder="Select a preset or write the atmospheric context that should steer this world's generated articles."
+            rows={4}
+            onPreset={applyVibePreset}
+            onChange={setVibe}
+            onRefine={() => handleExpandField('vibe')}
+            refining={expandingField === 'vibe'}
+          />
+
+          <GuidanceParameter
+            name="Writing Style"
+            presets={WRITING_STYLE_PRESETS}
+            selectedPreset={selectedWritingPreset}
             value={writingStyle}
-            onChange={(e) => setWritingStyle(e.target.value)}
-            rows={3}
-            placeholder="e.g. terse, close third-person POV, short punchy sentences…"
-            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs resize-none focus:outline-none focus:ring-2 focus:ring-purple-300 placeholder:text-gray-300"
+            placeholder="Select a preset or write the prose guidance that should steer this world's generated articles."
+            rows={4}
+            onPreset={applyWritingPreset}
+            onChange={setWritingStyle}
+            onRefine={() => handleExpandField('writingStyle')}
+            refining={expandingField === 'writingStyle'}
           />
         </div>
 
@@ -509,88 +491,6 @@ export default function WorldSettings() {
           className="w-full py-2 text-sm font-medium bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
         >
           {saving ? 'Saving…' : 'Save Style'}
-        </button>
-      </section>
-
-      {/* Provider settings */}
-      <section className="mb-10 border border-gray-200 rounded-xl p-5">
-        <h2 className="text-sm font-semibold text-gray-800 mb-1">AI Provider</h2>
-        <p className="text-xs text-gray-400 mb-5">Global settings for optional AI tools.</p>
-
-        <div className="mb-4">
-          <label className="text-xs font-medium text-gray-700 block mb-1.5">Provider</label>
-          <select
-            value={provider}
-            onChange={(e) => setProvider(e.target.value as ProviderSettingsResponse['provider'])}
-            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-purple-300"
-          >
-            <option value="none">None</option>
-            <option value="anthropic">Anthropic</option>
-            <option value="openai">OpenAI</option>
-            <option value="groq">Groq</option>
-            <option value="ollama">Ollama</option>
-          </select>
-        </div>
-
-        {provider !== 'none' && provider !== 'ollama' && (
-          <div className="mb-4">
-            <label className="text-xs font-medium text-gray-700 block mb-1.5">API key</label>
-            <input
-              type="password"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder={providerSettings?.[provider]?.keyMasked ?? 'Paste API key'}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-300"
-            />
-            <p className="text-xs text-gray-400 mt-1">
-              Current source: {providerSettings?.[provider]?.keySource ?? 'unset'}
-            </p>
-          </div>
-        )}
-
-        {provider === 'ollama' && (
-          <div className="mb-4">
-            <label className="text-xs font-medium text-gray-700 block mb-1.5">Ollama URL</label>
-            <input
-              type="url"
-              value={ollamaUrl}
-              onChange={(e) => setOllamaUrl(e.target.value)}
-              placeholder="http://localhost:11434"
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-300"
-            />
-          </div>
-        )}
-
-        {provider !== 'none' && (
-          <div className="mb-4">
-            <label className="text-xs font-medium text-gray-700 block mb-1.5">Model</label>
-            <input
-              type="text"
-              value={model}
-              onChange={(e) => setModel(e.target.value)}
-              placeholder="Model name"
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-300"
-            />
-          </div>
-        )}
-
-        <label className="mb-5 flex items-center gap-2 text-sm text-gray-700">
-          <input
-            type="checkbox"
-            checked={localOnly}
-            disabled={providerSettings?.localOnly.forcedByEnv}
-            onChange={(e) => setLocalOnly(e.target.checked)}
-          />
-          Local-only mode
-          {providerSettings?.localOnly.forcedByEnv && <span className="text-xs text-gray-400">forced by env</span>}
-        </label>
-
-        <button
-          onClick={handleSaveProvider}
-          disabled={savingProvider}
-          className="w-full py-2 text-sm font-medium bg-gray-900 text-white rounded-lg hover:bg-gray-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-        >
-          {savingProvider ? 'Saving…' : 'Save Provider'}
         </button>
       </section>
 

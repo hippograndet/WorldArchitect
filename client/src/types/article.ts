@@ -12,6 +12,7 @@ export interface Article {
   temporalAnchorEnd: string | null;
   isFixedPoint: boolean;
   currentVersionId: string | null;
+  lockedByRunId: string | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -91,6 +92,10 @@ export interface PendingDraft {
   createdAt: number;
   updatedAt: number;
 }
+
+export type AcceptDraftResult =
+  | { article: Article; version: ArticleVersion }
+  | { article: Article; childArticle: Article; childVersion: ArticleVersion };
 
 export interface DraftContent {
   description?: string;

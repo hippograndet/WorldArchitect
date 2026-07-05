@@ -168,6 +168,14 @@ export default function ArticlePage() {
               article.status === 'draft'    ? 'bg-blue-100 text-blue-700' :
                                               'bg-gray-100 text-gray-500'
             }`}>{article.status}</span>
+            {article.lockedByRunId && (
+              <span
+                className="px-1.5 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-700"
+                title="Locked by an in-progress automated run — manual edits are blocked until it finishes"
+              >
+                🔒 locked by run
+              </span>
+            )}
             <span>{article.templateType}</span>
             {article.temporalAnchorStart && (
               <span>{article.temporalAnchorEnd

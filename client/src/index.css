@@ -228,6 +228,7 @@ body {
 [data-theme="arcane_scroll"] .bg-purple-50    { background-color: #ede0c4; }
 
 /* Text */
+[data-theme="arcane_scroll"] .text-gray-950   { color: #2f2118; }
 [data-theme="arcane_scroll"] .text-gray-900   { color: #3d2b1f; }
 [data-theme="arcane_scroll"] .text-gray-800   { color: #4a3326; }
 [data-theme="arcane_scroll"] .text-gray-700   { color: #5a3f2e; }
@@ -235,6 +236,8 @@ body {
 [data-theme="arcane_scroll"] .text-gray-500   { color: #8b6348; }
 [data-theme="arcane_scroll"] .text-gray-400   { color: #a07855; }
 [data-theme="arcane_scroll"] .text-gray-300   { color: #c4a882; }
+[data-theme="arcane_scroll"] .text-gray-100,
+[data-theme="arcane_scroll"] .text-gray-50    { color: #fff8ea; }
 
 /* Borders */
 [data-theme="arcane_scroll"] .border-gray-100 { border-color: #dcc9a0; }
@@ -337,13 +340,16 @@ body {
 [data-theme="data_link"] .bg-green-50     { background-color: #0a1a0f; }
 
 /* Text */
+[data-theme="data_link"] .text-gray-950   { color: #f0f7ff; }
 [data-theme="data_link"] .text-gray-900   { color: #e0eeff; }
 [data-theme="data_link"] .text-gray-800   { color: #c8d8f0; }
 [data-theme="data_link"] .text-gray-700   { color: #a8c0e0; }
 [data-theme="data_link"] .text-gray-600   { color: #8aa8cc; }
-[data-theme="data_link"] .text-gray-500   { color: #6a82aa; }
-[data-theme="data_link"] .text-gray-400   { color: #4a6288; }
-[data-theme="data_link"] .text-gray-300   { color: #2a4268; }
+[data-theme="data_link"] .text-gray-500   { color: #7f9dcc; }
+[data-theme="data_link"] .text-gray-400   { color: #6f8bb8; }
+[data-theme="data_link"] .text-gray-300   { color: #5b76a0; }
+[data-theme="data_link"] .text-gray-100,
+[data-theme="data_link"] .text-gray-50    { color: #f0f7ff; }
 
 /* Borders */
 [data-theme="data_link"] .border-gray-100 { border-color: #1a2540; }
@@ -461,6 +467,7 @@ body {
 [data-theme="dossier"] .text-red-700      { color: #8b2a1a; }
 
 /* Text */
+[data-theme="dossier"] .text-gray-950     { color: #21180d; }
 [data-theme="dossier"] .text-gray-900     { color: #2c2416; }
 [data-theme="dossier"] .text-gray-800     { color: #36301e; }
 [data-theme="dossier"] .text-gray-700     { color: #4a4028; }
@@ -468,6 +475,8 @@ body {
 [data-theme="dossier"] .text-gray-500     { color: #7a6a52; }
 [data-theme="dossier"] .text-gray-400     { color: #9a8a72; }
 [data-theme="dossier"] .text-gray-300     { color: #c0af96; }
+[data-theme="dossier"] .text-gray-100,
+[data-theme="dossier"] .text-gray-50      { color: #fff9ed; }
 
 /* Borders */
 [data-theme="dossier"] .border-gray-100   { border-color: #d8ceba; }
@@ -566,13 +575,16 @@ body {
 [data-theme="obsidian_codex"] .bg-green-50     { background-color: #0c1818; }
 
 /* Text */
+[data-theme="obsidian_codex"] .text-gray-950   { color: #f7f2ff; }
 [data-theme="obsidian_codex"] .text-gray-900   { color: #ede8ff; }
 [data-theme="obsidian_codex"] .text-gray-800   { color: #d4c8f0; }
 [data-theme="obsidian_codex"] .text-gray-700   { color: #b8a8d8; }
-[data-theme="obsidian_codex"] .text-gray-600   { color: #9a88be; }
-[data-theme="obsidian_codex"] .text-gray-500   { color: #8a7ab0; }
-[data-theme="obsidian_codex"] .text-gray-400   { color: #6a5890; }
-[data-theme="obsidian_codex"] .text-gray-300   { color: #3e2e68; }
+[data-theme="obsidian_codex"] .text-gray-600   { color: #a996cf; }
+[data-theme="obsidian_codex"] .text-gray-500   { color: #9c8bc4; }
+[data-theme="obsidian_codex"] .text-gray-400   { color: #8d78b8; }
+[data-theme="obsidian_codex"] .text-gray-300   { color: #765fa3; }
+[data-theme="obsidian_codex"] .text-gray-100,
+[data-theme="obsidian_codex"] .text-gray-50    { color: #f7f2ff; }
 
 /* Borders */
 [data-theme="obsidian_codex"] .border-gray-100 { border-color: #1e183a; }
@@ -667,6 +679,7 @@ body {
 [data-theme="verdant_atlas"] .bg-green-50     { background-color: #dff0e4; }
 
 /* Text */
+[data-theme="verdant_atlas"] .text-gray-950   { color: #132b13; }
 [data-theme="verdant_atlas"] .text-gray-900   { color: #1c3a1c; }
 [data-theme="verdant_atlas"] .text-gray-800   { color: #254825; }
 [data-theme="verdant_atlas"] .text-gray-700   { color: #305530; }
@@ -674,6 +687,8 @@ body {
 [data-theme="verdant_atlas"] .text-gray-500   { color: #607a60; }
 [data-theme="verdant_atlas"] .text-gray-400   { color: #80a080; }
 [data-theme="verdant_atlas"] .text-gray-300   { color: #a8c4a8; }
+[data-theme="verdant_atlas"] .text-gray-100,
+[data-theme="verdant_atlas"] .text-gray-50    { color: #fbfff8; }
 
 /* Borders */
 [data-theme="verdant_atlas"] .border-gray-100 { border-color: #ccdacc; }
@@ -730,3 +745,38 @@ body {
 [data-theme="verdant_atlas"] ::-webkit-scrollbar-track { background: #e8ede3; }
 [data-theme="verdant_atlas"] ::-webkit-scrollbar-thumb { background: #b8ccb8; border-radius: 10px; }
 [data-theme="verdant_atlas"] ::-webkit-scrollbar-thumb:hover { background: #a0b8a0; }
+
+/* ============================================================
+   THEME READABILITY GUARDRAILS
+   Keep the cinematic palettes, but make shared UI controls legible.
+   ============================================================ */
+
+[data-theme] select option {
+  background-color: var(--surface);
+  color: var(--ink);
+}
+
+[data-theme] input:disabled,
+[data-theme] textarea:disabled,
+[data-theme] select:disabled,
+[data-theme] button:disabled {
+  opacity: 0.58;
+}
+
+[data-theme="data_link"] .text-red-700,
+[data-theme="obsidian_codex"] .text-red-700 { color: #ff8a8a; }
+[data-theme="data_link"] .border-red-200,
+[data-theme="obsidian_codex"] .border-red-200 { border-color: #653030; }
+
+[data-theme="data_link"] .text-green-700,
+[data-theme="obsidian_codex"] .text-green-700 { color: #63e6be; }
+[data-theme="data_link"] .text-amber-700,
+[data-theme="obsidian_codex"] .text-amber-700 { color: #ffd166; }
+
+[data-theme="arcane_scroll"] .text-white,
+[data-theme="dossier"] .text-white,
+[data-theme="verdant_atlas"] .text-white,
+[data-theme="data_link"] .text-white,
+[data-theme="obsidian_codex"] .text-white {
+  color: #ffffff;
+}

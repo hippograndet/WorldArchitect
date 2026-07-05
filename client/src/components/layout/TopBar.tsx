@@ -11,6 +11,7 @@ const NAV_LINKS = [
   { label: 'Inbox',    path: 'inbox' },
   { label: 'Toolbox',  path: 'toolbox' },
   { label: 'Publish',  path: 'publish' },
+  { label: 'Settings', path: 'settings' },
 ];
 
 export default function TopBar() {
@@ -69,7 +70,8 @@ export default function TopBar() {
         {NAV_LINKS.map(({ label, path }) => {
           const to = `/worlds/${wid ?? ''}/${path}`;
           const active = location.pathname === to;
-          const showBadge = path === 'inbox' && inboxCount > 0;
+          const badgeCount = path === 'inbox' ? inboxCount : 0;
+          const showBadge = badgeCount > 0;
           return (
             <Link
               key={path}
@@ -83,7 +85,7 @@ export default function TopBar() {
               {label}
               {showBadge && (
                 <span className="absolute -top-0.5 -right-0.5 min-w-[14px] h-3.5 flex items-center justify-center rounded-full bg-red-500 text-white text-[9px] font-bold px-1">
-                  {inboxCount > 9 ? '9+' : inboxCount}
+                  {badgeCount > 9 ? '9+' : badgeCount}
                 </span>
               )}
             </Link>
@@ -112,9 +114,10 @@ export default function TopBar() {
           Snapshots
         </Link>
         <Link
-          to={`/worlds/${wid ?? ''}/settings`}
+          to="/settings"
           className="px-2 py-1 text-gray-400 hover:text-gray-700 text-sm"
-          title="World settings"
+          title="App settings"
+          aria-label="App settings"
         >
           <Settings size={16} />
         </Link>

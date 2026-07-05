@@ -1,19 +1,10 @@
 import type { StateCreator } from 'zustand';
 import type { StoreState } from './index.ts';
 import { api } from '../lib/api.ts';
-import type { IdeaItem } from '../types/agent.ts';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-
-export interface ForgeItem {
-  articleId: string;
-  title: string;
-  depth: number;
-  /** Which step to start from for this article. Children always get 'inception'. */
-  startStep: 'inception' | 'expansion' | 'branching';
-}
 
 export interface ForgeLogEntry {
   step: string;
@@ -25,7 +16,7 @@ export interface ForgeLogEntry {
 export interface ForgeSlice {
   forgeRunning: boolean;
   forgePaused: boolean;
-  forgeQueue: ForgeItem[];
+  forgeRunId: string | null;
   forgeLog: ForgeLogEntry[];
   forgeCurrentTitle: string | null;
   forgeCurrentStep: string | null;
@@ -33,183 +24,90 @@ export interface ForgeSlice {
   forgeTotal: number;
 
   startForge: (worldId: string) => Promise<void>;
-  pauseForge: () => void;
+  pauseForge: (worldId: string) => Promise<void>;
   resumeForge: (worldId: string) => Promise<void>;
-  stopForge: () => void;
+  stopForge: (worldId: string) => Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
 // Slice implementation
+//
+// Forge itself (Inception -> Expansion -> Branching, recursive) now runs
+// entirely server-side as a LangGraph graph (server/src/agents/graphs/
+// forgeGraph.ts) — this slice's job shrank from running the loop to
+// creating the run and polling its status, the same "no streaming, poll
+// instead" pattern already used elsewhere in this codebase. Same fields,
+// same SparkConfigView/ForgeProgressView contract; only the internals
+// changed from a client-side while(true) loop to create+poll.
 // ---------------------------------------------------------------------------
+
+const POLL_INTERVAL_MS = 1500;
+let pollTimer: ReturnType<typeof setTimeout> | null = null;
+
+function stopPolling(): void {
+  if (pollTimer !== null) {
+    clearTimeout(pollTimer);
+    pollTimer = null;
+  }
+}
 
 export const forgeSlice: StateCreator<StoreState, [['zustand/immer', never]], [], ForgeSlice> = (set, get) => {
 
-  const runForgeLoop = async (worldId: string) => {
-    while (true) {
-      const state = get();
-      if (!state.forgeRunning || state.forgePaused) break;
-
-      const queue = state.forgeQueue;
-      if (queue.length === 0) break;
-
-      const item = { ...queue[0] };
-      const { contextDepth, branchingMode, forgeMode, forgeMaxDepth, forgeMaxChildren, forgeUseOracle, forgeUseContinuityEditor } = state.agentParams;
-
-      set((s) => {
-        s.forgeQueue.shift();
-        s.forgeCurrentTitle = item.title;
-        s.forgeCurrentStep  =
-          item.startStep === 'branching' ? 'Branching' :
-          item.startStep === 'expansion' ? 'Expansion' : 'Inception';
-      });
+  const poll = (worldId: string, runId: string) => {
+    stopPolling();
+    pollTimer = setTimeout(async () => {
+      // A newer run started (or the panel was closed/reset) while this tick was
+      // scheduled — stop silently instead of clobbering the current state.
+      if (get().forgeRunId !== runId) return;
 
       try {
-        // Track the intro produced by Inception so Oracle can use it
-        let inceptionIntro: string | undefined;
+        const run = await api.runs.get(worldId, runId);
+        if (get().forgeRunId !== runId) return;
 
-        // ── Step 1: Inception ────────────────────────────────────────────────
-        // Runs when article is a fresh stub: polishes the stub summary into a
-        // proper World Bible intro. Server falls back to 'full' if no existing
-        // intro is found.
-        if (item.startStep === 'inception') {
-          set((s) => { s.forgeCurrentStep = 'Inception'; });
-
-          const introResult = await api.agents.summarize(worldId, {
-            articleId: item.articleId,
-            mode:      'improve',
-          });
-          await api.bible.updateEntry(worldId, item.articleId, introResult.introduction);
-          inceptionIntro = introResult.introduction;
-          set((s) => { s.forgeLog.unshift({ step: 'Inception', title: item.title, ok: true, ts: Date.now() }); });
-
-          if (!get().forgeRunning || get().forgePaused) break;
-        }
-
-        // ── Step 2: Expansion ────────────────────────────────────────────────
-        if (item.startStep !== 'branching') {
-          set((s) => { s.forgeCurrentStep = 'Expansion'; });
-
-          const proposalResult = await api.agents.propose(worldId, {
-            articleId:    item.articleId,
-            pipelineType: 'expand_description',
-            autoSelect:   true,
-            contextDepth,
-          });
-          const selectedIndex  = proposalResult.autoSelectedIndex ?? 0;
-          const selectedProposal = proposalResult.proposals[selectedIndex];
-
-          // Optional Oracle pass — only when Inception ran and produced an intro
-          let selectedIdeas: IdeaItem[] | undefined;
-          if (forgeUseOracle && inceptionIntro && inceptionIntro.trim().length > 0 && selectedProposal) {
-            try {
-              const ideasResult = await api.agents.proposeIdeas(worldId, {
-                articleId:        item.articleId,
-                introduction:     inceptionIntro,
-                selectedProposal,
-                contextDepth,
-              });
-              selectedIdeas = ideasResult.ideas; // auto-include all Oracle ideas
-            } catch {
-              // Oracle failure is non-fatal — Scribe runs without ideas
-            }
-          }
-
-          await api.agents.expand(worldId, {
-            articleId:             item.articleId,
-            pipelineType:          'expand_description',
-            selectedProposalIndex: selectedIndex,
-            proposals:             proposalResult.proposals,
-            contextDepth,
-            selectedIdeas,
-            runContinuityEditor:   forgeUseContinuityEditor,
-          });
-          await api.articles.draft.accept(worldId, item.articleId);
-          set((s) => { s.forgeLog.unshift({ step: 'Expansion', title: item.title, ok: true, ts: Date.now() }); });
-
-          if (!get().forgeRunning || get().forgePaused) break;
-        }
-
-        // ── Step 3: Branching (if within depth limit) ────────────────────────
-        if (item.depth < forgeMaxDepth) {
-          set((s) => { s.forgeCurrentStep = 'Branching'; });
-
-          const branchHint = branchingMode === 'specific'
-            ? 'Prefer specific named instances (individual entities, real examples). '
-            : 'Prefer conceptual categories and systems. ';
-
-          const childResult = await api.agents.proposeChildren(worldId, {
-            articleId:    item.articleId,
-            contextDepth,
-            userSpec:     branchHint,
-          });
-
-          const take = forgeMaxChildren > 0
-            ? childResult.proposals.slice(0, forgeMaxChildren)
-            : childResult.proposals;
-
-          const batchResult = await api.articles.batch(worldId, {
-            parentArticleId: item.articleId,
-            children: take.map((p) => ({
-              title:        p.title,
-              introduction: p.introduction,
-              templateType: p.templateType as 'general' | 'character' | 'location' | 'faction' | 'historical_event',
-            })),
-          });
-
-          // Children always go through the full cycle (Inception → Expansion → Branching)
-          const newItems: ForgeItem[] = batchResult.created.map((c) => ({
-            articleId: c.id,
-            title:     c.title,
-            depth:     item.depth + 1,
-            startStep: 'inception' as const,
-          }));
-
-          set((s) => {
-            if (forgeMode === 'breadth') {
-              s.forgeQueue.push(...newItems);
-            } else {
-              s.forgeQueue.unshift(...newItems);
-            }
-            s.forgeTotal += newItems.length;
-            s.forgeLog.unshift({ step: 'Branching', title: item.title, ok: true, ts: Date.now() });
-          });
-        }
-      } catch (err) {
-        const stepName = get().forgeCurrentStep ?? '?';
-        const msg = err instanceof Error ? err.message : '';
-        const isFatal = /rate.?limit|429|authentication|unauthorized|quota/i.test(msg);
         set((s) => {
-          s.forgeLog.unshift({ step: stepName, title: item.title, ok: false, ts: Date.now() });
-          if (isFatal) {
-            s.forgeRunning = false;
-            s.agentError   = msg || 'Forge stopped due to a critical provider error.';
+          s.forgeCompleted = run.itemsCompleted;
+          s.forgeTotal = run.itemsTotal;
+          s.forgeLog = run.events.map((e) => ({ step: e.step, title: e.title, ok: e.ok, ts: e.createdAt }));
+          const latest = run.events[0];
+          if (latest) {
+            s.forgeCurrentTitle = latest.title;
+            s.forgeCurrentStep = latest.step;
           }
         });
-        console.error(`Forge error on "${item.title}" (${stepName}):`, err);
-        if (isFatal) break;
+
+        if (run.status === 'paused') {
+          set((s) => { s.forgePaused = true; });
+          return; // resumeForge restarts polling
+        }
+
+        if (run.status === 'completed' || run.status === 'stopped' || run.status === 'failed') {
+          if (run.status === 'failed' && run.errorMessage) {
+            set((s) => { s.agentError = run.errorMessage; });
+          }
+          await get().loadTree(worldId).catch(console.error);
+          set((s) => {
+            s.forgeRunning       = false;
+            s.forgePaused        = false;
+            s.forgeRunId         = null;
+            s.forgeCurrentTitle  = null;
+            s.forgeCurrentStep   = null;
+            s.agentPhase         = 'forge_done';
+          });
+          return;
+        }
+
+        poll(worldId, runId);
+      } catch (err) {
+        console.error('Forge status poll failed:', err);
+        poll(worldId, runId);
       }
-
-      set((s) => { s.forgeCompleted++; });
-    }
-
-    // ── Loop ended ────────────────────────────────────────────────────────
-    // Runs for both normal completion and fatal-error stop; NOT for pause.
-    const finalState = get();
-    if (!finalState.forgePaused) {
-      await get().loadTree(worldId).catch(console.error);
-      set((s) => {
-        s.forgeRunning       = false;
-        s.forgeCurrentTitle  = null;
-        s.forgeCurrentStep   = null;
-        s.agentPhase         = 'forge_done';
-      });
-    }
+    }, POLL_INTERVAL_MS);
   };
 
   return {
     forgeRunning: false,
     forgePaused: false,
-    forgeQueue: [],
+    forgeRunId: null,
     forgeLog: [],
     forgeCurrentTitle: null,
     forgeCurrentStep: null,
@@ -217,29 +115,14 @@ export const forgeSlice: StateCreator<StoreState, [['zustand/immer', never]], []
     forgeTotal: 0,
 
     startForge: async (worldId) => {
-      const { agentTargetArticleId, agentTargetArticleTitle, agentPipelineType } = get();
+      const { agentTargetArticleId, agentPipelineType, agentParams } = get();
       if (!agentTargetArticleId) return;
-
-      // Derive the starting step from whichever task the user had selected.
-      // The root article skips steps that precede this point.
-      // Child articles created by Branching always start from 'inception'.
-      const startStep: ForgeItem['startStep'] =
-        agentPipelineType === 'propose_children'
-          ? 'branching'
-          : (agentPipelineType === 'forge_expand' || agentPipelineType === 'expand_description')
-            ? 'expansion'
-            : 'inception';
+      const { contextDepth, branchingMode, forgeMode, forgeMaxDepth, forgeMaxChildren, forgeUseOracle, forgeUseContinuityEditor } = agentParams;
 
       set((s) => {
         s.agentPhase        = 'forging';
         s.forgeRunning      = true;
         s.forgePaused       = false;
-        s.forgeQueue        = [{
-          articleId: agentTargetArticleId,
-          title:     agentTargetArticleTitle ?? 'Article',
-          depth:     0,
-          startStep,
-        }];
         s.forgeLog          = [];
         s.forgeCurrentTitle = null;
         s.forgeCurrentStep  = null;
@@ -248,23 +131,53 @@ export const forgeSlice: StateCreator<StoreState, [['zustand/immer', never]], []
         s.agentError        = null;
       });
 
-      await runForgeLoop(worldId);
+      try {
+        const run = await api.runs.create(worldId, {
+          articleIds: [agentTargetArticleId],
+          pipelineType: agentPipelineType,
+          contextDepth,
+          branchingMode,
+          forgeMode,
+          forgeMaxDepth,
+          forgeMaxChildren,
+          forgeUseOracle,
+          forgeUseContinuityEditor,
+        });
+        set((s) => { s.forgeRunId = run.id; });
+        poll(worldId, run.id);
+      } catch (err) {
+        set((s) => {
+          s.forgeRunning = false;
+          s.agentPhase = 'forge_done';
+          s.agentError = err instanceof Error ? err.message : 'Failed to start Forge run.';
+        });
+      }
     },
 
-    pauseForge: () => {
+    pauseForge: async (worldId) => {
+      const { forgeRunId } = get();
+      if (!forgeRunId) return;
+      stopPolling();
       set((s) => { s.forgePaused = true; });
+      await api.runs.pause(worldId, forgeRunId).catch(console.error);
     },
 
     resumeForge: async (worldId) => {
+      const { forgeRunId } = get();
+      if (!forgeRunId) return;
       set((s) => { s.forgePaused = false; });
-      await runForgeLoop(worldId);
+      await api.runs.resume(worldId, forgeRunId);
+      poll(worldId, forgeRunId);
     },
 
-    stopForge: () => {
+    stopForge: async (worldId) => {
+      const { forgeRunId } = get();
+      stopPolling();
+      if (forgeRunId) await api.runs.cancel(worldId, forgeRunId).catch(console.error);
       set((s) => {
         s.forgeRunning      = false;
         s.forgePaused       = false;
-        s.forgeQueue        = [];
+        s.forgeRunId        = null;
         s.forgeCurrentTitle = null;
         s.forgeCurrentStep  = null;
         s.agentPhase        = 'forge_done';

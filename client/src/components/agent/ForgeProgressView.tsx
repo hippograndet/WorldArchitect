@@ -14,24 +14,30 @@ export default function ForgeProgressView() {
   const {
     agentParams, agentError,
     forgeRunning, forgePaused,
-    forgeQueue, forgeLog,
+    forgeLog,
     forgeCurrentTitle, forgeCurrentStep,
     forgeCompleted, forgeTotal,
     pauseForge, resumeForge, stopForge,
   } = useStore();
 
-  const isDone    = !forgeRunning && !forgePaused;
-  const hasError  = isDone && !!agentError;
-  const progress = forgeTotal > 0 ? Math.round((forgeCompleted / forgeTotal) * 100) : 0;
-  const modeLabel = agentParams.forgeMode === 'breadth' ? 'Breadth-first' : 'Depth-first';
+  const isDone     = !forgeRunning && !forgePaused;
+  const hasError   = isDone && !!agentError;
+  const progress   = forgeTotal > 0 ? Math.round((forgeCompleted / forgeTotal) * 100) : 0;
+  const remaining  = Math.max(forgeTotal - forgeCompleted, 0);
+  const modeLabel  = agentParams.forgeMode === 'breadth' ? 'Breadth-first' : 'Depth-first';
 
   const handlePauseResume = () => {
     if (!wid) return;
     if (forgePaused) {
       resumeForge(wid).catch(console.error);
     } else {
-      pauseForge();
+      pauseForge(wid).catch(console.error);
     }
+  };
+
+  const handleStop = () => {
+    if (!wid) return;
+    stopForge(wid).catch(console.error);
   };
 
   return (
@@ -55,14 +61,14 @@ export default function ForgeProgressView() {
           />
         </div>
         <p className="text-xs text-gray-400">
-          {forgeCompleted} / {forgeTotal} articles · {forgeQueue.length} queued
+          {forgeCompleted} / {forgeTotal} articles · {remaining} queued
         </p>
 
         {/* Current step */}
         {!isDone && (forgeCurrentTitle || forgePaused) && (
           <p className="mt-2 text-xs text-gray-600 truncate">
             {forgePaused
-              ? `Paused — ${forgeQueue.length} articles remaining`
+              ? `Paused — ${remaining} articles remaining`
               : `${forgeCurrentStep ?? '…'}: ${forgeCurrentTitle}`}
           </p>
         )}
@@ -92,7 +98,7 @@ export default function ForgeProgressView() {
               </span>
             </button>
             <button
-              onClick={stopForge}
+              onClick={handleStop}
               className="flex-1 py-1.5 text-xs rounded border border-red-300 text-red-600 hover:bg-red-50 transition-colors"
             >
               <span className="flex items-center justify-center gap-1"><Square size={12} /> Stop</span>

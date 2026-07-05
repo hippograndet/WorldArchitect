@@ -3,46 +3,153 @@ import { ArrowLeft, ArrowRight, X, Sparkles } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../../stores/index.ts';
 import { api } from '../../lib/api.ts';
-import type { WorldTone, WorldStyleConfig, WorldStyleInspiration } from '../../types/world.ts';
+import type { WorldStyleConfig, WorldStyleInspiration } from '../../types/world.ts';
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
-const TONES: { value: WorldTone; label: string; desc: string }[] = [
-  { value: 'narrative', label: 'Narrative',  desc: 'Rich, story-driven descriptions' },
-  { value: 'academic',  label: 'Academic',   desc: 'Detailed, analytical, encyclopedic' },
-  { value: 'terse',     label: 'Terse',      desc: 'Concise, factual entries' },
-  { value: 'custom',    label: 'Custom',     desc: 'Mixed or free-form style' },
+interface GuidancePreset {
+  key: string;
+  label: string;
+  value: string;
+}
+
+const TONE_PRESETS: GuidancePreset[] = [
+  {
+    key: 'story_companion',
+    label: 'Story Companion',
+    value: 'Write in an engaging, clear worldbuilding voice: authoritative enough to feel reliable, but evocative enough to carry atmosphere, character, and conflict. Treat each entry like part of a living story bible.',
+  },
+  {
+    key: 'archive_record',
+    label: 'Archive Record',
+    value: 'Write with restrained authority, as if compiling records for an internal archive. Prioritize clarity, continuity, dates, causes, consequences, and relationships over dramatic flourish.',
+  },
+  {
+    key: 'mythic_chronicle',
+    label: 'Mythic Chronicle',
+    value: 'Write with a sense of age, consequence, and remembered grandeur. Let entries feel like chronicles of events that shaped peoples, places, institutions, and beliefs over generations.',
+  },
 ];
 
-const PRESETS: { key: string; label: string; emoji: string; vibe: string; writingStyle: string }[] = [
+const VIBE_PRESETS: GuidancePreset[] = [
   {
-    key: 'epic_fantasy', label: 'Epic Fantasy', emoji: '⚔️',
-    vibe: 'Grand, mythic, ancient. A world where the weight of history is felt in every stone and the stakes of every conflict echo across ages. Magic is real but costly. Heroes are forged by sacrifice.',
-    writingStyle: 'Elevated, lyrical prose with long, deliberate sentences. Rich with proper nouns, lineage references, and in-world terminology. Takes itself seriously.',
+    key: 'epic_fantasy',
+    label: 'Epic Fantasy',
+    value: 'Grand, mythic, ancient. A world where the weight of history is felt in every stone and the stakes of every conflict echo across ages. Magic is real but costly. Heroes are forged by sacrifice.',
   },
   {
-    key: 'gritty_realism', label: 'Gritty Realism', emoji: '🗡️',
-    vibe: 'Low-magic, brutal, political. Power is held by those willing to do what others won\'t. Moral ambiguity is the rule. No clean victories.',
-    writingStyle: 'Sparse, close third-person POV. Short sentences under pressure. Violence is visceral and carries consequences. Avoid purple prose.',
+    key: 'gritty_realism',
+    label: 'Gritty Realism',
+    value: 'Low-magic, brutal, political. Power is held by those willing to do what others will not. Moral ambiguity is the rule. Even heroic figures have blood on their hands. No clean victories.',
   },
   {
-    key: 'cosmic_horror', label: 'Cosmic Horror', emoji: '🌑',
-    vibe: 'Vast indifference, dread, and the creeping sense that human understanding is a thin veil over an incomprehensible reality. Knowledge is dangerous. Sanity is fragile.',
-    writingStyle: 'Slow-burn dread. Academic detachment giving way to growing unease. Avoid explicit description of horrors; imply and suggest.',
+    key: 'cosmic_horror',
+    label: 'Cosmic Horror',
+    value: 'Vast indifference, dread, and the creeping sense that human understanding is a thin veil over an incomprehensible reality. Knowledge is dangerous. Sanity is fragile.',
   },
   {
-    key: 'space_opera', label: 'Space Opera', emoji: '🚀',
-    vibe: 'Interstellar scale, wonder, and conflict. Empires span star systems. Individual heroes shape galactic events. Technology is indistinguishable from magic.',
-    writingStyle: 'Cinematic and ensemble-driven. Fast pacing with chapter-length setpieces. Mix of action and political intrigue.',
-  },
-  {
-    key: 'custom', label: 'Custom', emoji: '✏️',
-    vibe: '',
-    writingStyle: '',
+    key: 'space_opera',
+    label: 'Space Opera',
+    value: 'Interstellar scale, wonder, and conflict. Empires span star systems. Individual heroes shape galactic events. Technology is indistinguishable from magic. The universe is vast but populated and alive.',
   },
 ];
+
+const WRITING_STYLE_PRESETS: GuidancePreset[] = [
+  {
+    key: 'elevated',
+    label: 'Elevated',
+    value: 'Use elevated, lyrical prose with deliberate rhythm. Favor precise imagery, resonant proper nouns, lineage references, and in-world terminology. Avoid irony unless the world itself calls for it.',
+  },
+  {
+    key: 'lean_visceral',
+    label: 'Lean & Visceral',
+    value: 'Use sparse, direct prose. Shorten sentences under pressure. Keep vocabulary earthy and concrete. Violence and conflict should carry consequences. Avoid decorative prose that does not reveal character, place, or tension.',
+  },
+  {
+    key: 'slow_dread',
+    label: 'Slow Dread',
+    value: 'Build unease gradually. Let matter-of-fact description give way to implication, contradiction, and uncertainty. Avoid overexplaining mysteries; make absence, silence, and incomplete knowledge do work.',
+  },
+  {
+    key: 'cinematic',
+    label: 'Cinematic',
+    value: 'Write with clear scene momentum, ensemble awareness, and strong visual composition. Balance action, political movement, and character stakes. Exposition should feel embedded in decisions and conflict.',
+  },
+];
+
+interface GuidanceParameterProps {
+  name: string;
+  presets: GuidancePreset[];
+  selectedPreset: string;
+  value: string;
+  placeholder: string;
+  rows?: number;
+  onPreset: (key: string) => void;
+  onChange: (value: string) => void;
+  onRefine?: () => void;
+  refining?: boolean;
+}
+
+function GuidanceParameter({
+  name,
+  presets,
+  selectedPreset,
+  value,
+  placeholder,
+  rows = 4,
+  onPreset,
+  onChange,
+  onRefine,
+  refining = false,
+}: GuidanceParameterProps) {
+  return (
+    <section className="rounded-lg border border-gray-200 p-4">
+      <div className="flex items-center justify-between gap-3 mb-3">
+        <h2 className="text-sm font-semibold text-gray-800">{name}</h2>
+        <span className="text-xs text-gray-400">Prompt context</span>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 mb-3 sm:grid-cols-3">
+        {presets.map((preset) => (
+          <button
+            key={preset.key}
+            type="button"
+            onClick={() => onPreset(preset.key)}
+            className={`min-h-10 rounded-md border px-3 py-2 text-left text-xs font-medium transition-colors ${
+              selectedPreset === preset.key
+                ? 'border-blue-500 bg-blue-50 text-blue-700'
+                : 'border-gray-200 text-gray-700 hover:border-gray-300 hover:bg-gray-50'
+            }`}
+          >
+            {preset.label}
+          </button>
+        ))}
+      </div>
+
+      <textarea
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        rows={rows}
+        placeholder={placeholder}
+        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
+      />
+
+      {onRefine && (
+        <button
+          type="button"
+          disabled={!value.trim() || refining}
+          onClick={onRefine}
+          className="mt-2 inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          <Sparkles size={12} />
+          {refining ? 'Refining...' : 'Refine with AI'}
+        </button>
+      )}
+    </section>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Wizard
@@ -62,8 +169,10 @@ export default function WorldCreationWizard() {
   const [rootArticleId, setRootArticleId] = useState<string | null>(null);
 
   // Step 2
-  const [tone, setTone]               = useState<WorldTone>('narrative');
-  const [selectedPreset, setSelectedPreset] = useState<string>('');
+  const [selectedTonePreset, setSelectedTonePreset] = useState<string>('');
+  const [toneGuidance, setToneGuidance] = useState('');
+  const [selectedVibePreset, setSelectedVibePreset] = useState<string>('');
+  const [selectedWritingPreset, setSelectedWritingPreset] = useState<string>('');
   const [vibe, setVibe]               = useState('');
   const [writingStyle, setWritingStyle] = useState('');
   const [inspirations, setInspirations] = useState<WorldStyleInspiration[]>([]);
@@ -81,7 +190,7 @@ export default function WorldCreationWizard() {
   // ---------------------------------------------------------------------------
 
   const step1Valid = name.trim().length > 0 && description.trim().length >= 20;
-  const step2HasStyle = vibe.trim().length > 0 || selectedPreset !== '';
+  const step2HasStyle = toneGuidance.trim().length > 0 || vibe.trim().length > 0 || writingStyle.trim().length > 0;
 
   // ---------------------------------------------------------------------------
   // Step 1: create world
@@ -109,12 +218,35 @@ export default function WorldCreationWizard() {
   // Step 2: helpers
   // ---------------------------------------------------------------------------
 
-  const applyPreset = (key: string) => {
-    const preset = PRESETS.find((p) => p.key === key);
+  const applyTonePreset = (key: string) => {
+    const preset = TONE_PRESETS.find((p) => p.key === key);
     if (!preset) return;
-    setSelectedPreset(key);
-    setVibe(preset.vibe);
-    setWritingStyle(preset.writingStyle);
+    setSelectedTonePreset(key);
+    setToneGuidance(preset.value);
+  };
+
+  const applyVibePreset = (key: string) => {
+    const preset = VIBE_PRESETS.find((p) => p.key === key);
+    if (!preset) return;
+    setSelectedVibePreset(key);
+    setVibe(preset.value);
+  };
+
+  const applyWritingPreset = (key: string) => {
+    const preset = WRITING_STYLE_PRESETS.find((p) => p.key === key);
+    if (!preset) return;
+    setSelectedWritingPreset(key);
+    setWritingStyle(preset.value);
+  };
+
+  const presetNameFor = (presets: GuidancePreset[], selectedKey: string, currentValue: string) => {
+    const preset = presets.find((p) => p.key === selectedKey);
+    if (!preset) return 'Custom';
+    return currentValue.trim() === preset.value.trim() ? preset.label : `${preset.label} - Custom`;
+  };
+
+  const presetValueFor = (presets: GuidancePreset[], selectedKey: string) => {
+    return presets.find((p) => p.key === selectedKey)?.value;
   };
 
   const handleExpandVibe = async () => {
@@ -190,14 +322,21 @@ export default function WorldCreationWizard() {
     setSavingStyle(true);
 
     const styleConfig: Partial<WorldStyleConfig> = {
-      preset: selectedPreset || undefined,
+      preset: selectedVibePreset || selectedWritingPreset || selectedTonePreset || undefined,
+      tonePreset: presetNameFor(TONE_PRESETS, selectedTonePreset, toneGuidance),
+      tonePresetValue: presetValueFor(TONE_PRESETS, selectedTonePreset),
+      toneGuidance: toneGuidance.trim(),
+      vibePreset: presetNameFor(VIBE_PRESETS, selectedVibePreset, vibe),
+      vibePresetValue: presetValueFor(VIBE_PRESETS, selectedVibePreset),
       vibe: vibe.trim(),
+      writingStylePreset: presetNameFor(WRITING_STYLE_PRESETS, selectedWritingPreset, writingStyle),
+      writingStylePresetValue: presetValueFor(WRITING_STYLE_PRESETS, selectedWritingPreset),
       writingStyle: writingStyle.trim(),
       inspirations: inspirations,
     };
 
     try {
-      await updateWorld(worldId, { tone, styleConfig });
+      await updateWorld(worldId, { tone: 'custom', styleConfig });
       navigateToWorld();
     } catch (err) {
       addToast({ message: (err as Error).message, type: 'error' });
@@ -278,95 +417,42 @@ export default function WorldCreationWizard() {
         {/* ---- STEP 2: Style ---- */}
         {step === 2 && (
           <div className="bg-white rounded-xl border border-gray-200 p-6 flex flex-col gap-5">
+            <GuidanceParameter
+              name="Writing Tone"
+              presets={TONE_PRESETS}
+              selectedPreset={selectedTonePreset}
+              value={toneGuidance}
+              placeholder="Select a preset or write the tone guidance that should steer every generated article."
+              rows={4}
+              onPreset={applyTonePreset}
+              onChange={setToneGuidance}
+            />
 
-            {/* Tone */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Writing tone</label>
-              <div className="grid grid-cols-2 gap-2">
-                {TONES.map((t) => (
-                  <button
-                    key={t.value}
-                    type="button"
-                    onClick={() => setTone(t.value)}
-                    className={`p-3 rounded-lg border text-left transition-colors ${
-                      tone === t.value
-                        ? 'border-blue-500 bg-blue-50 text-blue-700'
-                        : 'border-gray-200 hover:border-gray-300 text-gray-700'
-                    }`}
-                  >
-                    <div className="text-sm font-medium">{t.label}</div>
-                    <div className="text-xs text-gray-500 mt-0.5">{t.desc}</div>
-                  </button>
-                ))}
-              </div>
-            </div>
+            <GuidanceParameter
+              name="Vibe & Atmosphere"
+              presets={VIBE_PRESETS}
+              selectedPreset={selectedVibePreset}
+              value={vibe}
+              placeholder="Select a preset or write the atmospheric context that should steer every generated article."
+              rows={4}
+              onPreset={applyVibePreset}
+              onChange={setVibe}
+              onRefine={handleExpandVibe}
+              refining={expandingVibe}
+            />
 
-            {/* Presets */}
-            <div>
-              <p className="text-sm font-medium text-gray-700 mb-1">Style preset <span className="text-gray-400 font-normal">(optional)</span></p>
-              <p className="text-xs text-gray-400 mb-2">Pre-fills the fields below. You can customise after selecting.</p>
-              <div className="grid grid-cols-3 gap-2">
-                {PRESETS.map((p) => (
-                  <button
-                    key={p.key}
-                    type="button"
-                    onClick={() => applyPreset(p.key)}
-                    className={`p-3 rounded-lg border text-left transition-colors ${
-                      selectedPreset === p.key
-                        ? 'border-blue-500 bg-blue-50'
-                        : 'border-gray-200 hover:border-gray-300'
-                    }`}
-                  >
-                    <div className="text-lg mb-0.5">{p.emoji}</div>
-                    <div className="text-xs font-medium text-gray-800">{p.label}</div>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Vibe */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Vibe & Atmosphere <span className="text-gray-400 font-normal">(optional)</span>
-              </label>
-              <textarea
-                value={vibe}
-                onChange={(e) => setVibe(e.target.value)}
-                rows={3}
-                placeholder="e.g. gritty, low-magic, industrial…"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-              <button
-                type="button"
-                disabled={!vibe.trim() || expandingVibe}
-                onClick={handleExpandVibe}
-                className="mt-1 text-xs text-blue-600 hover:text-blue-800 disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                {expandingVibe ? 'Expanding…' : '✦ Expand with AI'}
-              </button>
-            </div>
-
-            {/* Writing style */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Writing Style <span className="text-gray-400 font-normal">(optional)</span>
-              </label>
-              <textarea
-                value={writingStyle}
-                onChange={(e) => setWritingStyle(e.target.value)}
-                rows={3}
-                placeholder="e.g. sparse, close POV, terse sentences…"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-              <button
-                type="button"
-                disabled={!writingStyle.trim() || expandingStyle}
-                onClick={handleExpandStyle}
-                className="mt-1 text-xs text-blue-600 hover:text-blue-800 disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                {expandingStyle ? 'Expanding…' : '✦ Expand with AI'}
-              </button>
-            </div>
+            <GuidanceParameter
+              name="Writing Style"
+              presets={WRITING_STYLE_PRESETS}
+              selectedPreset={selectedWritingPreset}
+              value={writingStyle}
+              placeholder="Select a preset or write the prose guidance that should steer every generated article."
+              rows={4}
+              onPreset={applyWritingPreset}
+              onChange={setWritingStyle}
+              onRefine={handleExpandStyle}
+              refining={expandingStyle}
+            />
 
             {/* Inspirations */}
             <div>

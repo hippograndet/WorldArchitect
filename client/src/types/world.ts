@@ -75,7 +75,14 @@ export type VisualTheme = 'default' | 'arcane_scroll' | 'data_link' | 'dossier' 
 
 export interface WorldStyleConfig {
   preset?: string;
+  tonePreset?: string;
+  tonePresetValue?: string;
+  toneGuidance?: string;
+  vibePreset?: string;
+  vibePresetValue?: string;
   vibe: string;
+  writingStylePreset?: string;
+  writingStylePresetValue?: string;
   writingStyle: string;
   inspirations: WorldStyleInspiration[];
   constraints?: string;

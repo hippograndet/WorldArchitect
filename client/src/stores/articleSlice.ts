@@ -94,13 +94,23 @@ export const articleSlice: StateCreator<StoreState, [['zustand/immer', never]], 
   },
 
   acceptDraft: async (worldId, articleId) => {
-    const { article, version } = await api.articles.draft.accept(worldId, articleId);
+    const result = await api.articles.draft.accept(worldId, articleId);
     set((s) => {
       const idx = s.articles.findIndex((a) => a.id === articleId);
-      if (idx !== -1) s.articles[idx] = article;
+      if (idx !== -1) s.articles[idx] = result.article;
       if (s.currentArticleDetail?.article.id === articleId) {
-        s.currentArticleDetail.article = article;
-        s.currentArticleDetail.version = version;
+        s.currentArticleDetail.article = result.article;
+        if ('version' in result) {
+          s.currentArticleDetail.version = result.version;
+        }
+      }
+      if ('childArticle' in result) {
+        const childIdx = s.articles.findIndex((a) => a.id === result.childArticle.id);
+        if (childIdx === -1) {
+          s.articles.push(result.childArticle);
+        } else {
+          s.articles[childIdx] = result.childArticle;
+        }
       }
       s.pendingDraft = null;
     });

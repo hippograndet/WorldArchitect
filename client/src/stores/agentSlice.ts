@@ -3,7 +3,7 @@ import type { StoreState } from './index.ts';
 import { api } from '../lib/api.ts';
 import type { Proposal, ChildProposal, ContextDepth, SummarizerMode, IdeaItem, EdgeProposal, GlobalWarning, StyleWardenResult } from '../types/agent.ts';
 import type { DraftContent, PendingDraft } from '../types/article.ts';
-export type { ForgeItem, ForgeLogEntry } from './forgeSlice.ts';
+export type { ForgeLogEntry } from './forgeSlice.ts';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -212,7 +212,7 @@ export const agentSlice: StateCreator<StoreState, [['zustand/immer', never]], []
         s.agentParams = { ...defaultParams };
         s.forgeRunning = false;
         s.forgePaused = false;
-        s.forgeQueue = [];
+        s.forgeRunId = null;
         s.forgeLog = [];
         s.forgeCurrentTitle = null;
         s.forgeCurrentStep = null;
@@ -238,7 +238,7 @@ export const agentSlice: StateCreator<StoreState, [['zustand/immer', never]], []
         s.agentAuditGlobalWarnings = [];
         s.forgeRunning = false;
         s.forgePaused = false;
-        s.forgeQueue = [];
+        s.forgeRunId = null;
         s.forgeLog = [];
       });
     },

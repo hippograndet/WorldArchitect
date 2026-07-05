@@ -80,6 +80,7 @@ const article1 = {
   isFixedPoint: false,
   depth: 1,
   currentVersionId: 'v1',
+  lockedByRunId: null,
   createdAt: 1000,
   updatedAt: 1000,
 };
@@ -335,6 +336,19 @@ describe('revertToVersion', () => {
 describe('acceptDraft', () => {
   const acceptedArticle = { ...article1, updatedAt: 4000, status: 'reviewed' };
   const acceptedVersion = { ...version1, id: 'v2', versionNumber: 2 };
+  const childArticle = {
+    ...article1,
+    id: 'child1',
+    title: 'Child Article',
+    depth: 2,
+    currentVersionId: 'child-v1',
+  };
+  const childVersion = {
+    ...version1,
+    id: 'child-v1',
+    articleId: 'child1',
+    introduction: 'Child introduction.',
+  };
 
   beforeEach(() => {
     store.setState((s) => {
@@ -356,6 +370,21 @@ describe('acceptDraft', () => {
 
   it('clears pendingDraft', async () => {
     await S().acceptDraft('w1', 'art1');
+    expect(S().pendingDraft).toBeNull();
+  });
+
+  it('adds a returned child article without requiring a parent version result', async () => {
+    mockApi.articles.draft.accept.mockResolvedValue({
+      article: acceptedArticle,
+      childArticle,
+      childVersion,
+    });
+
+    await S().acceptDraft('w1', 'art1');
+
+    expect(S().articles).toContainEqual(childArticle);
+    expect(S().currentArticleDetail!.article).toEqual(acceptedArticle);
+    expect(S().currentArticleDetail!.version).toEqual(version1);
     expect(S().pendingDraft).toBeNull();
   });
 
