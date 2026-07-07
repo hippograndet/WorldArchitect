@@ -1,42 +1,34 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { getStorageDriver } from './config.js';
+import { getAppMode, getPublicBaseUrl } from './config.js';
 
 const originalEnv = {
-  STORAGE_DRIVER: process.env.STORAGE_DRIVER,
-  DATABASE_URL: process.env.DATABASE_URL,
+  APP_MODE: process.env.APP_MODE,
+  PUBLIC_BASE_URL: process.env.PUBLIC_BASE_URL,
 };
 
 afterEach(() => {
   restoreEnv();
 });
 
-describe('getStorageDriver', () => {
-  it('uses explicit Postgres storage', () => {
-    process.env.STORAGE_DRIVER = 'postgres';
-    delete process.env.DATABASE_URL;
+describe('getAppMode', () => {
+  it('defaults to local mode', () => {
+    delete process.env.APP_MODE;
 
-    expect(getStorageDriver()).toBe('postgres');
+    expect(getAppMode()).toBe('local');
   });
 
-  it('keeps SQLite as an explicit legacy override', () => {
-    process.env.STORAGE_DRIVER = 'sqlite';
-    process.env.DATABASE_URL = 'postgres://worldarchitect:worldarchitect@localhost:5432/worldarchitect';
+  it('uses hosted mode when explicitly configured', () => {
+    process.env.APP_MODE = 'hosted';
 
-    expect(getStorageDriver()).toBe('sqlite');
+    expect(getAppMode()).toBe('hosted');
   });
+});
 
-  it('prefers Postgres when DATABASE_URL is configured', () => {
-    delete process.env.STORAGE_DRIVER;
-    process.env.DATABASE_URL = 'postgres://worldarchitect:worldarchitect@localhost:5432/worldarchitect';
+describe('getPublicBaseUrl', () => {
+  it('uses the local client URL by default', () => {
+    delete process.env.PUBLIC_BASE_URL;
 
-    expect(getStorageDriver()).toBe('postgres');
-  });
-
-  it('falls back to SQLite only when no Postgres configuration is present', () => {
-    delete process.env.STORAGE_DRIVER;
-    delete process.env.DATABASE_URL;
-
-    expect(getStorageDriver()).toBe('sqlite');
+    expect(getPublicBaseUrl()).toBe('http://localhost:5173');
   });
 });
 

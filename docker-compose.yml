@@ -24,7 +24,6 @@ services:
       - "3001:3001"
     environment:
       APP_MODE: hosted
-      STORAGE_DRIVER: postgres
       DATABASE_URL: postgres://worldarchitect:worldarchitect@postgres:5432/worldarchitect
       PUBLIC_BASE_URL: http://localhost:3001
       ALLOW_DEV_AUTH_HEADER: "1"

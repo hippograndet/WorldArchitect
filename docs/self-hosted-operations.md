@@ -2,7 +2,7 @@
 
 WorldArchitect can run in two modes:
 
-- `APP_MODE=local` - single-user local mode, no account system. Postgres is the preferred local database; SQLite remains a temporary legacy fallback.
+- `APP_MODE=local` - single-user local mode, no account system, Postgres storage.
 - `APP_MODE=hosted` - self-hosted web app mode with Clerk auth and Postgres storage.
 
 This page describes the operational habits for hosted self-deployment. It is not a SaaS operations manual; it is the practical checklist for running your own instance responsibly.
@@ -124,7 +124,7 @@ Keep `PROVIDER_SETTINGS_ENCRYPTION_KEY` stable across updates. Rotating it witho
 
 ## Database Schema
 
-Postgres mode uses `STORAGE_DRIVER=postgres`. On startup, the server creates `schema_migrations` if needed, applies any unapplied migration files in `server/src/db/migrations/postgres/`, and records each successful migration:
+On startup, the server creates `schema_migrations` if needed, applies any unapplied migration files in `server/src/db/migrations/postgres/`, and records each successful migration:
 
 - `001_initial.sql`
 - `002_full_schema.sql`
@@ -134,9 +134,7 @@ Postgres mode uses `STORAGE_DRIVER=postgres`. On startup, the server creates `sc
 
 If a migration fails, that migration transaction rolls back and the server does not record it as applied.
 
-SQLite legacy mode uses `STORAGE_DRIVER=sqlite`. Its schema and additive local migrations are applied by `server/src/db/schema.ts` when the local database opens.
-
-World ZIP export is not a SQLite-to-Postgres database migration. It is a portable content export. Use Postgres backups for hosted recovery.
+World ZIP export is a portable content export, not a full database backup. Use Postgres backups for hosted recovery.
 
 ## Security Checklist
 

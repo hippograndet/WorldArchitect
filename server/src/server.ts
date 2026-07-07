@@ -1,5 +1,4 @@
 import type { Server } from 'http';
-import { DB_PATH } from './db/index.js';
 import { closePgPool } from './db/pgPool.js';
 import { createApp } from './app.js';
 import { logger } from './observability/logger.js';
@@ -14,7 +13,6 @@ export async function startServer(port = DEFAULT_PORT): Promise<Server> {
   const server = app.listen(port, () => {
     logger.info('server.started', {
       url: `http://localhost:${port}`,
-      db: DB_PATH,
       sentryConfigured: !!process.env.SENTRY_DSN,
     });
   });

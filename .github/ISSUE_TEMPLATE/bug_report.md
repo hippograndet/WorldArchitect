@@ -19,7 +19,7 @@ What you expected to happen instead.
 
 **Environment**
 - Mode: local / hosted (`APP_MODE`)
-- Storage driver: SQLite / Postgres
+- Storage: Postgres
 - Provider (if AI-related): Anthropic / OpenAI / Groq / Ollama / none
 - OS + Node version:
 

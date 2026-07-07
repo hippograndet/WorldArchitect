@@ -1,7 +1,6 @@
 /**
- * Driver-agnostic async query interface. Both the SQLite and Postgres
- * implementations satisfy this so route/service code can be written once
- * and run against either backend.
+ * Async query interface for app storage. Call sites use this instead of
+ * depending on `pg` directly so transactions can be passed through services.
  */
 export interface QueryExecutor {
   all<T = unknown>(sql: string, params?: unknown[]): Promise<T[]>;
@@ -11,7 +10,7 @@ export interface QueryExecutor {
 }
 
 /**
- * Every call site in this codebase writes `?` placeholders (better-sqlite3 style).
+ * Every call site in this codebase writes `?` placeholders for readability.
  * Postgres needs `$1, $2, ...`. Quoted string literals are skipped so a literal
  * `?` inside a string (none exist today, but stay defensive) isn't miscounted.
  */

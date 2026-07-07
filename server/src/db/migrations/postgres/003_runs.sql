@@ -1,5 +1,4 @@
 -- M16/M17: Runs — server-side LangGraph run tracking (backing Forge) + article locking.
--- Mirrors server/src/db/schema.ts's M16/M17 SQLite migrations.
 -- runs.status values: pending | running | paused | completed | stopped | failed
 
 CREATE TABLE IF NOT EXISTS runs (

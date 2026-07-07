@@ -1,5 +1,4 @@
 import { getDbClient } from '../db/client.js';
-import { getStorageDriver } from '../config.js';
 import { renderBible } from '../services/worldBible.js';
 import { listNames, type ListNamesFilter } from '../services/nameBank.js';
 import { dataBlock } from '../prompts/shared.js';
@@ -95,23 +94,6 @@ export const LOOKUP_NAMES_TOOL: Tool = {
   },
 };
 
-/**
- * FTS5's MATCH operator throws a hard SQL error on ordinary user text — an
- * unbalanced quote ("unterminated string"), or a leading `-` (parsed as the
- * NOT operator). Postgres's plainto_tsquery() is built to never error on
- * arbitrary text; FTS5 has no equivalent, so tokenize by hand: split on
- * non-alphanumeric boundaries, wrap each token in quotes (phrase syntax
- * neutralizes special characters), join with OR — matching the original
- * LIKE query's "title OR description contains" semantics. Returns null when
- * every character is stripped (e.g. a query of only punctuation), so the
- * caller can skip the MATCH entirely rather than issue an empty/invalid one.
- */
-function sanitizeFts5Query(raw: string): string | null {
-  const tokens = raw.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
-  if (tokens.length === 0) return null;
-  return tokens.map((t) => `"${t}"`).join(' OR ');
-}
-
 export async function executeContextTool(worldId: string, call: ToolCall): Promise<string> {
   const exec = getDbClient();
 
@@ -146,37 +128,15 @@ export async function executeContextTool(worldId: string, call: ToolCall): Promi
     case 'search_articles': {
       const { query } = call.input as { query: string };
 
-      if (getStorageDriver() === 'postgres') {
-        const rows = await exec.all<Record<string, unknown>>(
-          `SELECT a.id, a.title, av.introduction
-           FROM article_search_index s
-           JOIN articles a ON a.id = s.article_id
-           LEFT JOIN article_versions av ON av.id = a.current_version_id
-           WHERE s.world_id = ? AND s.search_vector @@ plainto_tsquery('english', ?)
-           ORDER BY ts_rank(s.search_vector, plainto_tsquery('english', ?)) DESC
-           LIMIT 10`,
-          [worldId, query, query],
-        );
-        return dataBlock('searchResults',
-          rows.map((r) => ({ id: r.id, title: r.title, introduction: (r.introduction as string) ?? '' })),
-        );
-      }
-
-      const ftsQuery = sanitizeFts5Query(query);
-      if (ftsQuery === null) return dataBlock('searchResults', []);
-
-      // No alias on the FTS5 table — MATCH/bm25() resolve against the plain
-      // table name; aliasing it is a common source of "malformed MATCH" or
-      // ranking errors with SQLite's FTS5 query planner.
       const rows = await exec.all<Record<string, unknown>>(
         `SELECT a.id, a.title, av.introduction
-         FROM article_search_fts
-         JOIN articles a ON a.id = article_search_fts.article_id
+         FROM article_search_index s
+         JOIN articles a ON a.id = s.article_id
          LEFT JOIN article_versions av ON av.id = a.current_version_id
-         WHERE article_search_fts.world_id = ? AND article_search_fts MATCH ?
-         ORDER BY bm25(article_search_fts)
+         WHERE s.world_id = ? AND s.search_vector @@ plainto_tsquery('english', ?)
+         ORDER BY ts_rank(s.search_vector, plainto_tsquery('english', ?)) DESC
          LIMIT 10`,
-        [worldId, ftsQuery],
+        [worldId, query, query],
       );
       return dataBlock('searchResults',
         rows.map((r) => ({ id: r.id, title: r.title, introduction: (r.introduction as string) ?? '' })),

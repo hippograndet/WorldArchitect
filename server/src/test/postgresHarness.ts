@@ -30,7 +30,6 @@ export async function setupPostgresTestHarness(prefix: string): Promise<Postgres
 
   const originalEnv = {
     APP_MODE: process.env.APP_MODE,
-    STORAGE_DRIVER: process.env.STORAGE_DRIVER,
     DATABASE_URL: process.env.DATABASE_URL,
     PROVIDER_SETTINGS_ENCRYPTION_KEY: process.env.PROVIDER_SETTINGS_ENCRYPTION_KEY,
     ALLOW_DEV_AUTH_HEADER: process.env.ALLOW_DEV_AUTH_HEADER,
@@ -62,7 +61,6 @@ export async function setupPostgresTestHarness(prefix: string): Promise<Postgres
 
   process.env.NODE_ENV = 'test';
   process.env.APP_MODE = 'hosted';
-  process.env.STORAGE_DRIVER = 'postgres';
   process.env.DATABASE_URL = databaseUrl;
   process.env.PROVIDER_SETTINGS_ENCRYPTION_KEY = 'test-postgres-provider-settings-key';
   process.env.ALLOW_DEV_AUTH_HEADER = '1';

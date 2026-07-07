@@ -1,9 +1,4 @@
 -- M19: full-text search index for the search_articles tool.
--- Mirrors server/src/db/schema.ts's M19 SQLite migration (FTS5 there,
--- tsvector here) — a driver-specific side table, not a column on the shared
--- articles/article_versions tables, so schemaDrift.test.ts's column-diff
--- check never sees it (only the table-only-in-one-driver warning, which is
--- expected here since FTS5 and tsvector have no shared shape).
 
 CREATE TABLE IF NOT EXISTS article_search_index (
   article_id  TEXT PRIMARY KEY REFERENCES articles(id) ON DELETE CASCADE,

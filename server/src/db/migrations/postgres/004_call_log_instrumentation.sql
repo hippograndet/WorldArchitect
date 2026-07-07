@@ -1,5 +1,4 @@
 -- M18: call_log — tool-loop iteration count + pipeline-run correlation.
--- Mirrors server/src/db/schema.ts's M18 SQLite migration.
 
 ALTER TABLE call_log ADD COLUMN IF NOT EXISTS iterations INTEGER;
 ALTER TABLE call_log ADD COLUMN IF NOT EXISTS pipeline_run_id TEXT;

@@ -1,7 +1,6 @@
 export const LOCAL_USER_ID = 'local-user';
 
 export type AppMode = 'local' | 'hosted';
-export type StorageDriver = 'sqlite' | 'postgres';
 
 export function getAppMode(): AppMode {
   return process.env.APP_MODE === 'hosted' ? 'hosted' : 'local';
@@ -13,13 +12,6 @@ export function isHostedMode(): boolean {
 
 export function getPublicBaseUrl(): string {
   return process.env.PUBLIC_BASE_URL ?? 'http://localhost:5173';
-}
-
-export function getStorageDriver(): StorageDriver {
-  if (process.env.STORAGE_DRIVER === 'postgres') return 'postgres';
-  if (process.env.STORAGE_DRIVER === 'sqlite') return 'sqlite';
-  if (process.env.DATABASE_URL) return 'postgres';
-  return 'sqlite';
 }
 
 // Local mode is a single trusted desktop user (including Forge's recursive

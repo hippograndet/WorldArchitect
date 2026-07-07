@@ -26,7 +26,7 @@ The intended release path is:
 
 ## Features
 
-- Local world database powered by Postgres, with SQLite retained as a legacy fallback
+- Local world database powered by Postgres
 - World creation wizard with configurable categories and style settings
 - Wikipedia-style article browser with sidebar search
 - Article layers for introduction, description, subjects, and chronology
@@ -71,12 +71,6 @@ The client runs on `http://localhost:5173`.
 
 `npm run dev` starts the local Postgres service from `docker-compose.yml`, then runs the app in local mode (`APP_MODE=local`) against that database. You can start creating and editing worlds immediately with no LLM configured.
 
-SQLite is still available as a temporary legacy fallback:
-
-```bash
-npm run dev:sqlite
-```
-
 ## Optional LLM Setup
 
 WorldArchitect works with `provider = none` by default. To enable AI tools, open the app and configure a provider in **Settings -> Provider**.
@@ -102,7 +96,7 @@ WorldArchitect has two processes:
 
 The browser talks only to the server. The server owns the database, export system, provider settings, agent calls, and versioning.
 
-By default (`APP_MODE=local`) the server runs unauthenticated with a single implicit user against the local Postgres service defined in `docker-compose.yml`. SQLite support still exists for legacy local data, but Postgres is the preferred development and deployment database. Hosted mode (`APP_MODE=hosted`) adds Clerk-based authentication, Postgres storage, and per-user world ownership. Hosted mode is meant for self-deployment (Docker, Render, Railway, Fly.io), not for ordinary local development — see [DEPLOY.md](DEPLOY.md) for the required environment variables and deploy steps.
+By default (`APP_MODE=local`) the server runs unauthenticated with a single implicit user against the local Postgres service defined in `docker-compose.yml`. Hosted mode (`APP_MODE=hosted`) adds Clerk-based authentication and per-user world ownership on Postgres. Hosted mode is meant for self-deployment (Docker, Render, Railway, Fly.io), not for ordinary local development — see [DEPLOY.md](DEPLOY.md) for the required environment variables and deploy steps.
 
 ## Documentation
 

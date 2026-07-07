@@ -13,7 +13,6 @@ Railway and Fly.io are also supported deployment targets, but the Render + Neon 
 ## Required Environment
 
 - `APP_MODE=hosted`
-- `STORAGE_DRIVER=postgres`
 - `DATABASE_URL=postgres://...`
 - `PUBLIC_BASE_URL=https://your-domain.example`
 - `PROVIDER_SETTINGS_ENCRYPTION_KEY=<long random secret>`
@@ -79,7 +78,6 @@ Set these environment variables in Render:
 
 ```sh
 APP_MODE=hosted
-STORAGE_DRIVER=postgres
 DATABASE_URL=postgres://...
 PUBLIC_BASE_URL=https://your-render-or-custom-domain.example
 STATIC_DIR=client/dist
@@ -106,7 +104,7 @@ Do not commit this value.
 After Render deploys:
 
 1. Visit `/health`.
-2. Confirm `status: ok`, `mode: hosted`, and `storage.driver: postgres`.
+2. Confirm `status: ok`, `mode: hosted`, and `database.ok: true`.
 3. Sign in with Clerk.
 4. Create a test world.
 5. Save and reload a provider setting; confirm the key is masked.
@@ -121,7 +119,7 @@ For ordinary local development, use Postgres with local app mode:
 npm run dev
 ```
 
-That command starts the `postgres` service from `docker-compose.yml` and runs the server with `APP_MODE=local`, `STORAGE_DRIVER=postgres`, and the local compose database URL.
+That command starts the `postgres` service from `docker-compose.yml` and runs the server with `APP_MODE=local` and the local compose database URL.
 
 Build and run:
 
@@ -151,7 +149,7 @@ curl http://localhost:3001/health
 2. Set secrets:
 
 ```sh
-fly secrets set APP_MODE=hosted STORAGE_DRIVER=postgres DATABASE_URL='postgres://...' \
+fly secrets set APP_MODE=hosted DATABASE_URL='postgres://...' \
   PUBLIC_BASE_URL='https://worldarchitect.example' \
   PROVIDER_SETTINGS_ENCRYPTION_KEY='replace-with-random-secret' \
   CLERK_JWKS_URL='https://example.clerk.accounts.dev/.well-known/jwks.json' \
@@ -202,7 +200,7 @@ Provider settings live in the database. User-entered provider keys are stored en
 
 ## Troubleshooting
 
-- `/health` fails: verify `APP_MODE`, `STORAGE_DRIVER`, `DATABASE_URL`, and database network access.
+- `/health` fails: verify `APP_MODE`, `DATABASE_URL`, and database network access.
 - Sign-in screen does not load: verify `VITE_CLERK_PUBLISHABLE_KEY` was present at build time.
 - API returns auth errors: verify `CLERK_ISSUER`, `CLERK_JWKS_URL`, Clerk allowed origins, and the browser domain.
 - Browser CORS errors: verify `PUBLIC_BASE_URL` exactly matches the deployed `https://` origin.
@@ -213,7 +211,7 @@ Provider settings live in the database. User-entered provider keys are stored en
 
 ## Manual QA
 
-- Visit `/health` and confirm `status: ok`, `mode: hosted`, and `storage.driver: postgres`.
+- Visit `/health` and confirm `status: ok`, `mode: hosted`, and `database.ok: true`.
 - Sign in as user A, create a world, and confirm it appears in the worlds list.
 - Sign in as user B and confirm user A's world is absent and direct URLs return 404.
 - Save a provider API key, refresh settings, and confirm only a masked key is returned.

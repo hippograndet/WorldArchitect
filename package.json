@@ -17,7 +17,6 @@
     "dev": "npm run db:up && concurrently -n server,client -c cyan,magenta \"npm run dev -w server\" \"npm run dev -w client\"",
     "dev:server": "npm run db:up && npm run dev -w server",
     "dev:client": "npm run dev -w client",
-    "dev:sqlite": "concurrently -n server,client -c cyan,magenta \"npm run dev:sqlite -w server\" \"npm run dev -w client\"",
     "lint": "npm run typecheck",
     "typecheck": "npm run typecheck -w server && npm run typecheck -w client",
     "build": "npm run build -w server && npm run build -w client",

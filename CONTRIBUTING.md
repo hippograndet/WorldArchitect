@@ -21,7 +21,7 @@ npm run dev:server        # server only
 npm run dev:client        # client only
 ```
 
-The app runs in local mode (`APP_MODE=local`, no login, SQLite) by default — this is the setup almost all contributions should be developed and tested against. See [DEPLOY.md](DEPLOY.md) only if your change specifically touches hosted mode (`APP_MODE=hosted`, Postgres, Clerk auth).
+The app runs in local mode (`APP_MODE=local`, no login, local Postgres) by default — this is the setup almost all contributions should be developed and tested against. See [DEPLOY.md](DEPLOY.md) only if your change specifically touches hosted mode (`APP_MODE=hosted`, Clerk auth).
 
 ## Before opening a pull request
 

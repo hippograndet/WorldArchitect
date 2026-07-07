@@ -1,7 +1,4 @@
--- Brings the Postgres schema up to parity with the current SQLite shape
--- (server/src/db/schema.ts's applySchema() + runMigrations()). Written fresh
--- from the current final shape, not as a replay of SQLite's ALTER history —
--- there is no legacy Postgres data to stay backward-compatible with.
+-- Adds the remaining application tables to the canonical Postgres schema.
 --
 -- owner_id backfill on insert is handled in application code
 -- (server/src/db/ownership.ts), not DB triggers — see dev-docs/architecture.md
@@ -45,8 +42,7 @@ CREATE TABLE IF NOT EXISTS pending_drafts (
   UNIQUE(article_id, pipeline_type)
 );
 
--- auto_select exists in SQLite (schema.ts M2) but was missing here — routes/articles.ts
--- writes to it on every pending-draft insert, so this was a live Postgres bug.
+-- routes/articles.ts writes to this on every pending-draft insert.
 ALTER TABLE pending_drafts ADD COLUMN IF NOT EXISTS auto_select INTEGER NOT NULL DEFAULT 0;
 
 CREATE TABLE IF NOT EXISTS name_bank (
@@ -140,8 +136,7 @@ CREATE TABLE IF NOT EXISTS world_issues (
 
 CREATE INDEX IF NOT EXISTS idx_world_issues_world ON world_issues(owner_id, world_id, status);
 
--- article_links exists in 001_initial.sql but was missing these two indexes
--- that the SQLite schema has (schema.ts M1).
+-- article_links exists in 001_initial.sql; add lookup indexes used by graph traversal.
 CREATE INDEX IF NOT EXISTS idx_article_links_target ON article_links(target_article_id, link_type);
 CREATE INDEX IF NOT EXISTS idx_article_links_source ON article_links(source_article_id, link_type);
 

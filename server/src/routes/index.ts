@@ -1,5 +1,4 @@
 import type express from 'express';
-import { DB_PATH } from '../db/index.js';
 import { getStorageAdapter } from '../db/storage.js';
 import { getAppMode } from '../config.js';
 import { requireWorldTenant } from '../tenant.js';
@@ -21,13 +20,11 @@ import runRoutes from './runs.js';
 
 export function registerRoutes(app: express.Express): void {
   app.get('/health', asyncHandler(async (_req, res) => {
-    const storage = getStorageAdapter();
-    const health = await storage.health();
+    const database = await getStorageAdapter().health();
     res.json({
-      status: health.ok ? 'ok' : 'degraded',
+      status: database.ok ? 'ok' : 'degraded',
       mode: getAppMode(),
-      storage: health,
-      db: DB_PATH,
+      database,
     });
   }));
 

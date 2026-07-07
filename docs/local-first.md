@@ -6,7 +6,7 @@ This page describes the default **local mode** (`APP_MODE=local`). WorldArchitec
 
 ## What Is Stored Locally
 
-World data is stored in a local Postgres database managed through Docker Compose and owned by the server process. SQLite is still available as a temporary legacy fallback, but Postgres is the preferred local database. Stored data includes:
+World data is stored in a local Postgres database managed through Docker Compose and owned by the server process. Stored data includes:
 
 - Worlds
 - Categories
