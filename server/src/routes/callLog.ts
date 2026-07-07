@@ -2,15 +2,16 @@ import { Router } from 'express';
 import { getDbClient } from '../db/client.js';
 import { getDailyCallCount } from '../services/callLogger.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
+import { requireTenantContext } from '../tenant.js';
 
 const router = Router({ mergeParams: true });
 
 // GET /api/worlds/:wid/call-log?page=1&limit=50
 router.get('/', asyncHandler(async (req, res) => {
-  const wid = (req.params as Record<string, string>).wid;
+  const { worldId, ownerId } = requireTenantContext(req);
   const db = getDbClient();
 
-  const worldExists = await db.get('SELECT id FROM worlds WHERE id = ?', [wid]);
+  const worldExists = await db.get('SELECT id FROM worlds WHERE id = ? AND owner_id = ?', [worldId, ownerId]);
   if (!worldExists) {
     res.status(404).json({ error: 'World not found' });
     return;
@@ -22,15 +23,15 @@ router.get('/', asyncHandler(async (req, res) => {
 
   const rows = await db.all(`
       SELECT * FROM call_log
-      WHERE world_id = ?
+      WHERE world_id = ? AND owner_id = ?
       ORDER BY created_at DESC
       LIMIT ? OFFSET ?
-    `, [wid, limit, offset]) as Record<string, unknown>[];
+    `, [worldId, ownerId, limit, offset]) as Record<string, unknown>[];
 
-  const totalRow = await db.get<{ count: number }>('SELECT COUNT(*) AS count FROM call_log WHERE world_id = ?', [wid]);
+  const totalRow = await db.get<{ count: number }>('SELECT COUNT(*) AS count FROM call_log WHERE world_id = ? AND owner_id = ?', [worldId, ownerId]);
   const total = totalRow?.count ?? 0;
 
-  const dailyCount = await getDailyCallCount(wid);
+  const dailyCount = await getDailyCallCount(worldId);
 
   res.json({
     calls: rows.map((r) => ({
@@ -56,10 +57,10 @@ router.get('/', asyncHandler(async (req, res) => {
 // ---------------------------------------------------------------------------
 
 router.get('/summary', asyncHandler(async (req, res) => {
-  const wid = (req.params as Record<string, string>).wid;
+  const { worldId, ownerId } = requireTenantContext(req);
   const db = getDbClient();
 
-  const worldExists = await db.get('SELECT id FROM worlds WHERE id = ?', [wid]);
+  const worldExists = await db.get('SELECT id FROM worlds WHERE id = ? AND owner_id = ?', [worldId, ownerId]);
   if (!worldExists) {
     res.status(404).json({ error: 'World not found' });
     return;
@@ -78,10 +79,10 @@ router.get('/summary', asyncHandler(async (req, res) => {
              AVG(tokens_out) AS avg_tokens_out,
              AVG(iterations) AS avg_iterations
       FROM call_log
-      WHERE world_id = ?
+      WHERE world_id = ? AND owner_id = ?
       GROUP BY agent_type
       ORDER BY calls DESC
-    `, [wid]);
+    `, [worldId, ownerId]);
 
   res.json({
     agents: rows.map((r) => ({
@@ -99,10 +100,10 @@ router.get('/summary', asyncHandler(async (req, res) => {
 // ---------------------------------------------------------------------------
 
 router.get('/runs', asyncHandler(async (req, res) => {
-  const wid = (req.params as Record<string, string>).wid;
+  const { worldId, ownerId } = requireTenantContext(req);
   const db = getDbClient();
 
-  const worldExists = await db.get('SELECT id FROM worlds WHERE id = ?', [wid]);
+  const worldExists = await db.get('SELECT id FROM worlds WHERE id = ? AND owner_id = ?', [worldId, ownerId]);
   if (!worldExists) {
     res.status(404).json({ error: 'World not found' });
     return;
@@ -128,28 +129,27 @@ router.get('/runs', asyncHandler(async (req, res) => {
              MIN(created_at) AS started_at,
              MAX(created_at) AS ended_at
       FROM call_log
-      WHERE world_id = ? AND pipeline_run_id IS NOT NULL
+      WHERE world_id = ? AND owner_id = ? AND pipeline_run_id IS NOT NULL
       GROUP BY pipeline_run_id, pipeline_type
       ORDER BY started_at DESC
       LIMIT ? OFFSET ?
-    `, [wid, limit, offset]);
+    `, [worldId, ownerId, limit, offset]);
 
   const totalRow = await db.get<{ count: number }>(`
       SELECT COUNT(DISTINCT pipeline_run_id) AS count FROM call_log
-      WHERE world_id = ? AND pipeline_run_id IS NOT NULL
-    `, [wid]);
+      WHERE world_id = ? AND owner_id = ? AND pipeline_run_id IS NOT NULL
+    `, [worldId, ownerId]);
   const total = totalRow?.count ?? 0;
 
-  // Per-run agent chain, assembled in application code rather than a SQL
-  // string-aggregation function (GROUP_CONCAT vs. string_agg dialect drift —
-  // see executor.ts's driver-agnostic QueryExecutor design).
+  // Per-run agent chain, assembled in application code so ordering remains
+  // obvious and independent of aggregate-string formatting.
   const runIds = runRows.map((r) => r.pipeline_run_id);
   const agentRows = runIds.length > 0
     ? await db.all<{ pipeline_run_id: string; agent_type: string }>(`
         SELECT pipeline_run_id, agent_type FROM call_log
-        WHERE world_id = ? AND pipeline_run_id IN (${runIds.map(() => '?').join(',')})
+        WHERE world_id = ? AND owner_id = ? AND pipeline_run_id IN (${runIds.map(() => '?').join(',')})
         ORDER BY created_at ASC
-      `, [wid, ...runIds])
+      `, [worldId, ownerId, ...runIds])
     : [];
 
   const agentsByRun = new Map<string, string[]>();

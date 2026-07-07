@@ -2,6 +2,7 @@ import { nanoid } from 'nanoid';
 import { getDbClient } from '../db/client.js';
 import { ownerIdForWorld } from '../db/ownership.js';
 import { upsertEntry } from '../services/worldBible.js';
+import { reindexArticle } from '../services/searchIndex.js';
 import { type ContextDepth } from '../services/archivist.js';
 import { writeArticleVersion } from '../services/articleVersions.js';
 import type { Stub } from './architect.js';
@@ -27,7 +28,6 @@ import { runSummarizeGraph } from './graphs/pipelines/summarize.js';
 import { runProposeChildrenGraph } from './graphs/pipelines/proposeChildren.js';
 import { runReorganizeGraph } from './graphs/pipelines/reorganize.js';
 import { runCohereGraph } from './graphs/pipelines/cohere.js';
-import { runChronologyGraph } from './graphs/pipelines/chronology.js';
 import { runCompressGraph } from './graphs/pipelines/compress.js';
 import { runAuditGraph } from './graphs/pipelines/audit.js';
 
@@ -168,15 +168,6 @@ export interface ReorganizeOutput {
   tokensOut: number;
 }
 
-export interface ChronologyOutput {
-  chronologySection: string;
-  coherenceWarnings: CoherenceWarning[];
-  suggestedLinks: SuggestedLink[];
-  styleCheck?: StyleWardenOutput;
-  tokensIn: number;
-  tokensOut: number;
-}
-
 export interface CompressOutput {
   entries: CompressionEntry[];
   tokensIn: number;
@@ -227,6 +218,7 @@ export class PipelineCoordinator {
     const categoryMap = new Map(categories.map((c) => [c.name.toLowerCase(), c.id]));
     const now = Date.now();
     const ownerId = await ownerIdForWorld(exec, worldId);
+    const createdArticleIds: string[] = [];
 
     await exec.transaction(async (tx) => {
       for (const stub of stubs) {
@@ -257,8 +249,13 @@ export class PipelineCoordinator {
         });
 
         await upsertEntry(tx, worldId, articleId, stub.summary);
+        createdArticleIds.push(articleId);
       }
     });
+
+    for (const articleId of createdArticleIds) {
+      await reindexArticle(worldId, articleId);
+    }
 
     return { stubs, tokensIn: result.tokensIn, tokensOut: result.tokensOut };
   }
@@ -362,20 +359,6 @@ export class PipelineCoordinator {
     contextDepth: ContextDepth = 'mid',
   ): Promise<{ warnings: CoherenceWarning[]; suggestedLinks: SuggestedLink[]; tokensIn: number; tokensOut: number }> {
     return runCohereGraph({ worldId, articleId, contextDepth });
-  }
-
-  // ---------------------------------------------------------------------------
-  // expand_chronology — Chronicler → Warden → (optional StyleWarden)
-  // ---------------------------------------------------------------------------
-
-  async expandChronology(
-    worldId: string,
-    articleId: string,
-    userSpec?: string,
-    contextDepth: ContextDepth = 'mid',
-    runStyleWarden = false,
-  ): Promise<ChronologyOutput> {
-    return runChronologyGraph({ worldId, articleId, userSpec, contextDepth, runStyleWarden });
   }
 
   // ---------------------------------------------------------------------------

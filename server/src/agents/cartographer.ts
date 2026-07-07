@@ -4,7 +4,7 @@ import { OUTPUT_TOOLS } from '../tools/output.js';
 import { buildChildProposerSystemPrompt, buildChildProposerUserMessage } from '../prompts/childProposer.js';
 import type { WorldContext } from './director.js';
 import type { ContextPackage } from '../services/archivist.js';
-import { LOOKUP_NAMES_TOOL } from '../tools/context.js';
+import { LOOKUP_NAMES_TOOL, SEARCH_ARTICLES_TOOL } from '../tools/context.js';
 import type { ChatMessage } from '../providers/types.js';
 import type { Tool } from '../tools/types.js';
 
@@ -61,8 +61,9 @@ export class CartographerAgent extends BaseAgent<CartographerInput, Cartographer
 
   protected getMaxTokens(): number { return 1500; }
 
+  /** lookup_names + search_articles (v8) — search_articles lets Cartographer self-avoid proposing a child that duplicates an existing article, before Dedup Check ever has to filter one out. */
   protected getContextTools(): Tool[] {
-    return [LOOKUP_NAMES_TOOL];
+    return [LOOKUP_NAMES_TOOL, SEARCH_ARTICLES_TOOL];
   }
 
   protected parseOutput(input: Record<string, unknown>): CartographerOutput {

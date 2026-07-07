@@ -70,6 +70,16 @@ const childProposalItemSchema: ToolParamSchema = {
   required: ['title', 'introduction', 'templateType', 'nodeKind', 'nodeKindRationale'],
 };
 
+const contradictionItemSchema: ToolParamSchema = {
+  type: 'object',
+  properties: {
+    excerpt:    { type: 'string', description: 'The offending sentence or phrase' },
+    issue:      { type: 'string', description: 'What established fact it contradicts' },
+    correction: { type: 'string', description: 'Suggested rewrite' },
+  },
+  required: ['excerpt', 'issue', 'correction'],
+};
+
 const retentionIssueSchema: ToolParamSchema = {
   type: 'object',
   properties: {
@@ -261,22 +271,6 @@ export const OUTPUT_TOOLS: Record<string, Tool> = {
         },
       },
       required: ['proposals'],
-    },
-  },
-
-  // Chronicler: writes the ## Chronology section
-  submit_chronology: {
-    name: 'submit_chronology',
-    description: 'Submit the completed ## Chronology section for this article.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        chronologySection: {
-          type: 'string',
-          description: 'Full ## Chronology content (no heading). List events in chronological order.',
-        },
-      },
-      required: ['chronologySection'],
     },
   },
 
@@ -511,18 +505,56 @@ export const OUTPUT_TOOLS: Record<string, Tool> = {
         contradictions: {
           type: 'array',
           description: 'Specific contradictions found (empty if approved)',
-          items: {
-            type: 'object',
-            properties: {
-              excerpt:    { type: 'string', description: 'The offending sentence or phrase' },
-              issue:      { type: 'string', description: 'What established fact it contradicts' },
-              correction: { type: 'string', description: 'Suggested rewrite' },
-            },
-            required: ['excerpt', 'issue', 'correction'],
-          },
+          items: contradictionItemSchema,
         },
       },
       required: ['approved', 'contradictions'],
+    },
+  },
+
+  // Grounding Check: post-Lorekeeper Inception self-correction check
+  submit_grounding_check: {
+    name: 'submit_grounding_check',
+    description: 'Submit the grounding check result for the draft introduction.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        approved: {
+          type: 'boolean',
+          description: 'Whether the introduction is free of contradictions with parent articles/fixed points',
+        },
+        contradictions: {
+          type: 'array',
+          description: 'Specific contradictions found (empty if approved)',
+          items: contradictionItemSchema,
+        },
+      },
+      required: ['approved', 'contradictions'],
+    },
+  },
+
+  // Dedup Check: post-Cartographer Branching duplicate-proposal check
+  submit_dedup_check: {
+    name: 'submit_dedup_check',
+    description: 'Submit any proposed child articles that are semantic/conceptual duplicates of existing sibling articles.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        duplicates: {
+          type: 'array',
+          description: 'Proposed children that duplicate an existing sibling (empty if none)',
+          items: {
+            type: 'object',
+            properties: {
+              proposalTitle:  { type: 'string', description: 'Title of the proposed child that is a duplicate' },
+              matchedExisting: { type: 'string', description: 'Title of the existing sibling article it duplicates' },
+              rationale:      { type: 'string', description: 'Why these are the same underlying concept' },
+            },
+            required: ['proposalTitle', 'matchedExisting', 'rationale'],
+          },
+        },
+      },
+      required: ['duplicates'],
     },
   },
 

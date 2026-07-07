@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { getDbClient } from '../db/client.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
 import { runSyncRules } from '../services/syncRules.js';
-import { tenantIdFor } from '../tenant.js';
+import { requireTenantContext } from '../tenant.js';
 
 const router = Router({ mergeParams: true });
 
@@ -15,7 +15,7 @@ const CreateLinkSchema = z.object({
 
 // GET /api/worlds/:wid/articles/tree — flat list with parentId for tree building
 router.get('/tree', asyncHandler(async (req, res) => {
-  const wid = (req.params as Record<string, string>).wid;
+  const { worldId, ownerId } = requireTenantContext(req);
 
   const rows = await getDbClient().all<{ id: string; title: string; status: string; depth: number; updated_at: number; parent_id: string | null }>(`
     SELECT a.id, a.title, a.status, a.depth, a.updated_at,
@@ -23,9 +23,9 @@ router.get('/tree', asyncHandler(async (req, res) => {
     FROM articles a
     LEFT JOIN article_links al
       ON al.target_article_id = a.id AND al.link_type = 'hierarchical'
-    WHERE a.world_id = ?
+    WHERE a.world_id = ? AND a.owner_id = ?
     ORDER BY a.depth ASC, a.updated_at ASC
-  `, [wid]);
+  `, [worldId, ownerId]);
 
   res.json(rows.map((r) => ({
     id: r.id,
@@ -38,7 +38,7 @@ router.get('/tree', asyncHandler(async (req, res) => {
 
 // GET /api/worlds/:wid/articles/graph — article network for graph view
 router.get('/graph', asyncHandler(async (req, res) => {
-  const wid = (req.params as Record<string, string>).wid;
+  const { worldId, ownerId } = requireTenantContext(req);
   const exec = getDbClient();
 
   const nodes = await exec.all<{
@@ -53,9 +53,9 @@ router.get('/graph', asyncHandler(async (req, res) => {
            COALESCE(av.introduction, '') AS introduction
     FROM articles a
     LEFT JOIN article_versions av ON av.id = a.current_version_id
-    WHERE a.world_id = ?
-    ORDER BY a.depth ASC, a.title COLLATE NOCASE ASC
-  `, [wid]);
+    WHERE a.world_id = ? AND a.owner_id = ?
+    ORDER BY a.depth ASC, LOWER(a.title) ASC
+  `, [worldId, ownerId]);
 
   const edges = await exec.all<{
     source: string;
@@ -70,8 +70,9 @@ router.get('/graph', asyncHandler(async (req, res) => {
     JOIN articles target_article ON target_article.id = al.target_article_id
     WHERE source_article.world_id = ?
       AND target_article.world_id = ?
+      AND al.owner_id = ?
     ORDER BY al.link_type ASC
-  `, [wid, wid]);
+  `, [worldId, worldId, ownerId]);
 
   res.json({
     nodes: nodes.map((node) => ({
@@ -95,7 +96,7 @@ router.post('/links', asyncHandler(async (req, res) => {
   }
 
   const { sourceArticleId, targetArticleId, linkType } = parse.data;
-  const wid = (req.params as Record<string, string>).wid;
+  const { worldId, ownerId } = requireTenantContext(req);
 
   if (sourceArticleId === targetArticleId) {
     res.status(400).json({ error: 'An article cannot link to itself.' });
@@ -106,8 +107,8 @@ router.post('/links', asyncHandler(async (req, res) => {
   const articles = await exec.all<{ id: string; depth: number }>(`
     SELECT id, depth
     FROM articles
-    WHERE world_id = ? AND id IN (?, ?)
-  `, [wid, sourceArticleId, targetArticleId]);
+    WHERE world_id = ? AND owner_id = ? AND id IN (?, ?)
+  `, [worldId, ownerId, sourceArticleId, targetArticleId]);
 
   if (articles.length !== 2) {
     res.status(404).json({ error: 'Both articles must exist in this world.' });
@@ -137,8 +138,8 @@ router.post('/links', asyncHandler(async (req, res) => {
       const children = await exec.all<{ id: string }>(`
         SELECT target_article_id AS id
         FROM article_links
-        WHERE source_article_id = ? AND link_type = 'hierarchical'
-      `, [currentId]);
+        WHERE source_article_id = ? AND owner_id = ? AND link_type = 'hierarchical'
+      `, [currentId, ownerId]);
 
       for (const child of children) queue.push(child.id);
     }
@@ -151,9 +152,10 @@ router.post('/links', asyncHandler(async (req, res) => {
       await tx.run(`
         DELETE FROM article_links
         WHERE target_article_id = ?
+          AND owner_id = ?
           AND link_type = 'hierarchical'
           AND source_article_id != ?
-      `, [targetArticleId, sourceArticleId]);
+      `, [targetArticleId, ownerId, sourceArticleId]);
     }
 
     await tx.run(`
@@ -161,7 +163,7 @@ router.post('/links', asyncHandler(async (req, res) => {
       VALUES (?, ?, ?, ?)
       ON CONFLICT(source_article_id, target_article_id)
       DO UPDATE SET link_type = excluded.link_type
-    `, [sourceArticleId, targetArticleId, tenantIdFor(req), linkType]);
+    `, [sourceArticleId, targetArticleId, ownerId, linkType]);
 
     if (linkType === 'hierarchical') {
       const queue = [{ id: targetArticleId, depth: (sourceArticle.depth ?? 1) + 1 }];
@@ -172,13 +174,13 @@ router.post('/links', asyncHandler(async (req, res) => {
         if (seen.has(current.id)) continue;
         seen.add(current.id);
 
-        await tx.run('UPDATE articles SET depth = ?, updated_at = ? WHERE id = ?', [current.depth, now, current.id]);
+        await tx.run('UPDATE articles SET depth = ?, updated_at = ? WHERE id = ? AND owner_id = ?', [current.depth, now, current.id, ownerId]);
 
         const children = await tx.all<{ id: string }>(`
           SELECT target_article_id AS id
           FROM article_links
-          WHERE source_article_id = ? AND link_type = 'hierarchical'
-        `, [current.id]);
+          WHERE source_article_id = ? AND owner_id = ? AND link_type = 'hierarchical'
+        `, [current.id, ownerId]);
 
         for (const child of children) {
           queue.push({ id: child.id, depth: current.depth + 1 });
@@ -186,11 +188,11 @@ router.post('/links', asyncHandler(async (req, res) => {
       }
     }
 
-    await tx.run('UPDATE articles SET updated_at = ? WHERE id IN (?, ?)', [now, sourceArticleId, targetArticleId]);
+    await tx.run('UPDATE articles SET updated_at = ? WHERE owner_id = ? AND id IN (?, ?)', [now, ownerId, sourceArticleId, targetArticleId]);
   });
 
-  await runSyncRules(wid, sourceArticleId);
-  await runSyncRules(wid, targetArticleId);
+  await runSyncRules(worldId, sourceArticleId);
+  await runSyncRules(worldId, targetArticleId);
 
   res.status(201).json({
     source: sourceArticleId,

@@ -4,7 +4,7 @@ import { nanoid } from 'nanoid';
 import { getDbClient } from '../db/client.js';
 import { runSyncRules } from '../services/syncRules.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
-import { tenantIdFor } from '../tenant.js';
+import { requireTenantContext } from '../tenant.js';
 
 const router = Router({ mergeParams: true });
 
@@ -16,7 +16,7 @@ type DbRow = Record<string, unknown>;
 // ---------------------------------------------------------------------------
 
 router.get('/staged', asyncHandler(async (req, res) => {
-  const wid = (req.params as Record<string, string>).wid;
+  const { worldId, ownerId } = requireTenantContext(req);
 
   const articles = await getDbClient().all<DbRow>(`
     SELECT a.id, a.title, a.status, a.template_type, a.depth, a.updated_at,
@@ -25,17 +25,17 @@ router.get('/staged', asyncHandler(async (req, res) => {
     FROM articles a
     LEFT JOIN (
       SELECT article_id, COUNT(*) AS cnt
-      FROM article_issues WHERE severity = 'blocking' AND status = 'open'
+      FROM article_issues WHERE owner_id = ? AND severity = 'blocking' AND status = 'open'
       GROUP BY article_id
     ) blocking ON blocking.article_id = a.id
     LEFT JOIN (
       SELECT article_id, COUNT(*) AS cnt
-      FROM article_issues WHERE severity = 'warning' AND status = 'open'
+      FROM article_issues WHERE owner_id = ? AND severity = 'warning' AND status = 'open'
       GROUP BY article_id
     ) warn ON warn.article_id = a.id
-    WHERE a.world_id = ? AND a.status = 'draft'
+    WHERE a.world_id = ? AND a.owner_id = ? AND a.status = 'draft'
     ORDER BY a.depth ASC, a.title ASC
-  `, [wid]);
+  `, [ownerId, ownerId, worldId, ownerId]);
 
   res.json(articles.map(a => ({
     id: a.id,
@@ -68,12 +68,12 @@ router.post('/check', asyncHandler(async (req, res) => {
     return;
   }
 
-  const wid = (req.params as Record<string, string>).wid;
+  const { worldId, ownerId } = requireTenantContext(req);
   const { articleIds } = parse.data;
 
   // Re-run sync rules for freshness
   for (const aid of articleIds) {
-    await runSyncRules(wid, aid);
+    await runSyncRules(worldId, aid);
   }
 
   const placeholders = articleIds.map(() => '?').join(', ');
@@ -81,9 +81,9 @@ router.post('/check', asyncHandler(async (req, res) => {
     SELECT ai.*, a.title AS article_title
     FROM article_issues ai
     JOIN articles a ON a.id = ai.article_id
-    WHERE ai.article_id IN (${placeholders}) AND ai.status = 'open'
+    WHERE ai.owner_id = ? AND a.world_id = ? AND a.owner_id = ? AND ai.article_id IN (${placeholders}) AND ai.status = 'open'
     ORDER BY ai.severity DESC, ai.created_at DESC
-  `, articleIds);
+  `, [ownerId, worldId, ownerId, ...articleIds]);
 
   const summary = {
     blocking: issues.filter(i => i.severity === 'blocking').length,
@@ -125,8 +125,7 @@ router.post('/commit', asyncHandler(async (req, res) => {
     return;
   }
 
-  const wid = (req.params as Record<string, string>).wid;
-  const ownerId = tenantIdFor(req);
+  const { worldId, ownerId } = requireTenantContext(req);
   const { articleIds, force } = parse.data;
   const exec = getDbClient();
   const now = Date.now();
@@ -135,8 +134,8 @@ router.post('/commit', asyncHandler(async (req, res) => {
     const placeholders = articleIds.map(() => '?').join(', ');
     const blocking = await exec.get<{ cnt: number }>(`
       SELECT COUNT(*) AS cnt FROM article_issues
-      WHERE article_id IN (${placeholders}) AND severity = 'blocking' AND status = 'open'
-    `, articleIds);
+      WHERE owner_id = ? AND article_id IN (${placeholders}) AND severity = 'blocking' AND status = 'open'
+    `, [ownerId, ...articleIds]);
 
     if (blocking!.cnt > 0) {
       res.status(422).json({
@@ -151,21 +150,21 @@ router.post('/commit', asyncHandler(async (req, res) => {
   await exec.transaction(async (tx) => {
     for (const aid of articleIds) {
       const article = await tx.get<{ id: string; current_version_id: string }>(
-        `SELECT id, current_version_id FROM articles WHERE id = ? AND world_id = ?`,
-        [aid, wid],
+        `SELECT id, current_version_id FROM articles WHERE id = ? AND world_id = ? AND owner_id = ?`,
+        [aid, worldId, ownerId],
       );
       if (!article) continue;
 
-      await tx.run(`UPDATE articles SET status = 'published', updated_at = ? WHERE id = ?`, [now, aid]);
+      await tx.run(`UPDATE articles SET status = 'published', updated_at = ? WHERE id = ? AND owner_id = ?`, [now, aid, ownerId]);
 
       if (article.current_version_id) {
-        await tx.run(`UPDATE article_versions SET is_published = 1 WHERE id = ?`, [article.current_version_id]);
+        await tx.run(`UPDATE article_versions SET is_published = 1 WHERE id = ? AND owner_id = ?`, [article.current_version_id, ownerId]);
       }
 
       await tx.run(`
         INSERT INTO publish_history (id, world_id, owner_id, article_id, version_id, published_at)
         VALUES (?, ?, ?, ?, ?, ?)
-      `, [nanoid(), wid, ownerId, aid, article.current_version_id ?? null, now]);
+      `, [nanoid(), worldId, ownerId, aid, article.current_version_id ?? null, now]);
 
       publishedIds.push(aid);
     }
@@ -179,16 +178,16 @@ router.post('/commit', asyncHandler(async (req, res) => {
 // ---------------------------------------------------------------------------
 
 router.get('/history', asyncHandler(async (req, res) => {
-  const wid = (req.params as Record<string, string>).wid;
+  const { worldId, ownerId } = requireTenantContext(req);
 
   const rows = await getDbClient().all<DbRow>(`
     SELECT ph.*, a.title AS article_title
     FROM publish_history ph
     JOIN articles a ON a.id = ph.article_id
-    WHERE ph.world_id = ?
+    WHERE ph.world_id = ? AND ph.owner_id = ?
     ORDER BY ph.published_at DESC
     LIMIT 100
-  `, [wid]);
+  `, [worldId, ownerId]);
 
   res.json(rows.map(r => ({
     id: r.id,

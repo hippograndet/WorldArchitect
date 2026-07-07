@@ -1,5 +1,6 @@
 import JSZip from 'jszip';
 import { getDbClient } from '../db/client.js';
+import type { TenantContext } from '../tenant.js';
 
 interface ArticleExportRow {
   id: string;
@@ -65,10 +66,13 @@ function buildMarkdown(row: ArticleExportRow): string {
   return lines.join('\n');
 }
 
-export async function buildWorldZip(worldId: string): Promise<Buffer> {
+export async function buildWorldZip(worldId: string, tenant?: TenantContext): Promise<Buffer> {
   const exec = getDbClient();
 
-  const world = await exec.get<{ name: string }>(`SELECT name FROM worlds WHERE id = ?`, [worldId]);
+  const world = await exec.get<{ name: string }>(
+    `SELECT name FROM worlds WHERE id = ?${tenant ? ' AND owner_id = ?' : ''}`,
+    tenant ? [worldId, tenant.ownerId] : [worldId],
+  );
 
   if (!world) throw new Error('World not found.');
 
@@ -90,8 +94,9 @@ export async function buildWorldZip(worldId: string): Promise<Buffer> {
      LEFT JOIN article_versions av ON av.id = a.current_version_id
      LEFT JOIN world_bible_entries wbe ON wbe.article_id = a.id
      WHERE a.world_id = ?
+       ${tenant ? 'AND a.owner_id = ?' : ''}
      ORDER BY c.sort_order, a.title`,
-    [worldId],
+    tenant ? [worldId, tenant.ownerId] : [worldId],
   );
 
   const zip = new JSZip();

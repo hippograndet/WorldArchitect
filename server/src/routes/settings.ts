@@ -11,7 +11,7 @@ import {
 import { redactErrorMessage } from '../security/redaction.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
 import type { ProviderName, ProviderConfig } from '../providers/index.js';
-import { tenantIdFor } from '../tenant.js';
+import { getTenantContext, requireTenantContext } from '../tenant.js';
 
 const router = Router();
 
@@ -37,7 +37,7 @@ const UpdateCostSettingsSchema = z.object({
 // ---------------------------------------------------------------------------
 
 router.get('/', asyncHandler(async (req, res) => {
-  const { provider, config, sources, localOnly } = await readEffectiveProviderSettings(tenantIdFor(req));
+  const { provider, config, sources, localOnly } = await readEffectiveProviderSettings(getTenantContext(req).ownerId);
 
   res.json({
     provider,
@@ -78,7 +78,7 @@ router.patch('/', asyncHandler(async (req, res) => {
   }
 
   const { provider, apiKey, model, ollamaUrl, localOnly } = parse.data;
-  const userId = tenantIdFor(req);
+  const userId = getTenantContext(req).ownerId;
   const { config: existing } = await readProviderSettings(userId);
 
   // Merge — only overwrite the fields relevant to the selected provider.
@@ -147,10 +147,11 @@ router.get('/ollama/models', asyncHandler(async (_req, res) => {
 export const worldSettingsRouter = Router({ mergeParams: true });
 
 worldSettingsRouter.get('/', asyncHandler(async (req, res) => {
+  const tenant = requireTenantContext(req);
   const settings = await getDbClient()
     .get<{ daily_cap: number | null; bible_threshold: number }>(
       'SELECT * FROM cost_settings WHERE world_id = ? AND owner_id = ?',
-      [(req.params as Record<string, string>).wid, tenantIdFor(req)],
+      [tenant.worldId, tenant.ownerId],
     );
 
   if (!settings) {
@@ -171,13 +172,12 @@ worldSettingsRouter.patch('/', asyncHandler(async (req, res) => {
     return;
   }
 
-  const wid = (req.params as Record<string, string>).wid;
-  const ownerId = tenantIdFor(req);
+  const { worldId, ownerId } = requireTenantContext(req);
   const exec = getDbClient();
 
   const existing = await exec.get<{ daily_cap: number | null; bible_threshold: number }>(
     'SELECT * FROM cost_settings WHERE world_id = ? AND owner_id = ?',
-    [wid, ownerId],
+    [worldId, ownerId],
   );
 
   if (!existing) {
@@ -193,14 +193,14 @@ worldSettingsRouter.patch('/', asyncHandler(async (req, res) => {
   if (bibleThreshold !== undefined) { fields.push('bible_threshold = ?'); values.push(bibleThreshold); }
 
   if (fields.length > 0) {
-    values.push(wid);
+    values.push(worldId);
     values.push(ownerId);
     await exec.run(`UPDATE cost_settings SET ${fields.join(', ')} WHERE world_id = ? AND owner_id = ?`, values);
   }
 
   const updated = await exec.get<{ daily_cap: number | null; bible_threshold: number }>(
     'SELECT * FROM cost_settings WHERE world_id = ? AND owner_id = ?',
-    [wid, ownerId],
+    [worldId, ownerId],
   );
 
   res.json({ dailyCap: updated!.daily_cap, bibleThreshold: updated!.bible_threshold });

@@ -5,7 +5,6 @@ import { buildContinuityEditorSystemPrompt, buildContinuityEditorUserMessage } f
 import type { WorldContext } from './director.js';
 import type { ContextPackage } from '../services/archivist.js';
 import type { ResearchBrief } from './scribe.js';
-import { CONTEXT_TOOLS } from '../tools/context.js';
 import type { ChatMessage } from '../providers/types.js';
 import type { Tool } from '../tools/types.js';
 
@@ -53,8 +52,13 @@ export class ContinuityEditorAgent extends BaseAgent<ContinuityEditorInput, Cont
 
   protected getMaxTokens(): number { return 1000; }
 
+  /**
+   * No context tools (v8) — CE checks a draft against the ContextPackage +
+   * Researcher's brief it's already given; independently re-querying the
+   * world would let it second-guess what Researcher already vetted.
+   */
   protected getContextTools(): Tool[] {
-    return CONTEXT_TOOLS;
+    return [];
   }
 
   protected buildMessages(_worldId: string, input: ContinuityEditorInput): ChatMessage[] {

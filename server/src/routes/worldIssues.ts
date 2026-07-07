@@ -2,19 +2,19 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { getDbClient } from '../db/client.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
-import { tenantIdFor } from '../tenant.js';
+import { requireTenantContext } from '../tenant.js';
 
 const router = Router({ mergeParams: true });
 
 router.get('/issues', asyncHandler(async (req, res) => {
-  const wid = req.params.wid;
+  const { worldId, ownerId } = requireTenantContext(req);
 
   const summary = await getDbClient().all<{ severity: string; count: number }>(`
     SELECT severity, COUNT(*) AS count
     FROM article_issues
     WHERE world_id = ? AND owner_id = ? AND status = 'open'
     GROUP BY severity
-  `, [wid, tenantIdFor(req)]);
+  `, [worldId, ownerId]);
 
   const blocking = summary.find(s => s.severity === 'blocking')?.count ?? 0;
   const warnings = summary.find(s => s.severity === 'warning')?.count ?? 0;
@@ -23,11 +23,11 @@ router.get('/issues', asyncHandler(async (req, res) => {
 }));
 
 router.get('/world-issues', asyncHandler(async (req, res) => {
-  const worldId = req.params.wid;
+  const { worldId, ownerId } = requireTenantContext(req);
   const { status, severity, type } = req.query as Record<string, string | undefined>;
 
   let sql = `SELECT * FROM world_issues WHERE world_id = ? AND owner_id = ?`;
-  const params: unknown[] = [worldId, tenantIdFor(req)];
+  const params: unknown[] = [worldId, ownerId];
 
   if (status) { sql += ` AND status = ?`; params.push(status); }
   if (severity) { sql += ` AND severity = ?`; params.push(severity); }
@@ -47,11 +47,12 @@ router.patch('/world-issues/:iid', asyncHandler(async (req, res) => {
     return;
   }
 
-  const { wid, iid } = req.params;
+  const { worldId, ownerId } = requireTenantContext(req);
+  const { iid } = req.params;
   const now = Date.now();
   const result = await getDbClient().run(
     `UPDATE world_issues SET status = ?, updated_at = ? WHERE id = ? AND world_id = ? AND owner_id = ?`,
-    [parse.data.status, now, iid, wid, tenantIdFor(req)],
+    [parse.data.status, now, iid, worldId, ownerId],
   );
 
   if (result.changes === 0) {
@@ -62,11 +63,12 @@ router.patch('/world-issues/:iid', asyncHandler(async (req, res) => {
 }));
 
 router.get('/articles/:aid/world-issues', asyncHandler(async (req, res) => {
-  const { wid, aid } = req.params;
+  const { worldId, ownerId } = requireTenantContext(req);
+  const { aid } = req.params;
 
   const rows = await getDbClient().all<Record<string, unknown>>(
     `SELECT * FROM world_issues WHERE world_id = ? AND owner_id = ? AND status != 'dismissed' AND article_ids LIKE ? ORDER BY created_at DESC`,
-    [wid, tenantIdFor(req), `%"${aid}"%`],
+    [worldId, ownerId, `%"${aid}"%`],
   );
 
   res.json(rows.map(parseWorldIssue));

@@ -16,6 +16,8 @@ import type { MentionItem, ScribeOutput, ResearchBrief } from '../scribe.js';
 import type { LorekeepMode } from '../lorekeeper.js';
 import type { EdgeProposal, GlobalWarning } from '../auditor.js';
 import type { CompressionEntry } from '../condenser.js';
+import type { GroundingCheckOutput } from '../groundingCheck.js';
+import type { DedupCheckOutput } from '../dedupCheck.js';
 import type { AutonomyMode, CommitPolicy, MasContract, MasIntent, MasLocation, ReviewPolicy } from './masContract.js';
 
 const replace = <T>(_a: T, b: T): T => b;
@@ -87,20 +89,23 @@ export const OrchestrationAnnotation = Annotation.Root({
   styleCheck: Annotation<StyleWardenOutput | undefined>({ reducer: replace, default: () => undefined }),
   mentions: Annotation<MentionItem[] | undefined>({ reducer: replace, default: () => undefined }),
 
-  // --- summarize (Lorekeeper) ---
+  // --- summarize (Lorekeeper [+ optional Grounding Check]) ---
   lorekeeperMode: Annotation<LorekeepMode>({ reducer: replace, default: () => 'full' }),
   existingIntro: Annotation<string | undefined>({ reducer: replace, default: () => undefined }),
+  runGroundingCheck: Annotation<boolean>({ reducer: replace, default: () => false }),
+  groundingCheck: Annotation<GroundingCheckOutput | undefined>({ reducer: replace, default: () => undefined }),
 
-  // --- proposeChildren (Cartographer) ---
+  // --- proposeChildren (Cartographer [+ optional Dedup Check]) ---
   childProposals: Annotation<ChildProposalItem[]>({ reducer: replace, default: () => [] }),
+  runDedupCheck: Annotation<boolean>({ reducer: replace, default: () => false }),
+  dedupCheck: Annotation<DedupCheckOutput | undefined>({ reducer: replace, default: () => undefined }),
 
   // --- reorganize (Scribe[reorganize] -> Sentinel -> Lorekeeper) ---
   retentionIssues: Annotation<RetentionIssue[]>({ reducer: replace, default: () => [] }),
 
-  // --- cohere / expandChronology (Warden [+ Chronicler]) ---
+  // --- cohere (Warden) ---
   warnings: Annotation<CoherenceWarning[]>({ reducer: replace, default: () => [] }),
   suggestedLinks: Annotation<SuggestedLink[]>({ reducer: replace, default: () => [] }),
-  chronologySection: Annotation<string | undefined>({ reducer: replace, default: () => undefined }),
 
   // --- compress (Condenser) ---
   bibleEntries: Annotation<Array<{ articleId: string; title: string; summary: string }>>({ reducer: replace, default: () => [] }),

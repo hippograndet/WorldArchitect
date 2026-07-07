@@ -5,6 +5,7 @@ import { articleContract, contractState } from '../masContract.js';
 import { fetchWorldContextNode, buildContextPackageNode, cartographerNode } from '../nodes.js';
 import type { ContextDepth } from '../../../services/archivist.js';
 import type { ChildProposalItem } from '../../cartographer.js';
+import type { DedupCheckOutput } from '../../dedupCheck.js';
 
 const graph = new StateGraph(OrchestrationAnnotation)
   .addNode('fetchWorldContext', fetchWorldContextNode)
@@ -21,8 +22,9 @@ export async function runProposeChildrenGraph(params: {
   articleId: string;
   userSpec?: string;
   contextDepth?: ContextDepth;
+  runDedupCheck?: boolean;
   pipelineRunId?: string;
-}): Promise<{ proposals: ChildProposalItem[]; tokensIn: number; tokensOut: number }> {
+}): Promise<{ proposals: ChildProposalItem[]; dedupCheck?: DedupCheckOutput; tokensIn: number; tokensOut: number }> {
   const result = await graph.invoke({
     worldId: params.worldId,
     articleId: params.articleId,
@@ -37,6 +39,12 @@ export async function runProposeChildrenGraph(params: {
     userSpec: params.userSpec,
     contextDepth: params.contextDepth ?? 'mid',
     contextMode: 'propose_children',
+    runDedupCheck: params.runDedupCheck ?? false,
   });
-  return { proposals: result.childProposals, tokensIn: result.tokensIn, tokensOut: result.tokensOut };
+  return {
+    proposals: result.childProposals,
+    ...(result.dedupCheck ? { dedupCheck: result.dedupCheck } : {}),
+    tokensIn: result.tokensIn,
+    tokensOut: result.tokensOut,
+  };
 }

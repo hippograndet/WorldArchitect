@@ -3,7 +3,7 @@ import { nanoid } from 'nanoid';
 import { z } from 'zod';
 import { getDbClient } from '../db/client.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
-import { tenantIdFor } from '../tenant.js';
+import { requireTenantContext } from '../tenant.js';
 
 // mergeParams: true exposes :wid from the parent /api/worlds/:wid router
 const router = Router({ mergeParams: true });
@@ -29,21 +29,12 @@ function parseCategory(row: Record<string, unknown>) {
   };
 }
 
-async function requireWorld(worldId: string): Promise<boolean> {
-  const row = await getDbClient().get('SELECT id FROM worlds WHERE id = ?', [worldId]);
-  return !!row;
-}
-
 // GET /api/worlds/:wid/categories
 router.get('/', asyncHandler(async (req, res) => {
-  const wid = (req.params as Record<string, string>).wid;
-  if (!(await requireWorld(wid))) {
-    res.status(404).json({ error: 'World not found' });
-    return;
-  }
+  const { worldId, ownerId } = requireTenantContext(req);
 
   const rows = await getDbClient().all<Record<string, unknown>>(
-    'SELECT * FROM categories WHERE world_id = ? ORDER BY sort_order, created_at', [wid],
+    'SELECT * FROM categories WHERE world_id = ? AND owner_id = ? ORDER BY sort_order, created_at', [worldId, ownerId],
   );
 
   res.json(rows.map(parseCategory));
@@ -51,11 +42,7 @@ router.get('/', asyncHandler(async (req, res) => {
 
 // POST /api/worlds/:wid/categories
 router.post('/', asyncHandler(async (req, res) => {
-  const wid = (req.params as Record<string, string>).wid;
-  if (!(await requireWorld(wid))) {
-    res.status(404).json({ error: 'World not found' });
-    return;
-  }
+  const { worldId, ownerId } = requireTenantContext(req);
 
   const parse = CreateCategorySchema.safeParse(req.body);
   if (!parse.success) {
@@ -68,7 +55,7 @@ router.post('/', asyncHandler(async (req, res) => {
 
   // Place new category after the last existing one
   const lastOrder = await db.get<{ max_order: number | null }>(
-    'SELECT MAX(sort_order) as max_order FROM categories WHERE world_id = ?', [wid],
+    'SELECT MAX(sort_order) as max_order FROM categories WHERE world_id = ? AND owner_id = ?', [worldId, ownerId],
   );
   const sortOrder = (lastOrder?.max_order ?? -1) + 1;
 
@@ -76,9 +63,9 @@ router.post('/', asyncHandler(async (req, res) => {
   await db.run(`
     INSERT INTO categories (id, world_id, owner_id, name, sort_order, hidden, created_at)
     VALUES (?, ?, ?, ?, ?, 0, ?)
-  `, [id, wid, tenantIdFor(req), parse.data.name, sortOrder, now]);
+  `, [id, worldId, ownerId, parse.data.name, sortOrder, now]);
 
-  const row = await db.get<Record<string, unknown>>('SELECT * FROM categories WHERE id = ?', [id]);
+  const row = await db.get<Record<string, unknown>>('SELECT * FROM categories WHERE id = ? AND owner_id = ?', [id, ownerId]);
 
   res.status(201).json(parseCategory(row!));
 }));
@@ -92,9 +79,9 @@ router.patch('/:cid', asyncHandler(async (req, res) => {
   }
 
   const db = getDbClient();
-  const wid = (req.params as Record<string, string>).wid;
+  const { worldId, ownerId } = requireTenantContext(req);
   const existing = await db.get<Record<string, unknown>>(
-    'SELECT * FROM categories WHERE id = ? AND world_id = ?', [req.params.cid, wid],
+    'SELECT * FROM categories WHERE id = ? AND world_id = ? AND owner_id = ?', [req.params.cid, worldId, ownerId],
   );
 
   if (!existing) {
@@ -116,9 +103,10 @@ router.patch('/:cid', asyncHandler(async (req, res) => {
   }
 
   values.push(req.params.cid);
-  await db.run(`UPDATE categories SET ${fields.join(', ')} WHERE id = ?`, values);
+  values.push(ownerId);
+  await db.run(`UPDATE categories SET ${fields.join(', ')} WHERE id = ? AND owner_id = ?`, values);
 
-  const updated = await db.get<Record<string, unknown>>('SELECT * FROM categories WHERE id = ?', [req.params.cid]);
+  const updated = await db.get<Record<string, unknown>>('SELECT * FROM categories WHERE id = ? AND owner_id = ?', [req.params.cid, ownerId]);
 
   res.json(parseCategory(updated!));
 }));
@@ -126,9 +114,9 @@ router.patch('/:cid', asyncHandler(async (req, res) => {
 // DELETE /api/worlds/:wid/categories/:cid
 router.delete('/:cid', asyncHandler(async (req, res) => {
   const db = getDbClient();
-  const wid = (req.params as Record<string, string>).wid;
+  const { worldId, ownerId } = requireTenantContext(req);
   const existing = await db.get(
-    'SELECT id FROM categories WHERE id = ? AND world_id = ?', [req.params.cid, wid],
+    'SELECT id FROM categories WHERE id = ? AND world_id = ? AND owner_id = ?', [req.params.cid, worldId, ownerId],
   );
 
   if (!existing) {
@@ -136,7 +124,7 @@ router.delete('/:cid', asyncHandler(async (req, res) => {
     return;
   }
 
-  await db.run('DELETE FROM categories WHERE id = ?', [req.params.cid]);
+  await db.run('DELETE FROM categories WHERE id = ? AND owner_id = ?', [req.params.cid, ownerId]);
   res.status(204).send();
 }));
 

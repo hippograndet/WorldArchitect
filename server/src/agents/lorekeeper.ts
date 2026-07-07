@@ -27,6 +27,7 @@ export interface LorekeepInput {
   worldContext: WorldContext;
   mode?: LorekeepMode;
   existingIntro?: string;
+  revisionNotes?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -52,6 +53,7 @@ export class LorekeepAgent extends BaseAgent<LorekeepInput, LorekeepOutput> {
           input.description,
           promptMode,
           input.existingIntro,
+          input.revisionNotes,
         ),
       },
     ];

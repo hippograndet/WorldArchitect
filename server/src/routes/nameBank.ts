@@ -1,21 +1,18 @@
 import { Router } from 'express';
-import type { Request } from 'express';
 import { z } from 'zod';
 import { generateNames, listNames, addNames, deleteName, CULTURAL_PROFILES } from '../services/nameBank.js';
 import type { EntityType, Gender, SocialClass, NameComponent, ListNamesFilter } from '../services/nameBank.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
+import { requireTenantContext } from '../tenant.js';
 
 const router = Router({ mergeParams: true });
-
-function wid(req: Request): string {
-  return (req.params as Record<string, string>).wid;
-}
 
 // ---------------------------------------------------------------------------
 // GET /api/worlds/:wid/names
 // ---------------------------------------------------------------------------
 
 router.get('/', asyncHandler(async (req, res) => {
+  const { worldId, ownerId } = requireTenantContext(req);
   const { entityType, gender, socialClass, nameComponent, tags } = req.query as Record<string, string | undefined>;
   const tagList = tags ? tags.split(',').map((t) => t.trim()).filter(Boolean) : undefined;
 
@@ -27,7 +24,7 @@ router.get('/', asyncHandler(async (req, res) => {
     tags:          tagList,
   };
 
-  const entries = await listNames(wid(req), filter);
+  const entries = await listNames(worldId, filter, undefined, ownerId);
   res.json({
     names:    entries,
     profiles: Object.entries(CULTURAL_PROFILES).map(([id, p]) => ({ id, label: p.label, feel: p.feel })),
@@ -54,7 +51,7 @@ router.post('/generate', asyncHandler(async (req, res) => {
     return;
   }
 
-  const worldId = wid(req);
+  const { worldId, ownerId } = requireTenantContext(req);
   if (!CULTURAL_PROFILES[parse.data.profileId]) {
     res.status(400).json({ error: `Unknown profile: ${parse.data.profileId}` });
     return;
@@ -65,7 +62,7 @@ router.post('/generate', asyncHandler(async (req, res) => {
       gender:        parse.data.gender,
       socialClass:   parse.data.socialClass,
       nameComponent: parse.data.nameComponent,
-    });
+    }, ownerId);
     res.json({ names });
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });
@@ -96,7 +93,7 @@ router.post('/', asyncHandler(async (req, res) => {
     return;
   }
 
-  const worldId = wid(req);
+  const { worldId } = requireTenantContext(req);
   try {
     const saved = await addNames(worldId, parse.data.names);
     res.status(201).json({ names: saved });
@@ -110,7 +107,8 @@ router.post('/', asyncHandler(async (req, res) => {
 // ---------------------------------------------------------------------------
 
 router.delete('/:nid', asyncHandler(async (req, res) => {
-  await deleteName((req.params as Record<string, string>).nid);
+  const { ownerId } = requireTenantContext(req);
+  await deleteName((req.params as Record<string, string>).nid, ownerId);
   res.status(204).send();
 }));
 

@@ -10,7 +10,7 @@ import type { WorldContext } from './director.js';
 import type { ContextPackage } from '../services/archivist.js';
 import type { ProposalItem } from './muse.js';
 import type { IdeaItem } from './oracle.js';
-import { CONTEXT_TOOLS, LOOKUP_NAMES_TOOL } from '../tools/context.js';
+import { SEARCH_ARTICLES_TOOL, LOOKUP_NAMES_TOOL } from '../tools/context.js';
 import type { ChatMessage } from '../providers/types.js';
 import type { Tool } from '../tools/types.js';
 
@@ -74,8 +74,9 @@ export class ScribeAgent extends BaseAgent<ScribeInput, ScribeOutput> {
 
   protected getMaxTokens(): number { return 2000; }
 
+  /** search_articles + lookup_names (v8) — narrowed from the full context-tool set since Scribe already receives the curated ContextPackage + Researcher's brief; search_articles remains as a narrow double-check capability. */
   protected getContextTools(): Tool[] {
-    return [...CONTEXT_TOOLS, LOOKUP_NAMES_TOOL];
+    return [SEARCH_ARTICLES_TOOL, LOOKUP_NAMES_TOOL];
   }
 
   protected buildMessages(_worldId: string, input: ScribeInput): ChatMessage[] {

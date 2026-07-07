@@ -36,7 +36,10 @@ export function buildSummarizerUserMessage(
   description: string,
   mode: SummarizerPromptMode = 'full',
   existingIntro?: string,
+  revisionNotes?: string,
 ): string {
+  const revisionBlock = revisionNotes ? `\n\n## Revision Required\nPlease correct the following contradictions:\n${revisionNotes}` : '';
+
   if (mode === 'improve' && existingIntro) {
     return `## Article: ${articleTitle}
 
@@ -46,7 +49,7 @@ ${existingIntro}
 ## Description (for additional context)
 ${description}
 
-Improve the Introduction, keeping its core claims and voice.`;
+Improve the Introduction, keeping its core claims and voice.${revisionBlock}`;
   }
 
   return `## Article: ${articleTitle}
@@ -54,5 +57,5 @@ Improve the Introduction, keeping its core claims and voice.`;
 ## Description
 ${description}
 
-Write a 1-paragraph Introduction for the World Bible derived from this Description.`;
+Write a 1-paragraph Introduction for the World Bible derived from this Description.${revisionBlock}`;
 }

@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import type { Request } from 'express';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
-import { tenantIdFor } from '../tenant.js';
+import { requireTenantContext } from '../tenant.js';
 import { getDbClient } from '../db/client.js';
 import { createRun, getRun, listRuns, cancelRun, markRunStatus, listRunEvents, RunConflictError } from '../services/runsService.js';
 import { startForgeRun, resumeForgeRun } from '../agents/graphs/forgeGraph.js';
@@ -18,11 +18,13 @@ function rid(req: Request): string {
 }
 
 router.get('/', asyncHandler(async (req, res) => {
-  res.json(await listRuns(wid(req), tenantIdFor(req)));
+  const { worldId, ownerId } = requireTenantContext(req);
+  res.json(await listRuns(worldId, ownerId));
 }));
 
 router.get('/:rid', asyncHandler(async (req, res) => {
-  const run = await getRun(wid(req), tenantIdFor(req), rid(req));
+  const { worldId, ownerId } = requireTenantContext(req);
+  const run = await getRun(worldId, ownerId, rid(req));
   if (!run) throw new AppError(404, 'NOT_FOUND', 'Run not found');
   const events = await listRunEvents(rid(req));
   res.json({ ...run, events });
@@ -32,7 +34,7 @@ const CreateRunSchema = z.object({
   articleIds: z.array(z.string().min(1)).min(1),
   budgetLimit: z.number().int().positive().optional(),
   pipelineType: z.enum([
-    'expand_description', 'create_child', 'propose_children', 'expand_chronology',
+    'expand_description', 'create_child', 'propose_children',
     'reorganize', 'summarize', 'improve_intro', 'cohere', 'forge_expand', 'audit',
   ]),
   contextDepth: z.enum(['shallow', 'mid', 'deep']).optional().default('mid'),
@@ -42,6 +44,12 @@ const CreateRunSchema = z.object({
   forgeMaxChildren: z.number().int().min(0).max(20).optional().default(5),
   forgeUseOracle: z.boolean().optional().default(false),
   forgeUseContinuityEditor: z.boolean().optional().default(false),
+  forgeUseGroundingCheck: z.boolean().optional().default(false),
+  forgeUseDedupCheck: z.boolean().optional().default(false),
+  forgeContinuationMode: z.enum(['one_step', 'finish_document', 'recursive']).optional().default('recursive'),
+  forgeInceptionExistingMode: z.enum(['create', 'improve', 'replace', 'skip_existing']).optional().default('improve'),
+  forgeExpansionExistingMode: z.enum(['create', 'improve', 'replace', 'skip_existing']).optional().default('improve'),
+  forgeBranchingExistingMode: z.enum(['append_deduped', 'skip_if_children']).optional().default('append_deduped'),
 });
 
 /** Same derivation forgeSlice.ts's startForge already used client-side. */
@@ -69,15 +77,14 @@ router.post('/', asyncHandler(async (req, res) => {
   const parse = CreateRunSchema.safeParse(req.body);
   if (!parse.success) throw new AppError(400, 'VALIDATION_ERROR', 'Invalid request', parse.error.flatten().fieldErrors);
 
-  const worldId = wid(req);
-  const ownerId = tenantIdFor(req);
+  const { worldId, ownerId } = requireTenantContext(req);
   const { articleIds } = parse.data;
   const rootArticleId = articleIds[0];
 
   const placeholders = articleIds.map(() => '?').join(',');
   const existing = await getDbClient().all<{ id: string; title: string }>(
-    `SELECT id, title FROM articles WHERE world_id = ? AND id IN (${placeholders})`,
-    [worldId, ...articleIds],
+    `SELECT id, title FROM articles WHERE world_id = ? AND owner_id = ? AND id IN (${placeholders})`,
+    [worldId, ownerId, ...articleIds],
   );
   if (existing.length !== articleIds.length) {
     throw new AppError(404, 'NOT_FOUND', 'One or more articles not found in this world');
@@ -108,6 +115,12 @@ router.post('/', asyncHandler(async (req, res) => {
     forgeMaxChildren: parse.data.forgeMaxChildren,
     forgeUseOracle: parse.data.forgeUseOracle,
     forgeUseContinuityEditor: parse.data.forgeUseContinuityEditor,
+    forgeUseGroundingCheck: parse.data.forgeUseGroundingCheck,
+    forgeUseDedupCheck: parse.data.forgeUseDedupCheck,
+    forgeContinuationMode: parse.data.forgeContinuationMode,
+    forgeInceptionExistingMode: parse.data.forgeInceptionExistingMode,
+    forgeExpansionExistingMode: parse.data.forgeExpansionExistingMode,
+    forgeBranchingExistingMode: parse.data.forgeBranchingExistingMode,
   }).catch((err) => {
     // eslint-disable-next-line no-console
     console.error(`Forge run ${run.id} crashed outside its own error handling`, err);
@@ -117,14 +130,15 @@ router.post('/', asyncHandler(async (req, res) => {
 }));
 
 router.post('/:rid/cancel', asyncHandler(async (req, res) => {
-  const run = await cancelRun(wid(req), tenantIdFor(req), rid(req));
+  const { worldId, ownerId } = requireTenantContext(req);
+  const run = await cancelRun(worldId, ownerId, rid(req));
   if (!run) throw new AppError(404, 'NOT_FOUND', 'Run not found');
   res.json(run);
 }));
 
 router.post('/:rid/pause', asyncHandler(async (req, res) => {
-  const worldId = wid(req);
-  const run = await getRun(worldId, tenantIdFor(req), rid(req));
+  const { worldId, ownerId } = requireTenantContext(req);
+  const run = await getRun(worldId, ownerId, rid(req));
   if (!run) throw new AppError(404, 'NOT_FOUND', 'Run not found');
   if (run.status !== 'running' && run.status !== 'pending') {
     throw new AppError(409, 'RUN_NOT_RUNNING', 'Run is not currently running');
@@ -145,8 +159,8 @@ router.post('/:rid/pause', asyncHandler(async (req, res) => {
 const STALE_RUN_MS = 60_000;
 
 router.post('/:rid/resume', asyncHandler(async (req, res) => {
-  const worldId = wid(req);
-  const run = await getRun(worldId, tenantIdFor(req), rid(req));
+  const { worldId, ownerId } = requireTenantContext(req);
+  const run = await getRun(worldId, ownerId, rid(req));
   if (!run) throw new AppError(404, 'NOT_FOUND', 'Run not found');
   const isStaleRunning = run.status === 'running' && Date.now() - run.updatedAt > STALE_RUN_MS;
   if (run.status !== 'paused' && !isStaleRunning) {

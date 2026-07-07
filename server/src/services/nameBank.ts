@@ -283,13 +283,14 @@ export async function generateNames(
   worldId: string,
   count = 8,
   opts: GenerateOptions = {},
+  ownerId?: string,
 ): Promise<string[]> {
   const profile = CULTURAL_PROFILES[profileId];
   if (!profile) throw new Error(`Unknown profile: ${profileId}`);
 
   const { gender = 'neutral', socialClass = 'common', nameComponent = 'full' } = opts;
 
-  const existing = (await listNames(worldId)).map((e) => e.name.toLowerCase());
+  const existing = (await listNames(worldId, undefined, undefined, ownerId)).map((e) => e.name.toLowerCase());
   const results: string[] = [];
   let attempt = 0;
 
@@ -335,9 +336,20 @@ export interface ListNamesFilter {
 
 export function listNames(worldId: string, entityType?: EntityType, tags?: string[]): Promise<NameEntry[]>;
 export function listNames(worldId: string, filter?: ListNamesFilter): Promise<NameEntry[]>;
-export async function listNames(worldId: string, entityTypeOrFilter?: EntityType | ListNamesFilter, tags?: string[]): Promise<NameEntry[]> {
+export function listNames(worldId: string, filter: ListNamesFilter | undefined, tags: string[] | undefined, ownerId?: string): Promise<NameEntry[]>;
+export async function listNames(
+  worldId: string,
+  entityTypeOrFilter?: EntityType | ListNamesFilter,
+  tags?: string[],
+  ownerId?: string,
+): Promise<NameEntry[]> {
   let query = `SELECT * FROM name_bank WHERE world_id = ?`;
   const params: unknown[] = [worldId];
+
+  if (ownerId) {
+    query += ` AND owner_id = ?`;
+    params.push(ownerId);
+  }
 
   let filter: ListNamesFilter = {};
   if (typeof entityTypeOrFilter === 'string') {
@@ -421,6 +433,9 @@ export async function addNames(
   });
 }
 
-export async function deleteName(nameId: string): Promise<void> {
-  await getDbClient().run(`DELETE FROM name_bank WHERE id = ?`, [nameId]);
+export async function deleteName(nameId: string, ownerId?: string): Promise<void> {
+  await getDbClient().run(
+    `DELETE FROM name_bank WHERE id = ?${ownerId ? ' AND owner_id = ?' : ''}`,
+    ownerId ? [nameId, ownerId] : [nameId],
+  );
 }

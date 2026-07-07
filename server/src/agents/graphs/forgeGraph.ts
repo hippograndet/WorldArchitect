@@ -4,6 +4,7 @@ import { getDbClient } from '../../db/client.js';
 import { upsertEntry } from '../../services/worldBible.js';
 import { acceptDraft, batchCreateChildArticles } from '../../services/articlesService.js';
 import { getRun, markRunStatus, bumpRunBudget, releaseLocks, updateRunProgress } from '../../services/runsService.js';
+import { recordArticleIssues } from '../../services/issueRecorder.js';
 import { getCheckpointer } from '../checkpointer.js';
 import { runSummarizeGraph } from './pipelines/summarize.js';
 import { runProposeGraph } from './pipelines/propose.js';
@@ -12,7 +13,13 @@ import { runExpandGraph } from './pipelines/expand.js';
 import { runProposeChildrenGraph } from './pipelines/proposeChildren.js';
 import { ForgeAnnotation } from './forgeState.js';
 import { contractState, forgeContract } from './masContract.js';
-import type { ForgeState, ForgeQueueItem } from './forgeState.js';
+import type {
+  ForgeState,
+  ForgeQueueItem,
+  ForgeContinuationMode,
+  ForgeExistingContentMode,
+  ForgeBranchingExistingMode,
+} from './forgeState.js';
 import type { ContextDepth } from '../../services/archivist.js';
 
 // ---------------------------------------------------------------------------
@@ -27,6 +34,39 @@ function isFatal(err: unknown): boolean {
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+function countWords(text: string): number {
+  return text.trim().split(/\s+/).filter(Boolean).length;
+}
+
+async function getCurrentIntro(worldId: string, articleId: string): Promise<string> {
+  const row = await getDbClient().get<{ summary: string }>(
+    'SELECT summary FROM world_bible_entries WHERE world_id = ? AND article_id = ?',
+    [worldId, articleId],
+  );
+  return row?.summary ?? '';
+}
+
+async function getCurrentDescription(articleId: string): Promise<string> {
+  const row = await getDbClient().get<{ description: string }>(
+    `SELECT av.description
+     FROM articles a
+     LEFT JOIN article_versions av ON av.id = a.current_version_id
+     WHERE a.id = ?`,
+    [articleId],
+  );
+  return row?.description ?? '';
+}
+
+async function getChildCount(articleId: string): Promise<number> {
+  const row = await getDbClient().get<{ count: number }>(
+    `SELECT COUNT(*) AS count
+     FROM article_links
+     WHERE source_article_id = ? AND link_type = 'hierarchical'`,
+    [articleId],
+  );
+  return row?.count ?? 0;
 }
 
 async function logEvent(runId: string, step: string, title: string, ok: boolean, message?: string): Promise<void> {
@@ -108,10 +148,53 @@ async function inceptionNode(state: ForgeState): Promise<Partial<ForgeState>> {
   if (item.startStep !== 'inception' || state.currentItemStepsDone.includes('inception')) return {};
 
   try {
-    const result = await runSummarizeGraph({ worldId: state.worldId, articleId: item.articleId, mode: 'improve', pipelineRunId: state.runId });
-    await upsertEntry(getDbClient(), state.worldId, item.articleId, result.introduction);
+    const existingIntro = await getCurrentIntro(state.worldId, item.articleId);
+    const hasExistingIntro = existingIntro.trim().length > 0;
+    if (hasExistingIntro && (state.forgeInceptionExistingMode === 'skip_existing' || state.forgeInceptionExistingMode === 'create')) {
+      await logEvent(state.runId, 'Inception', item.title, true, 'Skipped existing introduction.');
+      return { inceptionIntro: existingIntro, currentItemStepsDone: [...state.currentItemStepsDone, 'inception'] };
+    }
+
+    const summarizeMode = state.forgeInceptionExistingMode === 'improve' ? 'improve' : 'full';
+    const result = await runSummarizeGraph({
+      worldId: state.worldId,
+      articleId: item.articleId,
+      mode: summarizeMode,
+      pipelineRunId: state.runId,
+      runGroundingCheck: state.forgeUseGroundingCheck,
+    });
     await bumpRunBudget(state.runId, result.tokensIn + result.tokensOut);
-    await logEvent(state.runId, 'Inception', item.title, true);
+
+    if (state.forgeUseGroundingCheck && result.groundingCheck && !result.groundingCheck.approved) {
+      await recordArticleIssues(getDbClient(), {
+        worldId: state.worldId,
+        ownerId: state.ownerId,
+        articleId: item.articleId,
+        source: 'grounding_check',
+        issues: result.groundingCheck.contradictions.map((c) => ({
+          severity: 'warning',
+          code: 'GROUNDING_CONTRADICTION',
+          excerpt: c.excerpt,
+          explanation: c.issue,
+          suggestion: c.correction,
+        })),
+      });
+      await logEvent(state.runId, 'Inception', item.title, false, 'Grounding check failed after revision — introduction not grounded in parent/world context.');
+      // Deliberately skip upsertEntry(): an ungrounded intro must never be
+      // committed to the World Bible, since Expansion/Branching and every
+      // descendant would otherwise read it as trusted context.
+      return { lastStepError: { step: 'Inception', fatal: false, message: 'Grounding check failed after revision.' } };
+    }
+
+    const introWordCount = countWords(result.introduction);
+    if (introWordCount < 15) {
+      const message = `Inception generated only ${introWordCount} word${introWordCount === 1 ? '' : 's'}; expected at least 15 words for a usable introduction. Nothing was saved.`;
+      await logEvent(state.runId, 'Inception', item.title, false, message);
+      return { lastStepError: { step: 'Inception', fatal: false, message } };
+    }
+
+    await upsertEntry(getDbClient(), state.worldId, item.articleId, result.introduction);
+    await logEvent(state.runId, 'Inception', item.title, true, `Saved ${introWordCount}-word introduction.`);
     return { inceptionIntro: result.introduction, currentItemStepsDone: [...state.currentItemStepsDone, 'inception'] };
   } catch (err) {
     const fatal = isFatal(err);
@@ -125,6 +208,12 @@ async function expansionNode(state: ForgeState): Promise<Partial<ForgeState>> {
   if (item.startStep === 'branching' || state.currentItemStepsDone.includes('expansion')) return {};
 
   try {
+    const existingDescription = await getCurrentDescription(item.articleId);
+    if (existingDescription.trim() && (state.forgeExpansionExistingMode === 'skip_existing' || state.forgeExpansionExistingMode === 'create')) {
+      await logEvent(state.runId, 'Expansion', item.title, true, 'Skipped existing description.');
+      return { currentItemStepsDone: [...state.currentItemStepsDone, 'expansion'] };
+    }
+
     const proposeResult = await runProposeGraph({
       worldId: state.worldId,
       articleId: item.articleId,
@@ -162,6 +251,9 @@ async function expansionNode(state: ForgeState): Promise<Partial<ForgeState>> {
       selectedProposal,
       contextDepth: state.contextDepth,
       selectedIdeas,
+      userSpec: state.forgeExpansionExistingMode === 'replace'
+        ? 'Replace the current description completely. Do not preserve old wording unless it is required by established world facts.'
+        : undefined,
       runContinuityEditor: state.forgeUseContinuityEditor,
       pipelineRunId: state.runId,
     });
@@ -175,7 +267,7 @@ async function expansionNode(state: ForgeState): Promise<Partial<ForgeState>> {
     });
     await acceptDraft({ worldId: state.worldId, articleId: item.articleId, ownerId: state.ownerId, activeRunId: state.runId });
 
-    await logEvent(state.runId, 'Expansion', item.title, true);
+    await logEvent(state.runId, 'Expansion', item.title, true, 'Description saved.');
     return { currentItemStepsDone: [...state.currentItemStepsDone, 'expansion'] };
   } catch (err) {
     const fatal = isFatal(err);
@@ -189,6 +281,12 @@ async function branchingNode(state: ForgeState): Promise<Partial<ForgeState>> {
   if (item.depth >= state.forgeMaxDepth || state.currentItemStepsDone.includes('branching')) return {};
 
   try {
+    const existingChildren = await getChildCount(item.articleId);
+    if (existingChildren > 0 && state.forgeBranchingExistingMode === 'skip_if_children') {
+      await logEvent(state.runId, 'Branching', item.title, true, `Skipped branching because ${existingChildren} child article${existingChildren === 1 ? '' : 's'} already exist.`);
+      return { currentItemStepsDone: [...state.currentItemStepsDone, 'branching'] };
+    }
+
     const branchHint = state.branchingMode === 'specific'
       ? 'Prefer specific named instances (individual entities, real examples). '
       : 'Prefer conceptual categories and systems. ';
@@ -199,9 +297,26 @@ async function branchingNode(state: ForgeState): Promise<Partial<ForgeState>> {
       contextDepth: state.contextDepth,
       userSpec: branchHint,
       pipelineRunId: state.runId,
+      runDedupCheck: state.forgeUseDedupCheck,
     });
     await bumpRunBudget(state.runId, childResult.tokensIn + childResult.tokensOut);
 
+    if (childResult.dedupCheck?.duplicates.length) {
+      await recordArticleIssues(getDbClient(), {
+        worldId: state.worldId,
+        ownerId: state.ownerId,
+        articleId: item.articleId,
+        source: 'dedup_check',
+        issues: childResult.dedupCheck.duplicates.map((d) => ({
+          severity: 'info',
+          code: 'DUPLICATE_PROPOSAL_FILTERED',
+          explanation: `Proposed child "${d.proposalTitle}" filtered as a likely duplicate of existing article "${d.matchedExisting}": ${d.rationale}`,
+        })),
+      });
+    }
+
+    // childResult.proposals already has any flagged duplicates filtered out
+    // by cartographerNode itself — no additional filtering needed here.
     const take = state.forgeMaxChildren > 0
       ? childResult.proposals.slice(0, state.forgeMaxChildren)
       : childResult.proposals;
@@ -220,11 +335,14 @@ async function branchingNode(state: ForgeState): Promise<Partial<ForgeState>> {
       startStep: 'inception' as const,
     }));
 
-    await logEvent(state.runId, 'Branching', item.title, true);
-    const total = state.total + newItems.length;
+    const shouldQueueChildren = state.forgeContinuationMode === 'recursive';
+    await logEvent(state.runId, 'Branching', item.title, true, `Created ${newItems.length} child article${newItems.length === 1 ? '' : 's'}.`);
+    const total = shouldQueueChildren ? state.total + newItems.length : state.total;
     await updateRunProgress(state.runId, state.completed, total);
     return {
-      queue: state.forgeMode === 'breadth' ? [...state.queue, ...newItems] : [...newItems, ...state.queue],
+      queue: shouldQueueChildren
+        ? (state.forgeMode === 'breadth' ? [...state.queue, ...newItems] : [...newItems, ...state.queue])
+        : state.queue,
       total,
       currentItemStepsDone: [...state.currentItemStepsDone, 'branching'],
     };
@@ -254,12 +372,14 @@ function routeAfterDequeue(state: ForgeState): 'inception' | typeof END_KEY {
 function routeAfterInception(state: ForgeState): 'expansion' | 'finishItem' | typeof END_KEY {
   if (state.lastStepError?.fatal) return END_KEY;
   if (state.lastStepError) return 'finishItem';
+  if (state.forgeContinuationMode === 'one_step') return 'finishItem';
   return 'expansion';
 }
 
 function routeAfterExpansion(state: ForgeState): 'branching' | 'finishItem' | typeof END_KEY {
   if (state.lastStepError?.fatal) return END_KEY;
   if (state.lastStepError) return 'finishItem';
+  if (state.forgeContinuationMode === 'one_step') return 'finishItem';
   return 'branching';
 }
 
@@ -351,6 +471,12 @@ export async function startForgeRun(params: {
   forgeMaxChildren: number;
   forgeUseOracle: boolean;
   forgeUseContinuityEditor: boolean;
+  forgeUseGroundingCheck: boolean;
+  forgeUseDedupCheck: boolean;
+  forgeContinuationMode?: ForgeContinuationMode;
+  forgeInceptionExistingMode?: ForgeExistingContentMode;
+  forgeExpansionExistingMode?: ForgeExistingContentMode;
+  forgeBranchingExistingMode?: ForgeBranchingExistingMode;
 }): Promise<void> {
   await markRunStatus(params.runId, 'running');
   await updateRunProgress(params.runId, 0, 1);
@@ -374,6 +500,12 @@ export async function startForgeRun(params: {
         forgeMaxChildren: params.forgeMaxChildren,
         forgeUseOracle: params.forgeUseOracle,
         forgeUseContinuityEditor: params.forgeUseContinuityEditor,
+        forgeUseGroundingCheck: params.forgeUseGroundingCheck,
+        forgeUseDedupCheck: params.forgeUseDedupCheck,
+        forgeContinuationMode: params.forgeContinuationMode ?? 'recursive',
+        forgeInceptionExistingMode: params.forgeInceptionExistingMode ?? 'improve',
+        forgeExpansionExistingMode: params.forgeExpansionExistingMode ?? 'improve',
+        forgeBranchingExistingMode: params.forgeBranchingExistingMode ?? 'append_deduped',
         queue: [{ articleId: params.articleId, title: params.articleTitle, depth: 0, startStep: params.startStep }],
         total: 1,
       },

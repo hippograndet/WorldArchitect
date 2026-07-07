@@ -15,7 +15,6 @@ export type MasIntent =
   | 'branch'
   | 'reorganize'
   | 'cohere'
-  | 'chronology'
   | 'compress'
   | 'audit'
   | 'forge';

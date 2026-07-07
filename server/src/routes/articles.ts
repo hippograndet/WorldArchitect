@@ -4,13 +4,13 @@ import { nanoid } from 'nanoid';
 import { z } from 'zod';
 import { getDbClient } from '../db/client.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
-import { tenantIdFor } from '../tenant.js';
+import { requireTenantContext } from '../tenant.js';
 import { GeneratedDraftContentSchema } from '../services/articlesSchemas.js';
 import {
   parseArticle,
   parseDraft,
   parseVersion,
-  requireArticle,
+  requireArticleForTenant,
   type DbRow,
 } from '../services/articlesMapper.js';
 import {
@@ -71,7 +71,7 @@ const SaveDraftSchema = z.object({
   // selectedProposal: stores the Phase 1 proposal chosen by user { title, direction }
   selectedProposal: z.record(z.unknown()).optional(),
   pipelineType: z
-    .enum(['expand_description', 'expand_chronology', 'create_root', 'create_child', 'reorganize'])
+    .enum(['expand_description', 'create_root', 'create_child', 'reorganize'])
     .optional()
     .default('expand_description'),
   autoSelect: z.boolean().optional().default(false),
@@ -80,7 +80,6 @@ const SaveDraftSchema = z.object({
     'draft_ready',
     'coherence_checked',
     'retention_checked',
-    'chronology_ready',
   ]),
   contextPackage: z.record(z.unknown()).optional(),
   concepts: z.array(z.record(z.unknown())).optional(),
@@ -105,10 +104,11 @@ router.use(articleGraphRoutes);
 
 // GET /api/worlds/:wid/articles?status=:s&q=:query
 router.get('/', asyncHandler(async (req, res) => {
+  const { worldId, ownerId } = requireTenantContext(req);
   const { status, q, category } = req.query as Record<string, string | undefined>;
 
-  let sql = 'SELECT * FROM articles WHERE world_id = ?';
-  const params: unknown[] = [(req.params as Record<string, string>).wid];
+  let sql = 'SELECT * FROM articles WHERE world_id = ? AND owner_id = ?';
+  const params: unknown[] = [worldId, ownerId];
 
   if (status) { sql += ' AND status = ?';   params.push(status); }
   if (q)      { sql += ' AND title LIKE ?'; params.push(`%${q}%`); }
@@ -136,8 +136,7 @@ router.post('/', asyncHandler(async (req, res) => {
   try {
     const result = await createArticle({
       ...parse.data,
-      worldId: (req.params as Record<string, string>).wid,
-      ownerId: tenantIdFor(req),
+      ...requireTenantContext(req),
       categoryId: parse.data.categoryId,
     });
     res.status(201).json(result);
@@ -152,8 +151,9 @@ router.post('/', asyncHandler(async (req, res) => {
 
 // GET /api/worlds/:wid/articles/:aid — article + current version body
 router.get('/:aid', asyncHandler(async (req, res) => {
+  const tenant = requireTenantContext(req);
   const exec = getDbClient();
-  const article = await requireArticle(exec, (req.params as Record<string, string>).wid, (req.params as Record<string, string>).aid);
+  const article = await requireArticleForTenant(exec, tenant, (req.params as Record<string, string>).aid);
   if (!article) { res.status(404).json({ error: 'Article not found' }); return; }
 
   const version = article.current_version_id
@@ -161,8 +161,8 @@ router.get('/:aid', asyncHandler(async (req, res) => {
     : undefined;
 
   const bibleEntry = await exec.get<{ summary: string }>(
-    'SELECT summary FROM world_bible_entries WHERE article_id = ?',
-    [(req.params as Record<string, string>).aid],
+    'SELECT summary FROM world_bible_entries WHERE article_id = ? AND owner_id = ?',
+    [(req.params as Record<string, string>).aid, tenant.ownerId],
   );
 
   const links = await exec.all<DbRow>(`
@@ -171,12 +171,12 @@ router.get('/:aid', asyncHandler(async (req, res) => {
     FROM article_links al
     JOIN articles a ON a.id = al.target_article_id
     LEFT JOIN world_bible_entries wbe ON wbe.article_id = a.id
-    WHERE al.source_article_id = ?
-  `, [(req.params as Record<string, string>).aid]);
+    WHERE al.source_article_id = ? AND al.owner_id = ?
+  `, [(req.params as Record<string, string>).aid, tenant.ownerId]);
 
   const warnings = await exec.all<DbRow>(
-    `SELECT * FROM coherence_warnings WHERE article_id = ? AND status = 'open'`,
-    [(req.params as Record<string, string>).aid],
+    `SELECT * FROM coherence_warnings WHERE article_id = ? AND owner_id = ? AND status = 'open'`,
+    [(req.params as Record<string, string>).aid, tenant.ownerId],
   );
 
   res.json({
@@ -196,12 +196,13 @@ router.patch('/:aid', asyncHandler(async (req, res) => {
     return;
   }
 
+  const { worldId, ownerId } = requireTenantContext(req);
   try {
     const result = await updateArticle({
       ...parse.data,
-      worldId: (req.params as Record<string, string>).wid,
+      worldId,
       articleId: (req.params as Record<string, string>).aid,
-      ownerId: tenantIdFor(req),
+      ownerId,
     });
     res.json(result);
   } catch (err) {
@@ -215,11 +216,12 @@ router.patch('/:aid', asyncHandler(async (req, res) => {
 
 // DELETE /api/worlds/:wid/articles/:aid
 router.delete('/:aid', asyncHandler(async (req, res) => {
+  const tenant = requireTenantContext(req);
   const exec = getDbClient();
-  const article = await requireArticle(exec, (req.params as Record<string, string>).wid, (req.params as Record<string, string>).aid);
+  const article = await requireArticleForTenant(exec, tenant, (req.params as Record<string, string>).aid);
   if (!article) { res.status(404).json({ error: 'Article not found' }); return; }
 
-  await exec.run('DELETE FROM articles WHERE id = ?', [(req.params as Record<string, string>).aid]);
+  await exec.run('DELETE FROM articles WHERE id = ? AND owner_id = ?', [(req.params as Record<string, string>).aid, tenant.ownerId]);
   res.status(204).send();
 }));
 
@@ -229,13 +231,14 @@ router.delete('/:aid', asyncHandler(async (req, res) => {
 
 // GET /api/worlds/:wid/articles/:aid/versions
 router.get('/:aid/versions', asyncHandler(async (req, res) => {
+  const tenant = requireTenantContext(req);
   const exec = getDbClient();
-  const article = await requireArticle(exec, (req.params as Record<string, string>).wid, (req.params as Record<string, string>).aid);
+  const article = await requireArticleForTenant(exec, tenant, (req.params as Record<string, string>).aid);
   if (!article) { res.status(404).json({ error: 'Article not found' }); return; }
 
   const rows = await exec.all<DbRow>(
-    'SELECT * FROM article_versions WHERE article_id = ? ORDER BY version_number DESC',
-    [(req.params as Record<string, string>).aid],
+    'SELECT * FROM article_versions WHERE article_id = ? AND owner_id = ? ORDER BY version_number DESC',
+    [(req.params as Record<string, string>).aid, tenant.ownerId],
   );
 
   res.json(rows.map(parseVersion));
@@ -243,13 +246,14 @@ router.get('/:aid/versions', asyncHandler(async (req, res) => {
 
 // GET /api/worlds/:wid/articles/:aid/versions/:vid — preview one version
 router.get('/:aid/versions/:vid', asyncHandler(async (req, res) => {
+  const tenant = requireTenantContext(req);
   const exec = getDbClient();
-  const article = await requireArticle(exec, (req.params as Record<string, string>).wid, (req.params as Record<string, string>).aid);
+  const article = await requireArticleForTenant(exec, tenant, (req.params as Record<string, string>).aid);
   if (!article) { res.status(404).json({ error: 'Article not found' }); return; }
 
   const row = await exec.get<DbRow>(
-    'SELECT * FROM article_versions WHERE id = ? AND article_id = ?',
-    [(req.params as Record<string, string>).vid, (req.params as Record<string, string>).aid],
+    'SELECT * FROM article_versions WHERE id = ? AND article_id = ? AND owner_id = ?',
+    [(req.params as Record<string, string>).vid, (req.params as Record<string, string>).aid, tenant.ownerId],
   );
 
   if (!row) { res.status(404).json({ error: 'Version not found' }); return; }
@@ -259,11 +263,12 @@ router.get('/:aid/versions/:vid', asyncHandler(async (req, res) => {
 
 // POST /api/worlds/:wid/articles/:aid/revert/:vid — revert to version (non-destructive)
 router.post('/:aid/revert/:vid', asyncHandler(async (req, res) => {
+  const { worldId, ownerId } = requireTenantContext(req);
   try {
     const version = await revertArticleVersion({
-      worldId: (req.params as Record<string, string>).wid,
+      worldId,
       articleId: (req.params as Record<string, string>).aid,
-      ownerId: tenantIdFor(req),
+      ownerId,
       versionId: (req.params as Record<string, string>).vid,
     });
     res.status(201).json(version);
@@ -282,11 +287,15 @@ router.post('/:aid/revert/:vid', asyncHandler(async (req, res) => {
 
 // GET /api/worlds/:wid/articles/:aid/draft — crash recovery
 router.get('/:aid/draft', asyncHandler(async (req, res) => {
+  const tenant = requireTenantContext(req);
   const exec = getDbClient();
-  const article = await requireArticle(exec, (req.params as Record<string, string>).wid, (req.params as Record<string, string>).aid);
+  const article = await requireArticleForTenant(exec, tenant, (req.params as Record<string, string>).aid);
   if (!article) { res.status(404).json({ error: 'Article not found' }); return; }
 
-  const row = await exec.get<DbRow>('SELECT * FROM pending_drafts WHERE article_id = ?', [(req.params as Record<string, string>).aid]);
+  const row = await exec.get<DbRow>(
+    'SELECT * FROM pending_drafts WHERE article_id = ? AND owner_id = ?',
+    [(req.params as Record<string, string>).aid, tenant.ownerId],
+  );
 
   if (!row) { res.status(404).json({ error: 'No pending draft' }); return; }
 
@@ -301,8 +310,9 @@ router.post('/:aid/draft', asyncHandler(async (req, res) => {
     return;
   }
 
+  const tenant = requireTenantContext(req);
   const exec = getDbClient();
-  const article = await requireArticle(exec, (req.params as Record<string, string>).wid, (req.params as Record<string, string>).aid);
+  const article = await requireArticleForTenant(exec, tenant, (req.params as Record<string, string>).aid);
   if (!article) { res.status(404).json({ error: 'Article not found' }); return; }
 
   const now = Date.now();
@@ -313,7 +323,10 @@ router.post('/:aid/draft', asyncHandler(async (req, res) => {
 
   const selectedProposalJson = selectedProposal ? JSON.stringify(selectedProposal) : '{}';
 
-  const existing = await exec.get<DbRow>('SELECT id FROM pending_drafts WHERE article_id = ?', [(req.params as Record<string, string>).aid]);
+  const existing = await exec.get<DbRow>(
+    'SELECT id FROM pending_drafts WHERE article_id = ? AND owner_id = ?',
+    [(req.params as Record<string, string>).aid, tenant.ownerId],
+  );
 
   if (existing) {
     await exec.run(`
@@ -321,7 +334,7 @@ router.post('/:aid/draft', asyncHandler(async (req, res) => {
       SET selected_proposal = ?, draft_content = ?, expansion_params = ?,
           phase = ?, pipeline_type = ?, auto_select = ?,
           context_package = ?, concepts = ?, parent_update = ?, updated_at = ?
-      WHERE article_id = ?
+      WHERE article_id = ? AND owner_id = ?
     `, [
       selectedProposalJson,
       draftContent ? JSON.stringify(draftContent) : null,
@@ -332,6 +345,7 @@ router.post('/:aid/draft', asyncHandler(async (req, res) => {
       parentUpdate ? JSON.stringify(parentUpdate) : null,
       now,
       (req.params as Record<string, string>).aid,
+      tenant.ownerId,
     ]);
   } else {
     await exec.run(`
@@ -341,7 +355,7 @@ router.post('/:aid/draft', asyncHandler(async (req, res) => {
          created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [
-      nanoid(), (req.params as Record<string, string>).aid, tenantIdFor(req),
+      nanoid(), (req.params as Record<string, string>).aid, tenant.ownerId,
       selectedProposalJson,
       draftContent ? JSON.stringify(draftContent) : null,
       JSON.stringify(expansionParams),
@@ -353,18 +367,22 @@ router.post('/:aid/draft', asyncHandler(async (req, res) => {
     ]);
   }
 
-  const row = await exec.get<DbRow>('SELECT * FROM pending_drafts WHERE article_id = ?', [(req.params as Record<string, string>).aid]);
+  const row = await exec.get<DbRow>(
+    'SELECT * FROM pending_drafts WHERE article_id = ? AND owner_id = ?',
+    [(req.params as Record<string, string>).aid, tenant.ownerId],
+  );
 
   res.json(parseDraft(row!));
 }));
 
 // DELETE /api/worlds/:wid/articles/:aid/draft — discard draft
 router.delete('/:aid/draft', asyncHandler(async (req, res) => {
+  const tenant = requireTenantContext(req);
   const exec = getDbClient();
-  const article = await requireArticle(exec, (req.params as Record<string, string>).wid, (req.params as Record<string, string>).aid);
+  const article = await requireArticleForTenant(exec, tenant, (req.params as Record<string, string>).aid);
   if (!article) { res.status(404).json({ error: 'Article not found' }); return; }
 
-  await exec.run('DELETE FROM pending_drafts WHERE article_id = ?', [(req.params as Record<string, string>).aid]);
+  await exec.run('DELETE FROM pending_drafts WHERE article_id = ? AND owner_id = ?', [(req.params as Record<string, string>).aid, tenant.ownerId]);
   res.status(204).send();
 }));
 
@@ -376,11 +394,10 @@ router.post('/:aid/accept', asyncHandler(async (req, res) => {
     return;
   }
 
-  const wid = (req.params as Record<string, string>).wid;
-  const ownerId = tenantIdFor(req);
+  const { worldId, ownerId } = requireTenantContext(req);
   try {
     const result = await acceptDraft({
-      worldId: wid,
+      worldId,
       articleId: (req.params as Record<string, string>).aid,
       ownerId,
       ...parse.data,
@@ -424,8 +441,7 @@ router.post('/batch', asyncHandler(async (req, res) => {
 
   try {
     const result = await batchCreateChildArticles({
-      worldId: (req.params as Record<string, string>).wid,
-      ownerId: tenantIdFor(req),
+      ...requireTenantContext(req),
       ...parse.data,
     });
     res.status(201).json(result);

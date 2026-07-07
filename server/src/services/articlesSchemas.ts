@@ -25,7 +25,6 @@ const MentionSchema = z.object({
 export const GeneratedDraftContentSchema = z.object({
   description: z.string().optional(),
   introduction: z.string().optional(),
-  chronologySection: z.string().optional(),
   childDescription: z.string().optional(),
   parentAppend: z.string().optional(),
   coherenceWarnings: z.array(CoherenceWarningSchema).optional().default([]),

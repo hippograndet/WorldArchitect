@@ -9,11 +9,12 @@ import { OracleAgent } from '../oracle.js';
 import { ResearcherAgent } from '../researcher.js';
 import { ScribeAgent } from '../scribe.js';
 import { ContinuityEditorAgent } from '../continuityEditor.js';
+import { GroundingCheckAgent } from '../groundingCheck.js';
 import { LorekeepAgent } from '../lorekeeper.js';
 import { StyleWardenAgent } from '../styleWarden.js';
 import { CartographerAgent } from '../cartographer.js';
+import { DedupCheckAgent } from '../dedupCheck.js';
 import { SentinelAgent } from '../sentinel.js';
-import { ChroniclerAgent } from '../chronicler.js';
 import { WardenAgent } from '../warden.js';
 import { CondenserAgent } from '../condenser.js';
 import { AuditorAgent } from '../auditor.js';
@@ -236,17 +237,12 @@ export async function lorekeeperSummarizeUnconditionalNode(state: OrchestrationS
   return { introduction: result.output.introduction, tokensIn: result.tokensIn, tokensOut: result.tokensOut };
 }
 
-/**
- * Only runs when runStyleWarden is on — reused by expand() and
- * expandChronology(). Each pipeline graph invokes this node from fresh state,
- * so chronologySection is only ever set when the chronology pipeline's
- * chroniclerNode ran first; that's what distinguishes which content to check.
- */
+/** Only runs when runStyleWarden is on — reused by expand(). */
 export async function styleWardenNode(state: OrchestrationState): Promise<Partial_> {
   if (!state.runStyleWarden) return {};
 
-  const content = state.chronologySection ?? state.description!;
-  const contentLabel = state.chronologySection ? 'Chronology' : 'Description';
+  const content = state.description!;
+  const contentLabel = 'Description';
 
   const agent = new StyleWardenAgent();
   const result = await agent.run(state.worldId, {
@@ -262,6 +258,13 @@ export async function styleWardenNode(state: OrchestrationState): Promise<Partia
 // summarize (standalone) — Lorekeeper only
 // ---------------------------------------------------------------------------
 
+/**
+ * Lorekeeper's introduction plus, when runGroundingCheck is on, up to 2
+ * Grounding Check self-correction passes — same bounded-retry shape as
+ * scribeNode's Continuity Editor loop. Always returns the (possibly still
+ * unapproved) introduction; the caller (forgeGraph.ts's inceptionNode)
+ * decides whether to commit it to the World Bible based on groundingCheck.
+ */
 export async function lorekeeperSummarizeNode(state: OrchestrationState): Promise<Partial_> {
   const article = await getDbClient().get<{ title: string; description: string; introduction: string }>(
     `SELECT a.title, av.description, av.introduction
@@ -276,22 +279,71 @@ export async function lorekeeperSummarizeNode(state: OrchestrationState): Promis
   const existingIntro = article.introduction ?? '';
   const effectiveMode = state.lorekeeperMode === 'improve' && existingIntro.trim().length === 0 ? 'full' : state.lorekeeperMode;
 
-  const agent = new LorekeepAgent();
-  const result = await agent.run(state.worldId, {
+  const lorekeeperAgent = new LorekeepAgent();
+  const lorekeeperResult = await lorekeeperAgent.run(state.worldId, {
     articleTitle: article.title,
     description,
     worldContext: state.worldContext!,
     mode: effectiveMode,
     existingIntro: effectiveMode === 'improve' ? existingIntro : undefined,
   }, callCtx(state));
+  let tokensIn = lorekeeperResult.tokensIn;
+  let tokensOut = lorekeeperResult.tokensOut;
+  let introduction = lorekeeperResult.output.introduction;
 
-  return { introduction: result.output.introduction, tokensIn: result.tokensIn, tokensOut: result.tokensOut };
+  let groundingCheck: Partial_['groundingCheck'];
+  if (state.runGroundingCheck) {
+    for (let pass = 0; pass < 2; pass++) {
+      const gcAgent = new GroundingCheckAgent();
+      const gcResult = await gcAgent.run(state.worldId, {
+        contextPackage: state.contextPackage!,
+        worldContext: state.worldContext!,
+        draft: introduction,
+      }, callCtx(state));
+      tokensIn += gcResult.tokensIn;
+      tokensOut += gcResult.tokensOut;
+      groundingCheck = gcResult.output;
+
+      if (groundingCheck.approved || groundingCheck.contradictions.length === 0) break;
+
+      if (pass < 1) {
+        const correctionNote = groundingCheck.contradictions
+          .map((c) => `- Excerpt: "${c.excerpt}"\n  Issue: ${c.issue}\n  Fix: ${c.correction}`)
+          .join('\n');
+        const revisionResult = await lorekeeperAgent.run(state.worldId, {
+          articleTitle: article.title,
+          description,
+          worldContext: state.worldContext!,
+          mode: effectiveMode,
+          existingIntro: effectiveMode === 'improve' ? existingIntro : undefined,
+          revisionNotes: correctionNote,
+        }, callCtx(state));
+        tokensIn += revisionResult.tokensIn;
+        tokensOut += revisionResult.tokensOut;
+        introduction = revisionResult.output.introduction;
+      }
+    }
+  }
+
+  return {
+    introduction,
+    ...(groundingCheck ? { groundingCheck } : {}),
+    tokensIn,
+    tokensOut,
+  };
 }
 
 // ---------------------------------------------------------------------------
 // propose_children — Cartographer
 // ---------------------------------------------------------------------------
 
+/**
+ * Cartographer's proposals plus, when runDedupCheck is on, a Dedup Check pass
+ * that filters out any proposals flagged as semantic duplicates of existing
+ * siblings — shared by both Spark's manual "propose children" flow and
+ * Forge's branchingNode, so both get the same protection from one
+ * implementation.
+ */
 export async function cartographerNode(state: OrchestrationState): Promise<Partial_> {
   const agent = new CartographerAgent();
   const result = await agent.run(state.worldId, {
@@ -299,7 +351,34 @@ export async function cartographerNode(state: OrchestrationState): Promise<Parti
     worldContext: state.worldContext!,
     userSpec: state.userSpec,
   }, callCtx(state));
-  return { childProposals: result.output.proposals, tokensIn: result.tokensIn, tokensOut: result.tokensOut };
+  let tokensIn = result.tokensIn;
+  let tokensOut = result.tokensOut;
+  let childProposals = result.output.proposals;
+
+  let dedupCheck: Partial_['dedupCheck'];
+  if (state.runDedupCheck && childProposals.length > 0) {
+    const dedupAgent = new DedupCheckAgent();
+    const dedupResult = await dedupAgent.run(state.worldId, {
+      contextPackage: state.contextPackage!,
+      worldContext: state.worldContext!,
+      proposals: childProposals,
+    }, callCtx(state));
+    tokensIn += dedupResult.tokensIn;
+    tokensOut += dedupResult.tokensOut;
+    dedupCheck = dedupResult.output;
+
+    if (dedupCheck.duplicates.length > 0) {
+      const flaggedTitles = new Set(dedupCheck.duplicates.map((d) => d.proposalTitle));
+      childProposals = childProposals.filter((p) => !flaggedTitles.has(p.title));
+    }
+  }
+
+  return {
+    childProposals,
+    ...(dedupCheck ? { dedupCheck } : {}),
+    tokensIn,
+    tokensOut,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -318,30 +397,19 @@ export async function sentinelNode(state: OrchestrationState): Promise<Partial_>
 }
 
 // ---------------------------------------------------------------------------
-// cohere / expand_chronology — Warden, Chronicler
+// cohere — Warden
 // ---------------------------------------------------------------------------
-
-export async function chroniclerNode(state: OrchestrationState): Promise<Partial_> {
-  const agent = new ChroniclerAgent();
-  const result = await agent.run(state.worldId, {
-    contextPackage: state.contextPackage!,
-    worldContext: state.worldContext!,
-    userSpec: state.userSpec,
-  }, callCtx(state));
-  return { chronologySection: result.output.chronologySection, tokensIn: result.tokensIn, tokensOut: result.tokensOut };
-}
 
 /**
  * Skips the LLM call entirely when the world bible is too sparse for a
  * coherence check to mean anything (hasSufficientBibleContent) — the same
- * guard director.ts's cohere() already has; expandChronology() gates this
- * node behind the same check, applied here too so both pipelines share it.
+ * guard director.ts's cohere() already has.
  */
 export async function wardenNode(state: OrchestrationState): Promise<Partial_> {
   if (!(await hasSufficientBibleContent(state.worldId))) return { warnings: [], suggestedLinks: [] };
 
-  const newContent = state.chronologySection ?? state.contextPackage!.targetDescription;
-  const contentLabel = state.chronologySection ? 'Chronology' : 'Article Body';
+  const newContent = state.contextPackage!.targetDescription;
+  const contentLabel = 'Article Body';
 
   const agent = new WardenAgent();
   const result = await agent.run(state.worldId, {

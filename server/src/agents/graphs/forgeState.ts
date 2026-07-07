@@ -19,6 +19,10 @@ export interface ForgeStepError {
   fatal: boolean;
 }
 
+export type ForgeContinuationMode = 'one_step' | 'finish_document' | 'recursive';
+export type ForgeExistingContentMode = 'create' | 'improve' | 'replace' | 'skip_existing';
+export type ForgeBranchingExistingMode = 'append_deduped' | 'skip_if_children';
+
 /**
  * State for the single recursive Forge graph (graphs/forgeGraph.ts) — the
  * server-side replacement for forgeSlice.ts's client-side while(true) loop.
@@ -40,6 +44,12 @@ export const ForgeAnnotation = Annotation.Root({
   forgeMaxChildren: Annotation<number>({ reducer: replace, default: () => 0 }),
   forgeUseOracle: Annotation<boolean>({ reducer: replace, default: () => false }),
   forgeUseContinuityEditor: Annotation<boolean>({ reducer: replace, default: () => false }),
+  forgeUseGroundingCheck: Annotation<boolean>({ reducer: replace, default: () => false }),
+  forgeUseDedupCheck: Annotation<boolean>({ reducer: replace, default: () => false }),
+  forgeContinuationMode: Annotation<ForgeContinuationMode>({ reducer: replace, default: () => 'recursive' }),
+  forgeInceptionExistingMode: Annotation<ForgeExistingContentMode>({ reducer: replace, default: () => 'improve' }),
+  forgeExpansionExistingMode: Annotation<ForgeExistingContentMode>({ reducer: replace, default: () => 'improve' }),
+  forgeBranchingExistingMode: Annotation<ForgeBranchingExistingMode>({ reducer: replace, default: () => 'append_deduped' }),
   masContract: Annotation<MasContract | undefined>({ reducer: replace, default: () => undefined }),
   masLocation: Annotation<MasLocation | undefined>({ reducer: replace, default: () => undefined }),
   masIntent: Annotation<MasIntent | undefined>({ reducer: replace, default: () => undefined }),
