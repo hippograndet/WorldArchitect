@@ -18,7 +18,7 @@ The intended release path is:
 
 ## Why WorldArchitect?
 
-- **Own your world locally, by default.** In local mode your encyclopedia is stored in a local SQLite database — no account, cloud sync, or hosted backend required. An opt-in hosted multi-tenant mode is also available for self-deployment (accounts via Clerk, Postgres storage) — see [DEPLOY.md](DEPLOY.md).
+- **Own your world locally, by default.** In local mode your encyclopedia is stored in a local Postgres database — no account, cloud sync, or hosted backend required. An opt-in hosted multi-tenant mode is also available for self-deployment (accounts via Clerk and Postgres storage) — see [DEPLOY.md](DEPLOY.md).
 - **Write with structure.** Build a browsable wiki with categories, article hierarchy, cross-links, chronology, and snapshots.
 - **Use AI without surrendering control.** Agent drafts are reviewed before they are committed, and the app works normally with AI disabled.
 - **Grow worlds deliberately.** Spark creates and expands articles, Solidify cleans them up, Forge can recursively expand a subtree, and World Tools help audit the larger graph.
@@ -26,7 +26,7 @@ The intended release path is:
 
 ## Features
 
-- Local world database powered by SQLite
+- Local world database powered by Postgres, with SQLite retained as a legacy fallback
 - World creation wizard with configurable categories and style settings
 - Wikipedia-style article browser with sidebar search
 - Article layers for introduction, description, subjects, and chronology
@@ -57,6 +57,7 @@ Requirements:
 
 - Node.js 20+
 - npm
+- Docker, for the default local Postgres database
 
 Install dependencies and start both the local API server and web client:
 
@@ -68,7 +69,13 @@ npm run dev
 The server runs on `http://localhost:3001`.
 The client runs on `http://localhost:5173`.
 
-You can start creating and editing worlds immediately with no LLM configured.
+`npm run dev` starts the local Postgres service from `docker-compose.yml`, then runs the app in local mode (`APP_MODE=local`) against that database. You can start creating and editing worlds immediately with no LLM configured.
+
+SQLite is still available as a temporary legacy fallback:
+
+```bash
+npm run dev:sqlite
+```
 
 ## Optional LLM Setup
 
@@ -95,7 +102,7 @@ WorldArchitect has two processes:
 
 The browser talks only to the server. The server owns the database, export system, provider settings, agent calls, and versioning.
 
-By default (`APP_MODE=local`) the server runs unauthenticated against a local SQLite file with a single implicit user, which is the setup this Quick Start walks through. It can instead be run as `APP_MODE=hosted`, which requires Clerk-based authentication and Postgres storage and scopes every world to its owner. Hosted mode is meant for self-deployment (Docker, Render, Railway, Fly.io), not for local development — see [DEPLOY.md](DEPLOY.md) for the required environment variables and deploy steps.
+By default (`APP_MODE=local`) the server runs unauthenticated with a single implicit user against the local Postgres service defined in `docker-compose.yml`. SQLite support still exists for legacy local data, but Postgres is the preferred development and deployment database. Hosted mode (`APP_MODE=hosted`) adds Clerk-based authentication, Postgres storage, and per-user world ownership. Hosted mode is meant for self-deployment (Docker, Render, Railway, Fly.io), not for ordinary local development — see [DEPLOY.md](DEPLOY.md) for the required environment variables and deploy steps.
 
 ## Documentation
 

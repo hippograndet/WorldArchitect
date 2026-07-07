@@ -2,6 +2,7 @@ import { nanoid } from 'nanoid';
 import { getDbClient } from '../db/client.js';
 import { upsertEntry } from './worldBible.js';
 import { runSyncRules } from './syncRules.js';
+import { reindexArticle } from './searchIndex.js';
 import { GeneratedDraftContentSchema } from './articlesSchemas.js';
 import { pointArticleAtVersion, writeArticleVersion, writeArticleVersionAndSetCurrent } from './articleVersions.js';
 import {
@@ -9,7 +10,7 @@ import {
   getNextVersionNumber,
   parseArticle,
   parseVersion,
-  requireArticle,
+  requireArticleForTenant,
   type DbRow,
 } from './articlesMapper.js';
 
@@ -122,12 +123,12 @@ export interface BatchCreateChildArticlesInput {
 export async function createArticle(input: CreateArticleInput) {
   const exec = getDbClient();
 
-  const worldExists = await exec.get('SELECT id FROM worlds WHERE id = ?', [input.worldId]);
+  const worldExists = await exec.get('SELECT id FROM worlds WHERE id = ? AND owner_id = ?', [input.worldId, input.ownerId]);
   if (!worldExists) throw new ArticleServiceError('World not found', 404);
 
   const categoryExists = await exec.get(
-    'SELECT id FROM categories WHERE id = ? AND world_id = ?',
-    [input.categoryId, input.worldId],
+    'SELECT id FROM categories WHERE id = ? AND world_id = ? AND owner_id = ?',
+    [input.categoryId, input.worldId, input.ownerId],
   );
   if (!categoryExists) throw new ArticleServiceError('Category not found', 404);
 
@@ -173,15 +174,17 @@ export async function createArticle(input: CreateArticleInput) {
     });
   });
 
-  const article = await exec.get<DbRow>('SELECT * FROM articles WHERE id = ?', [articleId]);
-  const version = await exec.get<DbRow>('SELECT * FROM article_versions WHERE id = ?', [versionId]);
+  await reindexArticle(input.worldId, articleId);
+
+  const article = await exec.get<DbRow>('SELECT * FROM articles WHERE id = ? AND owner_id = ?', [articleId, input.ownerId]);
+  const version = await exec.get<DbRow>('SELECT * FROM article_versions WHERE id = ? AND owner_id = ?', [versionId, input.ownerId]);
 
   return { article: parseArticle(article!), version: parseVersion(version!) };
 }
 
 export async function updateArticle(input: UpdateArticleInput) {
   const exec = getDbClient();
-  const article = await requireArticle(exec, input.worldId, input.articleId);
+  const article = await requireArticleForTenant(exec, input, input.articleId);
   if (!article) throw new ArticleServiceError('Article not found', 404);
   assertNotOverwritingPublished(article, input.force);
   assertNotLocked(article, input.activeRunId);
@@ -201,8 +204,8 @@ export async function updateArticle(input: UpdateArticleInput) {
 
   const current = article.current_version_id
     ? await exec.get<{ introduction: string; description: string; chronology: string }>(
-        'SELECT introduction, description, chronology FROM article_versions WHERE id = ?',
-        [article.current_version_id],
+        'SELECT introduction, description, chronology FROM article_versions WHERE id = ? AND owner_id = ?',
+        [article.current_version_id, input.ownerId],
       )
     : undefined;
 
@@ -249,25 +252,27 @@ export async function updateArticle(input: UpdateArticleInput) {
     });
 
     articleValues.push(input.articleId);
-    await tx.run(`UPDATE articles SET ${articleFields.join(', ')} WHERE id = ?`, articleValues);
+    articleValues.push(input.ownerId);
+    await tx.run(`UPDATE articles SET ${articleFields.join(', ')} WHERE id = ? AND owner_id = ?`, articleValues);
   });
 
   await runSyncRules(input.worldId, input.articleId);
+  await reindexArticle(input.worldId, input.articleId);
 
-  const updated = await exec.get<DbRow>('SELECT * FROM articles WHERE id = ?', [input.articleId]);
-  const version = await exec.get<DbRow>('SELECT * FROM article_versions WHERE id = ?', [versionId]);
+  const updated = await exec.get<DbRow>('SELECT * FROM articles WHERE id = ? AND owner_id = ?', [input.articleId, input.ownerId]);
+  const version = await exec.get<DbRow>('SELECT * FROM article_versions WHERE id = ? AND owner_id = ?', [versionId, input.ownerId]);
 
   return { article: parseArticle(updated!), version: parseVersion(version!) };
 }
 
 export async function revertArticleVersion(input: RevertArticleInput) {
   const exec = getDbClient();
-  const article = await requireArticle(exec, input.worldId, input.articleId);
+  const article = await requireArticleForTenant(exec, input, input.articleId);
   if (!article) throw new ArticleServiceError('Article not found', 404);
 
   const target = await exec.get<DbRow>(
-    'SELECT * FROM article_versions WHERE id = ? AND article_id = ?',
-    [input.versionId, input.articleId],
+    'SELECT * FROM article_versions WHERE id = ? AND article_id = ? AND owner_id = ?',
+    [input.versionId, input.articleId, input.ownerId],
   );
   if (!target) throw new ArticleServiceError('Version not found', 404);
 
@@ -291,15 +296,17 @@ export async function revertArticleVersion(input: RevertArticleInput) {
     });
   });
 
-  const newVersion = await exec.get<DbRow>('SELECT * FROM article_versions WHERE id = ?', [newVersionId]);
+  await reindexArticle(input.worldId, input.articleId);
+
+  const newVersion = await exec.get<DbRow>('SELECT * FROM article_versions WHERE id = ? AND owner_id = ?', [newVersionId, input.ownerId]);
   return parseVersion(newVersion!);
 }
 
 export async function batchCreateChildArticles(input: BatchCreateChildArticlesInput) {
   const exec = getDbClient();
   const parent = await exec.get<DbRow>(
-    'SELECT id, depth FROM articles WHERE id = ? AND world_id = ?',
-    [input.parentArticleId, input.worldId],
+    'SELECT id, depth FROM articles WHERE id = ? AND world_id = ? AND owner_id = ?',
+    [input.parentArticleId, input.worldId, input.ownerId],
   );
   if (!parent) throw new ArticleServiceError('Parent article not found', 404);
 
@@ -353,18 +360,22 @@ export async function batchCreateChildArticles(input: BatchCreateChildArticlesIn
     }
   });
 
+  for (const child of created) {
+    await reindexArticle(input.worldId, child.id);
+  }
+
   return { created };
 }
 
 export async function acceptDraft(input: AcceptDraftInput) {
   const { worldId, articleId, ownerId } = input;
   const exec = getDbClient();
-  const article = await requireArticle(exec, worldId, articleId);
+  const article = await requireArticleForTenant(exec, input, articleId);
   if (!article) throw new ArticleServiceError('Article not found', 404);
   assertNotOverwritingPublished(article, input.force);
   assertNotLocked(article, input.activeRunId);
 
-  const draft = await exec.get<DbRow>('SELECT * FROM pending_drafts WHERE article_id = ?', [articleId]);
+  const draft = await exec.get<DbRow>('SELECT * FROM pending_drafts WHERE article_id = ? AND owner_id = ?', [articleId, ownerId]);
   if (!draft) throw new ArticleServiceError('No pending draft to accept', 400);
 
   const draftContentParse = draft.draft_content
@@ -392,11 +403,15 @@ export async function acceptDraft(input: AcceptDraftInput) {
   const now = Date.now();
   const versionId = nanoid();
   const versionNumber = await getNextVersionNumber(exec, articleId);
+  // Every article whose title/description changes in this call — the main
+  // article, a create_child's new child, and any new entity-mention stubs —
+  // reindexed once, after the transaction commits.
+  const touchedArticleIds = new Set<string>([articleId]);
 
   const currentVersion = article.current_version_id
     ? await exec.get<{ introduction: string; description: string; chronology: string }>(
-        'SELECT introduction, description, chronology FROM article_versions WHERE id = ?',
-        [article.current_version_id],
+        'SELECT introduction, description, chronology FROM article_versions WHERE id = ? AND owner_id = ?',
+        [article.current_version_id, ownerId],
       )
     : undefined;
   const currentDescription = currentVersion?.description ?? '';
@@ -408,11 +423,7 @@ export async function acceptDraft(input: AcceptDraftInput) {
   let newIntroduction: string;
   let childArticleId: string | null = null;
 
-  if (pipelineType === 'expand_chronology') {
-    newDescription = currentDescription;
-    newChronology = input.descriptionOverride ?? draftContent.chronologySection ?? '';
-    newIntroduction = currentIntroduction;
-  } else if (pipelineType === 'create_child') {
+  if (pipelineType === 'create_child') {
     newDescription = '';
     newChronology = '';
     newIntroduction = input.introductionOverride ?? draftContent.introduction ?? draftContent.childDescription ?? '';
@@ -438,8 +449,8 @@ export async function acceptDraft(input: AcceptDraftInput) {
            depth, current_version_id, created_at, updated_at)
         SELECT ?, world_id, owner_id, title, 'draft', template_type,
                ?, ?, ?, ?
-        FROM articles WHERE id = ?
-      `, [childId, parentDepth + 1, childVersionId, now, now, articleId]);
+        FROM articles WHERE id = ? AND owner_id = ?
+      `, [childId, parentDepth + 1, childVersionId, now, now, articleId, ownerId]);
 
       await writeArticleVersion(tx, {
         articleId: childId,
@@ -482,6 +493,7 @@ export async function acceptDraft(input: AcceptDraftInput) {
       }
 
       childArticleId = childId;
+      touchedArticleIds.add(childId);
     } else {
       await writeArticleVersion(tx, {
         articleId,
@@ -504,8 +516,8 @@ export async function acceptDraft(input: AcceptDraftInput) {
         articleUpdates.push(temporalAnchor.start, temporalAnchor.end ?? null);
       }
 
-      sql += ' WHERE id = ?';
-      articleUpdates.push(articleId);
+      sql += ' WHERE id = ? AND owner_id = ?';
+      articleUpdates.push(articleId, ownerId);
       await tx.run(sql, articleUpdates);
 
       if (newIntroduction) {
@@ -534,8 +546,8 @@ export async function acceptDraft(input: AcceptDraftInput) {
     const acceptedArticleId = pipelineType === 'create_child' ? childArticleId ?? articleId : articleId;
     for (const mention of mentions) {
       const existing = await tx.get<{ id: string; depth: number }>(
-        `SELECT id, depth FROM articles WHERE world_id = ? AND title = ? LIMIT 1`,
-        [worldId, mention.title],
+        `SELECT id, depth FROM articles WHERE world_id = ? AND owner_id = ? AND title = ? LIMIT 1`,
+        [worldId, ownerId, mention.title],
       );
 
       if (existing && existing.depth < sourceDepth) continue;
@@ -566,6 +578,7 @@ export async function acceptDraft(input: AcceptDraftInput) {
         if (mention.summary) {
           await upsertEntry(tx, worldId, targetId, mention.summary);
         }
+        touchedArticleIds.add(targetId);
       }
 
       await tx.run(`
@@ -580,19 +593,22 @@ export async function acceptDraft(input: AcceptDraftInput) {
       `, [nanoid(), worldId, ownerId, acceptedArticleId, targetId ?? null, mention.title, mention.templateType ?? 'general', mention.summary ?? null, now]);
     }
 
-    await tx.run('DELETE FROM pending_drafts WHERE article_id = ?', [articleId]);
+    await tx.run('DELETE FROM pending_drafts WHERE article_id = ? AND owner_id = ?', [articleId, ownerId]);
   });
 
   await runSyncRules(worldId, articleId);
   if (childArticleId) await runSyncRules(worldId, childArticleId);
+  for (const id of touchedArticleIds) {
+    await reindexArticle(worldId, id);
+  }
 
-  const updatedArticle = await exec.get<DbRow>('SELECT * FROM articles WHERE id = ?', [articleId]);
+  const updatedArticle = await exec.get<DbRow>('SELECT * FROM articles WHERE id = ? AND owner_id = ?', [articleId, ownerId]);
 
   if (pipelineType === 'create_child' && childArticleId) {
-    const childArticle = await exec.get<DbRow>('SELECT * FROM articles WHERE id = ?', [childArticleId]);
+    const childArticle = await exec.get<DbRow>('SELECT * FROM articles WHERE id = ? AND owner_id = ?', [childArticleId, ownerId]);
     const childVersion = await exec.get<DbRow>(
-      'SELECT * FROM article_versions WHERE article_id = ? ORDER BY version_number DESC LIMIT 1',
-      [childArticleId],
+      'SELECT * FROM article_versions WHERE article_id = ? AND owner_id = ? ORDER BY version_number DESC LIMIT 1',
+      [childArticleId, ownerId],
     );
     return {
       article: parseArticle(updatedArticle!),
@@ -601,7 +617,7 @@ export async function acceptDraft(input: AcceptDraftInput) {
     };
   }
 
-  const newVersion = await exec.get<DbRow>('SELECT * FROM article_versions WHERE id = ?', [versionId]);
+  const newVersion = await exec.get<DbRow>('SELECT * FROM article_versions WHERE id = ? AND owner_id = ?', [versionId, ownerId]);
   return {
     article: parseArticle(updatedArticle!),
     version: parseVersion(newVersion!),

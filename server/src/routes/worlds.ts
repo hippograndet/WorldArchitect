@@ -8,7 +8,8 @@ import { PipelineCoordinator } from '../agents/director.js';
 import { StylistAgent } from '../agents/stylist.js';
 import type { PromptEngineerFieldType } from '../prompts/promptEngineer.js';
 import { writeArticleVersionAndSetCurrent } from '../services/articleVersions.js';
-import { tenantIdFor, worldBelongsToTenant } from '../tenant.js';
+import { reindexArticle } from '../services/searchIndex.js';
+import { getTenantContext, worldBelongsToTenant } from '../tenant.js';
 
 const router = Router();
 
@@ -79,7 +80,7 @@ router.post('/', asyncHandler(async (req, res) => {
 
   const { name, description, tags, tone, originPoint, styleConfig, generateStubs } = parse.data;
   const exec = getDbClient();
-  const ownerId = tenantIdFor(req);
+  const ownerId = getTenantContext(req).ownerId;
   const now = Date.now();
   const worldId = nanoid();
   const articleId = nanoid();
@@ -133,10 +134,12 @@ router.post('/', asyncHandler(async (req, res) => {
     `, [nanoid(), worldId, ownerId, articleId, description, now]);
   });
 
+  await reindexArticle(worldId, articleId);
+
   const world = await exec.get<Record<string, unknown>>('SELECT * FROM worlds WHERE id = ? AND owner_id = ?', [worldId, ownerId]);
   const categories = await exec.all(
-    'SELECT id, name, sort_order AS sortOrder FROM categories WHERE world_id = ? ORDER BY sort_order',
-    [worldId],
+    'SELECT id, name, sort_order AS sortOrder FROM categories WHERE world_id = ? AND owner_id = ? ORDER BY sort_order',
+    [worldId, ownerId],
   );
 
   if (generateStubs && (await isLLMConfigured())) {
@@ -158,7 +161,7 @@ router.post('/', asyncHandler(async (req, res) => {
 router.get('/', asyncHandler(async (req, res) => {
   const rows = await getDbClient().all<Record<string, unknown>>(
     'SELECT * FROM worlds WHERE owner_id = ? ORDER BY updated_at DESC',
-    [tenantIdFor(req)],
+    [getTenantContext(req).ownerId],
   );
   res.json(rows.map(parseWorld));
 }));
@@ -167,7 +170,7 @@ router.get('/', asyncHandler(async (req, res) => {
 router.get('/:wid', asyncHandler(async (req, res) => {
   const row = await getDbClient().get<Record<string, unknown>>(
     'SELECT * FROM worlds WHERE id = ? AND owner_id = ?',
-    [req.params.wid, tenantIdFor(req)],
+    [req.params.wid, getTenantContext(req).ownerId],
   );
 
   if (!row) {
@@ -189,7 +192,7 @@ router.patch('/:wid', asyncHandler(async (req, res) => {
   const exec = getDbClient();
   const existing = await exec.get<Record<string, unknown>>(
     'SELECT * FROM worlds WHERE id = ? AND owner_id = ?',
-    [req.params.wid, tenantIdFor(req)],
+    [req.params.wid, getTenantContext(req).ownerId],
   );
 
   if (!existing) {
@@ -216,13 +219,13 @@ router.patch('/:wid', asyncHandler(async (req, res) => {
   fields.push('updated_at = ?');
   values.push(Date.now());
   values.push(req.params.wid);
-  values.push(tenantIdFor(req));
+  values.push(getTenantContext(req).ownerId);
 
   await exec.run(`UPDATE worlds SET ${fields.join(', ')} WHERE id = ? AND owner_id = ?`, values);
 
   const updated = await exec.get<Record<string, unknown>>(
     'SELECT * FROM worlds WHERE id = ? AND owner_id = ?',
-    [req.params.wid, tenantIdFor(req)],
+    [req.params.wid, getTenantContext(req).ownerId],
   );
 
   res.json(parseWorld(updated!));
@@ -231,12 +234,13 @@ router.patch('/:wid', asyncHandler(async (req, res) => {
 // DELETE /api/worlds/:wid
 router.delete('/:wid', asyncHandler(async (req, res) => {
   const exec = getDbClient();
-  const existing = await exec.get('SELECT id FROM worlds WHERE id = ? AND owner_id = ?', [req.params.wid, tenantIdFor(req)]);
+  const ownerId = getTenantContext(req).ownerId;
+  const existing = await exec.get('SELECT id FROM worlds WHERE id = ? AND owner_id = ?', [req.params.wid, ownerId]);
   if (!existing) {
     res.status(404).json({ error: 'World not found' });
     return;
   }
-  await exec.run('DELETE FROM worlds WHERE id = ? AND owner_id = ?', [req.params.wid, tenantIdFor(req)]);
+  await exec.run('DELETE FROM worlds WHERE id = ? AND owner_id = ?', [req.params.wid, ownerId]);
   res.status(204).send();
 }));
 
@@ -266,7 +270,7 @@ const handlePromptEngineer = asyncHandler(async (req, res) => {
 
   const { fieldType, rawText, worldName, worldDescription, currentVibe, currentWritingStyle, articleTitle, articleType, focus } = parse.data;
   const worldId = (req.params as Record<string, string>).wid ?? 'wizard';
-  if (worldId !== 'wizard' && !(await worldBelongsToTenant(worldId, tenantIdFor(req)))) {
+  if (worldId !== 'wizard' && !(await worldBelongsToTenant(worldId, getTenantContext(req).ownerId))) {
     res.status(404).json({ error: 'World not found', code: 'NOT_FOUND' });
     return;
   }

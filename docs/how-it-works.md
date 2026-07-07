@@ -74,7 +74,7 @@ A typical workflow looks like this:
 WorldArchitect runs as a local web app:
 
 - The browser displays the interface.
-- The local server owns the SQLite database, export, provider settings, and AI calls.
+- The local server owns the Postgres database, export, provider settings, and AI calls.
 - The app can run with no provider configured.
 
 That shape keeps the experience simple while still giving the project real persistence, versioning, and transaction-safe local storage.

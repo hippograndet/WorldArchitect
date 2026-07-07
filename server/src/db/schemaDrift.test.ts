@@ -1,20 +1,16 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import Database from 'better-sqlite3';
 import pg from 'pg';
-import { readFileSync } from 'fs';
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
 import { nanoid } from 'nanoid';
 import { applySchema, runMigrations } from './schema.js';
+import { runPostgresMigrations } from './storage.js';
 import { logger } from '../observability/logger.js';
 
 const { Client } = pg;
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const MIGRATIONS_DIR = join(__dirname, 'migrations', 'postgres');
-const POSTGRES_MIGRATIONS = ['001_initial.sql', '002_full_schema.sql', '003_runs.sql', '004_call_log_instrumentation.sql'];
 const DATABASE_URL = process.env.DRIFT_TEST_DATABASE_URL
   ?? 'postgres://worldarchitect:worldarchitect@localhost:5432/worldarchitect';
+const REQUIRE_POSTGRES = process.env.CI === 'true';
 
 // Schema-mutating admin work (CREATE/DROP SCHEMA) belongs on a direct,
 // unpooled connection, not a shared pooler endpoint — see "Pooled Postgres
@@ -49,7 +45,9 @@ function getSqliteColumns(): ColumnsByTable {
 
 async function getPostgresColumns(client: pg.Client, schema: string): Promise<ColumnsByTable> {
   const res = await client.query<{ table_name: string; column_name: string }>(
-    `SELECT table_name, column_name FROM information_schema.columns WHERE table_schema = $1`,
+    `SELECT table_name, column_name
+     FROM information_schema.columns
+     WHERE table_schema = $1 AND table_name != 'schema_migrations'`,
     [schema],
   );
   const result: ColumnsByTable = new Map();
@@ -95,6 +93,7 @@ describe('SQLite / Postgres schema drift', () => {
     try {
       await client.connect();
     } catch (err) {
+      if (REQUIRE_POSTGRES) throw err;
       postgresAvailable = false;
       logger.warn('schemaDrift.skipped', { reason: 'postgres unavailable', error: (err as Error).message });
       return;
@@ -106,9 +105,7 @@ describe('SQLite / Postgres schema drift', () => {
     // to only the throwaway schema can leak to the next session sharing that
     // pooled backend and break it once this schema is dropped.
     await client.query(`SET search_path TO "${schemaName}", public`);
-    for (const migration of POSTGRES_MIGRATIONS) {
-      await client.query(readFileSync(join(MIGRATIONS_DIR, migration), 'utf8'));
-    }
+    await runPostgresMigrations(client);
   });
 
   afterAll(async () => {

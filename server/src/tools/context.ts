@@ -1,56 +1,61 @@
 import { getDbClient } from '../db/client.js';
+import { getStorageDriver } from '../config.js';
 import { renderBible } from '../services/worldBible.js';
 import { listNames, type ListNamesFilter } from '../services/nameBank.js';
 import { dataBlock } from '../prompts/shared.js';
 import type { Tool, ToolCall } from './types.js';
 
+// Individually exported so agents can cherry-pick a subset instead of the
+// whole bundle or nothing — see BaseAgent.getContextTools() overrides.
+export const GET_WORLD_BIBLE_TOOL: Tool = {
+  name: 'get_world_bible',
+  description:
+    'Returns the World Bible as markdown: all article summaries grouped by category. Use this to understand the full world context before writing.',
+  inputSchema: { type: 'object', properties: {} },
+};
+
+export const GET_ARTICLE_TOOL: Tool = {
+  name: 'get_article',
+  description: 'Returns the full body and metadata of a specific article by ID.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      articleId: { type: 'string', description: 'The article ID' },
+    },
+    required: ['articleId'],
+  },
+};
+
+export const SEARCH_ARTICLES_TOOL: Tool = {
+  name: 'search_articles',
+  description:
+    'Search articles by keyword (matches title and description). Call this when you need to find an article by name or topic and don\'t already have its ID. Returns titles and introductions of up to 10 ranked matches.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      query: { type: 'string', description: 'Search query' },
+    },
+    required: ['query'],
+  },
+};
+
+export const GET_ARTICLE_LINKS_TOOL: Tool = {
+  name: 'get_article_links',
+  description: 'Returns outgoing and incoming links for a specific article.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      articleId: { type: 'string', description: 'The article ID' },
+    },
+    required: ['articleId'],
+  },
+};
+
 export const CONTEXT_TOOLS: Tool[] = [
-  {
-    name: 'get_world_bible',
-    description:
-      'Returns the World Bible as markdown: all article summaries grouped by category. Use this to understand the full world context before writing.',
-    inputSchema: { type: 'object', properties: {} },
-  },
-  {
-    name: 'get_article',
-    description: 'Returns the full body and metadata of a specific article by ID.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        articleId: { type: 'string', description: 'The article ID' },
-      },
-      required: ['articleId'],
-    },
-  },
-  {
-    name: 'search_articles',
-    description:
-      'Search articles by keyword (matches title and body). Returns titles and summaries of up to 10 matches.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        query: { type: 'string', description: 'Search query' },
-      },
-      required: ['query'],
-    },
-  },
-  {
-    name: 'get_timeline',
-    description:
-      "Returns all articles that have temporal anchors, sorted chronologically. Use to understand the world's historical progression.",
-    inputSchema: { type: 'object', properties: {} },
-  },
-  {
-    name: 'get_article_links',
-    description: 'Returns outgoing and incoming links for a specific article.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        articleId: { type: 'string', description: 'The article ID' },
-      },
-      required: ['articleId'],
-    },
-  },
+  GET_WORLD_BIBLE_TOOL,
+  GET_ARTICLE_TOOL,
+  SEARCH_ARTICLES_TOOL,
+  GET_ARTICLE_LINKS_TOOL,
 ];
 
 // Opt-in tool — NOT included in CONTEXT_TOOLS. Creative agents add this explicitly.
@@ -90,6 +95,23 @@ export const LOOKUP_NAMES_TOOL: Tool = {
   },
 };
 
+/**
+ * FTS5's MATCH operator throws a hard SQL error on ordinary user text — an
+ * unbalanced quote ("unterminated string"), or a leading `-` (parsed as the
+ * NOT operator). Postgres's plainto_tsquery() is built to never error on
+ * arbitrary text; FTS5 has no equivalent, so tokenize by hand: split on
+ * non-alphanumeric boundaries, wrap each token in quotes (phrase syntax
+ * neutralizes special characters), join with OR — matching the original
+ * LIKE query's "title OR description contains" semantics. Returns null when
+ * every character is stripped (e.g. a query of only punctuation), so the
+ * caller can skip the MATCH entirely rather than issue an empty/invalid one.
+ */
+function sanitizeFts5Query(raw: string): string | null {
+  const tokens = raw.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  if (tokens.length === 0) return null;
+  return tokens.map((t) => `"${t}"`).join(' OR ');
+}
+
 export async function executeContextTool(worldId: string, call: ToolCall): Promise<string> {
   const exec = getDbClient();
 
@@ -123,36 +145,41 @@ export async function executeContextTool(worldId: string, call: ToolCall): Promi
 
     case 'search_articles': {
       const { query } = call.input as { query: string };
+
+      if (getStorageDriver() === 'postgres') {
+        const rows = await exec.all<Record<string, unknown>>(
+          `SELECT a.id, a.title, av.introduction
+           FROM article_search_index s
+           JOIN articles a ON a.id = s.article_id
+           LEFT JOIN article_versions av ON av.id = a.current_version_id
+           WHERE s.world_id = ? AND s.search_vector @@ plainto_tsquery('english', ?)
+           ORDER BY ts_rank(s.search_vector, plainto_tsquery('english', ?)) DESC
+           LIMIT 10`,
+          [worldId, query, query],
+        );
+        return dataBlock('searchResults',
+          rows.map((r) => ({ id: r.id, title: r.title, introduction: (r.introduction as string) ?? '' })),
+        );
+      }
+
+      const ftsQuery = sanitizeFts5Query(query);
+      if (ftsQuery === null) return dataBlock('searchResults', []);
+
+      // No alias on the FTS5 table — MATCH/bm25() resolve against the plain
+      // table name; aliasing it is a common source of "malformed MATCH" or
+      // ranking errors with SQLite's FTS5 query planner.
       const rows = await exec.all<Record<string, unknown>>(
         `SELECT a.id, a.title, av.introduction
-         FROM articles a
+         FROM article_search_fts
+         JOIN articles a ON a.id = article_search_fts.article_id
          LEFT JOIN article_versions av ON av.id = a.current_version_id
-         WHERE a.world_id = ? AND (a.title LIKE ? OR av.description LIKE ?)
+         WHERE article_search_fts.world_id = ? AND article_search_fts MATCH ?
+         ORDER BY bm25(article_search_fts)
          LIMIT 10`,
-        [worldId, `%${query}%`, `%${query}%`],
+        [worldId, ftsQuery],
       );
       return dataBlock('searchResults',
         rows.map((r) => ({ id: r.id, title: r.title, introduction: (r.introduction as string) ?? '' })),
-      );
-    }
-
-    case 'get_timeline': {
-      const rows = await exec.all<Record<string, unknown>>(
-        `SELECT a.id, a.title, a.temporal_anchor_start, a.temporal_anchor_end, av.summary
-         FROM articles a
-         LEFT JOIN article_versions av ON av.id = a.current_version_id
-         WHERE a.world_id = ? AND a.temporal_anchor_start IS NOT NULL
-         ORDER BY a.temporal_anchor_start ASC`,
-        [worldId],
-      );
-      return dataBlock('timeline',
-        rows.map((r) => ({
-          id: r.id,
-          title: r.title,
-          temporalAnchorStart: r.temporal_anchor_start,
-          temporalAnchorEnd: r.temporal_anchor_end ?? null,
-          summary: (r.summary as string) ?? '',
-        })),
       );
     }
 

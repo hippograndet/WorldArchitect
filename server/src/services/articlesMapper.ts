@@ -1,4 +1,5 @@
 import type { QueryExecutor } from '../db/executor.js';
+import type { TenantContext } from '../tenant.js';
 
 export type DbRow = Record<string, unknown>;
 
@@ -103,4 +104,15 @@ export async function getNextVersionNumber(exec: QueryExecutor, articleId: strin
 
 export async function requireArticle(exec: QueryExecutor, worldId: string, articleId: string): Promise<DbRow | null> {
   return (await exec.get<DbRow>('SELECT * FROM articles WHERE id = ? AND world_id = ?', [articleId, worldId])) ?? null;
+}
+
+export async function requireArticleForTenant(
+  exec: QueryExecutor,
+  tenant: Required<TenantContext>,
+  articleId: string,
+): Promise<DbRow | null> {
+  return (await exec.get<DbRow>(
+    'SELECT * FROM articles WHERE id = ? AND world_id = ? AND owner_id = ?',
+    [articleId, tenant.worldId, tenant.ownerId],
+  )) ?? null;
 }

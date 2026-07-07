@@ -14,7 +14,7 @@ WorldArchitect also supports an opt-in hosted mode (`APP_MODE=hosted`) for self-
 ## Provider Secrets
 
 - Users can enter provider keys in the app Settings screen.
-- Keys are stored in SQLite for local mode or Postgres for hosted mode and are returned to the client only as masked values. Hosted-mode stored provider keys are encrypted with `PROVIDER_SETTINGS_ENCRYPTION_KEY`.
+- Keys are stored in the app database and are returned to the client only as masked values. Hosted-mode stored provider keys are encrypted with `PROVIDER_SETTINGS_ENCRYPTION_KEY`.
 - Environment variables can override stored keys for operator workflows, but env keys are not persisted.
 - Startup scans tracked project files for obvious committed provider keys and fails loudly if one is found.
 

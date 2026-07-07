@@ -4,6 +4,10 @@ declare global {
       auth?: {
         userId: string;
       };
+      tenant?: {
+        ownerId: string;
+        worldId?: string;
+      };
       requestId?: string;
     }
   }

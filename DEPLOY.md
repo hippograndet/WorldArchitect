@@ -115,6 +115,14 @@ After Render deploys:
 
 ## Docker
 
+For ordinary local development, use Postgres with local app mode:
+
+```sh
+npm run dev
+```
+
+That command starts the `postgres` service from `docker-compose.yml` and runs the server with `APP_MODE=local`, `STORAGE_DRIVER=postgres`, and the local compose database URL.
+
 Build and run:
 
 ```sh
@@ -122,7 +130,7 @@ docker build -t worldarchitect .
 docker run --rm -p 3001:3001 --env APP_MODE=local worldarchitect
 ```
 
-Hosted-mode local Postgres:
+Hosted-mode local Postgres smoke test:
 
 ```sh
 docker compose up --build

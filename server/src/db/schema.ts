@@ -381,6 +381,29 @@ export function runMigrations(db: Database.Database): void {
   tryAlter(db, `ALTER TABLE call_log ADD COLUMN pipeline_run_id TEXT`);
   tryAlter(db, `ALTER TABLE call_log ADD COLUMN pipeline_type TEXT`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_call_log_pipeline_run ON call_log(world_id, pipeline_run_id)`);
+
+  // M19: full-text search index for the search_articles tool — a driver-
+  // specific side table (mirrored by Postgres migration 005_search_index.sql,
+  // tsvector there instead of FTS5), not a column on articles/article_versions,
+  // so schemaDrift.test.ts's column-diff check never sees it.
+  db.exec(`
+    CREATE VIRTUAL TABLE IF NOT EXISTS article_search_fts USING fts5(
+      article_id UNINDEXED,
+      world_id   UNINDEXED,
+      title,
+      description
+    )
+  `);
+  // FTS5 virtual tables can't declare a FOREIGN KEY (virtual tables don't
+  // support them), so cleanup on article delete needs an explicit trigger
+  // rather than ON DELETE CASCADE — Postgres's real table gets cascade instead.
+  db.exec(`
+    CREATE TRIGGER IF NOT EXISTS trg_article_search_fts_delete
+    AFTER DELETE ON articles
+    BEGIN
+      DELETE FROM article_search_fts WHERE article_id = OLD.id;
+    END
+  `);
 }
 
 export function applySchema(db: Database.Database): void {
