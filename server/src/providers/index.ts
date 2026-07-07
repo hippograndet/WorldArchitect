@@ -142,8 +142,8 @@ export async function readEffectiveProviderSettings(userId?: string): Promise<Ef
 // Runtime helpers
 // ---------------------------------------------------------------------------
 
-export async function isLLMConfigured(): Promise<boolean> {
-  const { provider, config, localOnly } = await readEffectiveProviderSettings();
+export async function isLLMConfigured(userId?: string): Promise<boolean> {
+  const { provider, config, localOnly } = await readEffectiveProviderSettings(userId);
   if (provider === 'none') return false;
   if (localOnly.enabled && provider !== 'ollama') return false;
   if (provider === 'ollama') return true;
@@ -157,8 +157,8 @@ export async function isLLMConfigured(): Promise<boolean> {
  * Build and return the active LLMProvider.
  * Throws with a user-friendly message when nothing is configured.
  */
-export async function getProvider(): Promise<LLMProvider> {
-  const { provider, config, localOnly } = await readEffectiveProviderSettings();
+export async function getProvider(userId?: string): Promise<LLMProvider> {
+  const { provider, config, localOnly } = await readEffectiveProviderSettings(userId);
   if (localOnly.enabled && provider !== 'ollama') {
     throw new ProviderSafetyError(
       'LOCAL_ONLY_EGRESS_BLOCKED',
@@ -197,11 +197,12 @@ export async function getProvider(): Promise<LLMProvider> {
  * Apply to all agent routes so manual features remain unaffected.
  */
 export const requireLLM = asyncHandler(async (
-  _req: import('express').Request,
+  req: import('express').Request,
   res: import('express').Response,
   next: import('express').NextFunction,
 ): Promise<void> => {
-  const { provider, localOnly } = await readEffectiveProviderSettings();
+  const userId = req.auth?.userId;
+  const { provider, localOnly } = await readEffectiveProviderSettings(userId);
   if (localOnly.enabled && provider !== 'ollama') {
     res.status(403).json({
       error: 'Local-only mode is enabled. Hosted LLM providers are blocked; switch to Ollama to use AI features.',
@@ -210,7 +211,7 @@ export const requireLLM = asyncHandler(async (
     return;
   }
 
-  if (!(await isLLMConfigured())) {
+  if (!(await isLLMConfigured(userId))) {
     res.status(503).json({
       error: 'No LLM provider configured.',
       hint: 'All manual editing features work without an LLM. Go to Settings to add an API key.',

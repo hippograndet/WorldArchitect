@@ -24,7 +24,10 @@ export async function recordArticleIssues(
   const { worldId, ownerId, articleId, source, issues } = params;
   const now = Date.now();
 
-  await exec.run(`DELETE FROM article_issues WHERE article_id = ? AND source = ?`, [articleId, source]);
+  await exec.run(
+    `DELETE FROM article_issues WHERE article_id = ? AND owner_id = ? AND source = ?`,
+    [articleId, ownerId, source],
+  );
 
   for (const issue of issues) {
     await exec.run(
@@ -50,7 +53,10 @@ export async function recordWorldIssues(
   const { worldId, ownerId, source, warnings } = params;
   const now = Date.now();
 
-  await exec.run(`DELETE FROM world_issues WHERE world_id = ? AND status = 'open'`, [worldId]);
+  await exec.run(
+    `DELETE FROM world_issues WHERE world_id = ? AND owner_id = ? AND status = 'open'`,
+    [worldId, ownerId],
+  );
 
   for (const gw of warnings) {
     await exec.run(
@@ -77,8 +83,8 @@ export async function recordProposedLinks(
   const now = Date.now();
 
   for (const ep of proposals) {
-    const sourceExists = await exec.get('SELECT id FROM articles WHERE id = ? AND world_id = ?', [ep.sourceArticleId, worldId]);
-    const targetExists = await exec.get('SELECT id FROM articles WHERE id = ? AND world_id = ?', [ep.targetArticleId, worldId]);
+    const sourceExists = await exec.get('SELECT id FROM articles WHERE id = ? AND world_id = ? AND owner_id = ?', [ep.sourceArticleId, worldId, ownerId]);
+    const targetExists = await exec.get('SELECT id FROM articles WHERE id = ? AND world_id = ? AND owner_id = ?', [ep.targetArticleId, worldId, ownerId]);
     if (!sourceExists || !targetExists) continue;
 
     await exec.run(

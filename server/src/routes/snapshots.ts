@@ -326,7 +326,7 @@ router.post('/:sid/restore', asyncHandler(async (req, res) => {
     }
   });
 
-  await rebuildSearchIndexForWorld(worldId);
+  await rebuildSearchIndexForWorld(worldId, ownerId);
 
   res.json({ restored: row.name, autoSaved: autoSave });
 }));

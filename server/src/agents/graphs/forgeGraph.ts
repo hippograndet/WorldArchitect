@@ -40,31 +40,31 @@ function countWords(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length;
 }
 
-async function getCurrentIntro(worldId: string, articleId: string): Promise<string> {
+async function getCurrentIntro(worldId: string, ownerId: string, articleId: string): Promise<string> {
   const row = await getDbClient().get<{ summary: string }>(
-    'SELECT summary FROM world_bible_entries WHERE world_id = ? AND article_id = ?',
-    [worldId, articleId],
+    'SELECT summary FROM world_bible_entries WHERE world_id = ? AND owner_id = ? AND article_id = ?',
+    [worldId, ownerId, articleId],
   );
   return row?.summary ?? '';
 }
 
-async function getCurrentDescription(articleId: string): Promise<string> {
+async function getCurrentDescription(ownerId: string, articleId: string): Promise<string> {
   const row = await getDbClient().get<{ description: string }>(
     `SELECT av.description
      FROM articles a
      LEFT JOIN article_versions av ON av.id = a.current_version_id
-     WHERE a.id = ?`,
-    [articleId],
+     WHERE a.id = ? AND a.owner_id = ?`,
+    [articleId, ownerId],
   );
   return row?.description ?? '';
 }
 
-async function getChildCount(articleId: string): Promise<number> {
+async function getChildCount(ownerId: string, articleId: string): Promise<number> {
   const row = await getDbClient().get<{ count: number }>(
     `SELECT COUNT(*) AS count
      FROM article_links
-     WHERE source_article_id = ? AND link_type = 'hierarchical'`,
-    [articleId],
+     WHERE source_article_id = ? AND owner_id = ? AND link_type = 'hierarchical'`,
+    [articleId, ownerId],
   );
   return row?.count ?? 0;
 }
@@ -93,13 +93,13 @@ async function persistExpandDraft(params: {
   const draftContent = { description: params.description, mentions: params.mentions };
   const now = Date.now();
   const existing = await exec.get<{ id: string }>(
-    'SELECT id FROM pending_drafts WHERE article_id = ? AND pipeline_type = ?',
-    [params.articleId, 'expand_description'],
+    'SELECT id FROM pending_drafts WHERE article_id = ? AND owner_id = ? AND pipeline_type = ?',
+    [params.articleId, params.ownerId, 'expand_description'],
   );
   if (existing) {
     await exec.run(
-      `UPDATE pending_drafts SET draft_content = ?, updated_at = ? WHERE article_id = ? AND pipeline_type = ?`,
-      [JSON.stringify(draftContent), now, params.articleId, 'expand_description'],
+      `UPDATE pending_drafts SET draft_content = ?, updated_at = ? WHERE article_id = ? AND owner_id = ? AND pipeline_type = ?`,
+      [JSON.stringify(draftContent), now, params.articleId, params.ownerId, 'expand_description'],
     );
   } else {
     await exec.run(
@@ -148,7 +148,7 @@ async function inceptionNode(state: ForgeState): Promise<Partial<ForgeState>> {
   if (item.startStep !== 'inception' || state.currentItemStepsDone.includes('inception')) return {};
 
   try {
-    const existingIntro = await getCurrentIntro(state.worldId, item.articleId);
+    const existingIntro = await getCurrentIntro(state.worldId, state.ownerId, item.articleId);
     const hasExistingIntro = existingIntro.trim().length > 0;
     if (hasExistingIntro && (state.forgeInceptionExistingMode === 'skip_existing' || state.forgeInceptionExistingMode === 'create')) {
       await logEvent(state.runId, 'Inception', item.title, true, 'Skipped existing introduction.');
@@ -208,7 +208,7 @@ async function expansionNode(state: ForgeState): Promise<Partial<ForgeState>> {
   if (item.startStep === 'branching' || state.currentItemStepsDone.includes('expansion')) return {};
 
   try {
-    const existingDescription = await getCurrentDescription(item.articleId);
+    const existingDescription = await getCurrentDescription(state.ownerId, item.articleId);
     if (existingDescription.trim() && (state.forgeExpansionExistingMode === 'skip_existing' || state.forgeExpansionExistingMode === 'create')) {
       await logEvent(state.runId, 'Expansion', item.title, true, 'Skipped existing description.');
       return { currentItemStepsDone: [...state.currentItemStepsDone, 'expansion'] };
@@ -281,7 +281,7 @@ async function branchingNode(state: ForgeState): Promise<Partial<ForgeState>> {
   if (item.depth >= state.forgeMaxDepth || state.currentItemStepsDone.includes('branching')) return {};
 
   try {
-    const existingChildren = await getChildCount(item.articleId);
+    const existingChildren = await getChildCount(state.ownerId, item.articleId);
     if (existingChildren > 0 && state.forgeBranchingExistingMode === 'skip_if_children') {
       await logEvent(state.runId, 'Branching', item.title, true, `Skipped branching because ${existingChildren} child article${existingChildren === 1 ? '' : 's'} already exist.`);
       return { currentItemStepsDone: [...state.currentItemStepsDone, 'branching'] };
@@ -433,18 +433,18 @@ function computeRecursionLimit(forgeMaxDepth: number, forgeMaxChildren: number):
   return Math.min(20_000, totalItems * 5 + 20);
 }
 
-async function finalizeRun(runId: string, worldId: string, result: ForgeState): Promise<void> {
+async function finalizeRun(runId: string, worldId: string, ownerId: string | undefined, result: ForgeState): Promise<void> {
   switch (result.signal) {
     case 'completed':
       await markRunStatus(runId, 'completed');
-      await releaseLocks(worldId, runId);
+      await releaseLocks(worldId, runId, ownerId);
       break;
     case 'paused':
       await markRunStatus(runId, 'paused');
       break;
     case 'error':
       await markRunStatus(runId, 'failed', result.lastStepError?.message);
-      await releaseLocks(worldId, runId);
+      await releaseLocks(worldId, runId, ownerId);
       break;
     case 'stopped':
       // Already set to 'stopped' + unlocked by runsService.cancelRun.
@@ -511,15 +511,15 @@ export async function startForgeRun(params: {
       },
       config,
     );
-    await finalizeRun(params.runId, params.worldId, result as ForgeState);
+    await finalizeRun(params.runId, params.worldId, params.ownerId, result as ForgeState);
   } catch (err) {
     if (err instanceof GraphRecursionError) {
       await markRunStatus(params.runId, 'failed', 'Forge run exceeded its recursion limit.');
-      await releaseLocks(params.worldId, params.runId);
+      await releaseLocks(params.worldId, params.runId, params.ownerId);
       return;
     }
     await markRunStatus(params.runId, 'failed', errorMessage(err));
-    await releaseLocks(params.worldId, params.runId);
+    await releaseLocks(params.worldId, params.runId, params.ownerId);
   }
 }
 
@@ -542,14 +542,15 @@ export async function resumeForgeRun(params: { runId: string; worldId: string })
 
   try {
     const result = await graph.invoke(restored, invokeConfig);
-    await finalizeRun(params.runId, params.worldId, result as ForgeState);
+    const finalState = result as ForgeState;
+    await finalizeRun(params.runId, params.worldId, finalState.ownerId, finalState);
   } catch (err) {
     if (err instanceof GraphRecursionError) {
       await markRunStatus(params.runId, 'failed', 'Forge run exceeded its recursion limit.');
-      await releaseLocks(params.worldId, params.runId);
+      await releaseLocks(params.worldId, params.runId, restored.ownerId);
       return;
     }
     await markRunStatus(params.runId, 'failed', errorMessage(err));
-    await releaseLocks(params.worldId, params.runId);
+    await releaseLocks(params.worldId, params.runId, restored.ownerId);
   }
 }

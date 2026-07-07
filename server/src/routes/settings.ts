@@ -109,9 +109,9 @@ router.patch('/', asyncHandler(async (req, res) => {
 }));
 
 // POST /api/settings/test — fire a minimal completion to verify the key works
-router.post('/test', asyncHandler(async (_req, res) => {
+router.post('/test', asyncHandler(async (req, res) => {
   try {
-    const provider = await getProvider();
+    const provider = await getProvider(getTenantContext(req).ownerId);
     const result = await provider.complete(
       [{ role: 'user', content: 'Reply with the single word: ok' }],
       { maxTokens: 10 },
@@ -124,8 +124,8 @@ router.post('/test', asyncHandler(async (_req, res) => {
 }));
 
 // GET /api/settings/ollama/models — list models available in the local Ollama daemon
-router.get('/ollama/models', asyncHandler(async (_req, res) => {
-  const { config } = await readEffectiveProviderSettings();
+router.get('/ollama/models', asyncHandler(async (req, res) => {
+  const { config } = await readEffectiveProviderSettings(getTenantContext(req).ownerId);
   const base = (config.ollamaUrl ?? 'http://localhost:11434').replace(/\/v1\/?$/, '');
 
   try {

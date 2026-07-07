@@ -43,29 +43,29 @@ export async function logCall(entry: CallLogEntry): Promise<void> {
     ]);
 }
 
-export async function getDailyCallCount(worldId: string): Promise<number> {
+export async function getDailyCallCount(worldId: string, ownerId: string): Promise<number> {
   const startOfDay = new Date();
   startOfDay.setHours(0, 0, 0, 0);
 
   const row = await getDbClient().get<{ count: number }>(`
       SELECT COUNT(*) AS count FROM call_log
-      WHERE world_id = ? AND status = 'success' AND created_at >= ?
-    `, [worldId, startOfDay.getTime()]);
+      WHERE world_id = ? AND owner_id = ? AND status = 'success' AND created_at >= ?
+    `, [worldId, ownerId, startOfDay.getTime()]);
 
   return row?.count ?? 0;
 }
 
-export async function checkDailyCap(worldId: string): Promise<{
+export async function checkDailyCap(worldId: string, ownerId: string): Promise<{
   allowed: boolean;
   current: number;
   cap: number | null;
 }> {
   const settings = await getDbClient().get<{ daily_cap: number | null }>(
-    'SELECT daily_cap FROM cost_settings WHERE world_id = ?', [worldId],
+    'SELECT daily_cap FROM cost_settings WHERE world_id = ? AND owner_id = ?', [worldId, ownerId],
   );
 
   const cap = settings?.daily_cap ?? null;
-  const current = await getDailyCallCount(worldId);
+  const current = await getDailyCallCount(worldId, ownerId);
 
   return { allowed: cap === null || current < cap, current, cap };
 }

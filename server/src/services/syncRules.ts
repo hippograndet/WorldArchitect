@@ -38,10 +38,10 @@ async function insertIssue(issue: ArticleIssueInsert, ownerId: string): Promise<
   ]);
 }
 
-async function clearRuleIssues(articleId: string): Promise<void> {
+async function clearRuleIssues(articleId: string, ownerId: string): Promise<void> {
   await getDbClient().run(
-    `DELETE FROM article_issues WHERE article_id = ? AND source = 'rule'`,
-    [articleId],
+    `DELETE FROM article_issues WHERE article_id = ? AND owner_id = ? AND source = 'rule'`,
+    [articleId, ownerId],
   );
 }
 
@@ -52,8 +52,6 @@ async function clearRuleIssues(articleId: string): Promise<void> {
 export async function runSyncRules(worldId: string, articleId: string): Promise<void> {
   const exec = getDbClient();
 
-  await clearRuleIssues(articleId);
-
   const article = await exec.get<DbRow>(`SELECT * FROM articles WHERE id = ? AND world_id = ?`, [articleId, worldId]);
   if (!article) return;
 
@@ -62,6 +60,7 @@ export async function runSyncRules(worldId: string, articleId: string): Promise<
   const temporalEnd = article.temporal_anchor_end as string | null;
   const depth = article.depth as number;
   const ownerId = article.owner_id as string;
+  await clearRuleIssues(articleId, ownerId);
 
   // 1. Temporal inversion
   if (temporalStart && temporalEnd && temporalStart > temporalEnd) {
@@ -76,12 +75,12 @@ export async function runSyncRules(worldId: string, articleId: string): Promise<
 
   // 2. Dead references
   const links = await exec.all<{ target_article_id: string }>(
-    `SELECT al.target_article_id FROM article_links al WHERE al.source_article_id = ?`,
-    [articleId],
+    `SELECT al.target_article_id FROM article_links al WHERE al.source_article_id = ? AND al.owner_id = ?`,
+    [articleId, ownerId],
   );
 
   for (const link of links) {
-    const target = await exec.get(`SELECT id FROM articles WHERE id = ?`, [link.target_article_id]);
+    const target = await exec.get(`SELECT id FROM articles WHERE id = ? AND owner_id = ?`, [link.target_article_id, ownerId]);
     if (!target) {
       await insertIssue({
         worldId, articleId,
@@ -97,8 +96,8 @@ export async function runSyncRules(worldId: string, articleId: string): Promise<
     SELECT t.title AS targetTitle, t.depth AS targetDepth
     FROM article_links al
     JOIN articles t ON t.id = al.target_article_id
-    WHERE al.source_article_id = ? AND t.depth < ?
-  `, [articleId, depth]);
+    WHERE al.source_article_id = ? AND al.owner_id = ? AND t.owner_id = ? AND t.depth < ?
+  `, [articleId, ownerId, ownerId, depth]);
 
   for (const v of depthViolations) {
     await insertIssue({
@@ -113,8 +112,8 @@ export async function runSyncRules(worldId: string, articleId: string): Promise<
   // 4. Orphan article — non-root (depth > 1) with no hierarchical parent
   if (depth > 1) {
     const hasParent = await exec.get(
-      `SELECT source_article_id FROM article_links WHERE target_article_id = ? AND link_type = 'hierarchical' LIMIT 1`,
-      [articleId],
+      `SELECT source_article_id FROM article_links WHERE target_article_id = ? AND owner_id = ? AND link_type = 'hierarchical' LIMIT 1`,
+      [articleId, ownerId],
     );
 
     if (!hasParent) {
@@ -129,8 +128,8 @@ export async function runSyncRules(worldId: string, articleId: string): Promise<
 
   // 5. Duplicate title
   const duplicate = await exec.get<{ id: string }>(
-    `SELECT id FROM articles WHERE world_id = ? AND title = ? AND id != ? LIMIT 1`,
-    [worldId, title, articleId],
+    `SELECT id FROM articles WHERE world_id = ? AND owner_id = ? AND title = ? AND id != ? LIMIT 1`,
+    [worldId, ownerId, title, articleId],
   );
 
   if (duplicate) {

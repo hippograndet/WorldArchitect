@@ -142,7 +142,7 @@ router.post('/', asyncHandler(async (req, res) => {
     [worldId, ownerId],
   );
 
-  if (generateStubs && (await isLLMConfigured())) {
+  if (generateStubs && (await isLLMConfigured(ownerId))) {
     try {
       const seedText = [description, originPoint].filter(Boolean).join('\n\n');
       const director = new PipelineCoordinator();

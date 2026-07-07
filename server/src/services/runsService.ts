@@ -58,8 +58,8 @@ export async function createRun(params: {
 
   await exec.transaction(async (tx) => {
     const locked = await tx.all<{ id: string }>(
-      `SELECT id FROM articles WHERE world_id = ? AND id IN (${placeholders}) AND locked_by_run_id IS NOT NULL`,
-      [params.worldId, ...params.articleIds],
+      `SELECT id FROM articles WHERE world_id = ? AND owner_id = ? AND id IN (${placeholders}) AND locked_by_run_id IS NOT NULL`,
+      [params.worldId, params.ownerId, ...params.articleIds],
     );
     if (locked.length > 0) throw new RunConflictError(locked.map((r) => r.id));
 
@@ -72,8 +72,8 @@ export async function createRun(params: {
 
     for (const articleId of params.articleIds) {
       await tx.run(
-        `UPDATE articles SET locked_by_run_id = ? WHERE id = ? AND world_id = ?`,
-        [runId, articleId, params.worldId],
+        `UPDATE articles SET locked_by_run_id = ? WHERE id = ? AND world_id = ? AND owner_id = ?`,
+        [runId, articleId, params.worldId, params.ownerId],
       );
     }
   });
@@ -114,10 +114,15 @@ export interface RunEventRow {
 }
 
 /** Recent events for a run, newest first — mirrors ForgeLogEntry's existing client-side shape. */
-export async function listRunEvents(runId: string, limit = 200): Promise<RunEventRow[]> {
+export async function listRunEvents(worldId: string, ownerId: string, runId: string, limit = 200): Promise<RunEventRow[]> {
   const rows = await getDbClient().all<Record<string, unknown>>(
-    `SELECT id, step, title, ok, message, created_at FROM run_events WHERE run_id = ? ORDER BY created_at DESC LIMIT ?`,
-    [runId, limit],
+    `SELECT re.id, re.step, re.title, re.ok, re.message, re.created_at
+       FROM run_events re
+       JOIN runs r ON r.id = re.run_id
+      WHERE re.run_id = ? AND r.world_id = ? AND r.owner_id = ?
+      ORDER BY re.created_at DESC
+      LIMIT ?`,
+    [runId, worldId, ownerId, limit],
   );
   return rows.map((r) => ({
     id: r.id as string,
@@ -144,10 +149,10 @@ export async function bumpRunBudget(runId: string, deltaTokens: number): Promise
   );
 }
 
-export async function releaseLocks(worldId: string, runId: string): Promise<void> {
+export async function releaseLocks(worldId: string, runId: string, ownerId?: string): Promise<void> {
   await getDbClient().run(
-    `UPDATE articles SET locked_by_run_id = NULL WHERE world_id = ? AND locked_by_run_id = ?`,
-    [worldId, runId],
+    `UPDATE articles SET locked_by_run_id = NULL WHERE world_id = ? AND locked_by_run_id = ?${ownerId ? ' AND owner_id = ?' : ''}`,
+    ownerId ? [worldId, runId, ownerId] : [worldId, runId],
   );
 }
 
@@ -155,7 +160,7 @@ export async function cancelRun(worldId: string, ownerId: string, runId: string)
   const run = await getRun(worldId, ownerId, runId);
   if (!run) return null;
   await markRunStatus(runId, 'stopped');
-  await releaseLocks(worldId, runId);
+  await releaseLocks(worldId, runId, ownerId);
   return getRun(worldId, ownerId, runId);
 }
 

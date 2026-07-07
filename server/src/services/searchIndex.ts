@@ -9,15 +9,15 @@ import { logger } from '../observability/logger.js';
  * applied here to a lexical index instead. Deletion is handled by
  * ON DELETE CASCADE on `DELETE FROM articles`.
  */
-export async function reindexArticle(worldId: string, articleId: string): Promise<void> {
+export async function reindexArticle(worldId: string, articleId: string, ownerId?: string): Promise<void> {
   try {
     const exec = getDbClient();
     const row = await exec.get<{ title: string; description: string | null }>(`
       SELECT a.title, av.description
       FROM articles a
       LEFT JOIN article_versions av ON av.id = a.current_version_id
-      WHERE a.id = ? AND a.world_id = ?
-    `, [articleId, worldId]);
+      WHERE a.id = ? AND a.world_id = ?${ownerId ? ' AND a.owner_id = ?' : ''}
+    `, ownerId ? [articleId, worldId, ownerId] : [articleId, worldId]);
     if (!row) return; // article gone (e.g. deleted concurrently) — nothing to index
 
     const title = row.title ?? '';
@@ -45,13 +45,16 @@ export async function reindexArticle(worldId: string, articleId: string): Promis
  * bulk-replaces articles via raw SQL outside the normal service layer, so no
  * per-call-site reindexArticle() hook ever fires for it.
  */
-export async function rebuildSearchIndexForWorld(worldId: string): Promise<void> {
+export async function rebuildSearchIndexForWorld(worldId: string, ownerId?: string): Promise<void> {
   try {
     const exec = getDbClient();
     await exec.run('DELETE FROM article_search_index WHERE world_id = ?', [worldId]);
-    const rows = await exec.all<{ id: string }>('SELECT id FROM articles WHERE world_id = ?', [worldId]);
+    const rows = await exec.all<{ id: string }>(
+      `SELECT id FROM articles WHERE world_id = ?${ownerId ? ' AND owner_id = ?' : ''}`,
+      ownerId ? [worldId, ownerId] : [worldId],
+    );
     for (const row of rows) {
-      await reindexArticle(worldId, row.id);
+      await reindexArticle(worldId, row.id, ownerId);
     }
   } catch (err) {
     logger.warn('searchIndex.rebuildFailed', { worldId, err: err instanceof Error ? err.message : String(err) });

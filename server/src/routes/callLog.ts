@@ -31,7 +31,7 @@ router.get('/', asyncHandler(async (req, res) => {
   const totalRow = await db.get<{ count: number }>('SELECT COUNT(*) AS count FROM call_log WHERE world_id = ? AND owner_id = ?', [worldId, ownerId]);
   const total = totalRow?.count ?? 0;
 
-  const dailyCount = await getDailyCallCount(worldId);
+  const dailyCount = await getDailyCallCount(worldId, ownerId);
 
   res.json({
     calls: rows.map((r) => ({

@@ -22,8 +22,8 @@ const coordinator = new PipelineCoordinator();
 // ---------------------------------------------------------------------------
 
 const checkCap = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
-  const { worldId } = requireTenantContext(req);
-  const { allowed, current, cap } = await checkDailyCap(worldId);
+  const { worldId, ownerId } = requireTenantContext(req);
+  const { allowed, current, cap } = await checkDailyCap(worldId, ownerId);
   if (!allowed) {
     res.status(429).json({ error: `Daily call cap reached (${current}/${cap}).`, code: 'DAILY_CAP' });
     return;
@@ -39,14 +39,14 @@ router.post('/estimate', asyncHandler(async (req, res) => {
   const parse = z.object({ extraText: z.string().optional() }).safeParse(req.body ?? {});
   if (!parse.success) throw new AppError(400, 'VALIDATION_ERROR', 'Invalid request', parse.error.flatten().fieldErrors);
 
-  const { worldId } = requireTenantContext(req);
+  const { worldId, ownerId } = requireTenantContext(req);
   const bibleText = await renderBible(worldId);
   const combined = parse.data.extraText ? `${bibleText}\n\n${parse.data.extraText}` : bibleText;
 
   let estimatedTokens: number;
   try {
-    estimatedTokens = (await isLLMConfigured())
-      ? await (await getProvider()).estimateTokens(combined)
+    estimatedTokens = (await isLLMConfigured(ownerId))
+      ? await (await getProvider(ownerId)).estimateTokens(combined)
       : Math.ceil(combined.length / 4);
   } catch {
     estimatedTokens = Math.ceil(combined.length / 4);

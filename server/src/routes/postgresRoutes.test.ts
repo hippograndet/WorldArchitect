@@ -78,6 +78,7 @@ describe('core routes on Postgres', () => {
     if (skipIfUnavailable(skip)) return;
 
     const { world, categories } = await createWorld('user-a', 'Charter Isles');
+    const { world: worldB } = await createWorld('user-b', 'Quiet Ledger');
     const categoryId = categories[0].id;
 
     const created = await request!
@@ -106,12 +107,30 @@ describe('core routes on Postgres', () => {
       .get(`/api/worlds/${world.id}/articles/${created.body.article.id}`)
       .set(asUser('user-b'))
       .expect(404);
+
+    const listB = await request!
+      .get(`/api/worlds/${worldB.id}/articles`)
+      .set(asUser('user-b'))
+      .expect(200);
+    expect(listB.body.map((article: { id: string }) => article.id)).not.toContain(created.body.article.id);
+
+    await request!
+      .get(`/api/worlds/${worldB.id}/articles/${created.body.article.id}`)
+      .set(asUser('user-b'))
+      .expect(404);
+
+    await request!
+      .patch(`/api/worlds/${worldB.id}/articles/${created.body.article.id}`)
+      .set(asUser('user-b'))
+      .send({ title: 'Borrowed Charter' })
+      .expect(404);
   });
 
   it('creates runs, preserves lock rollback on conflict, and releases locks on cancel', async ({ skip }) => {
     if (skipIfUnavailable(skip)) return;
 
     const { world, categories } = await createWorld('user-a', 'Forge Coast');
+    const { world: worldB } = await createWorld('user-b', 'Silent Foundry');
     const first = await createArticle('user-a', world.id, categories[0].id, 'Signal Tower');
     const second = await createArticle('user-a', world.id, categories[0].id, 'Mirror Gate');
 
@@ -133,6 +152,12 @@ describe('core routes on Postgres', () => {
       articleId: first.article.id,
       articleTitle: 'Signal Tower',
     }));
+
+    const runRow = await getDbClient().get<{ owner_id: string }>(
+      'SELECT owner_id FROM runs WHERE id = ?',
+      [created.body.id],
+    );
+    expect(runRow?.owner_id).toBe('user-a');
 
     const locked = await getDbClient().get<{ locked_by_run_id: string | null }>(
       'SELECT locked_by_run_id FROM articles WHERE id = ?',
@@ -156,6 +181,34 @@ describe('core routes on Postgres', () => {
     );
     expect(secondAfterConflict?.locked_by_run_id).toBeNull();
 
+    await getDbClient().run(
+      `INSERT INTO run_events (id, run_id, step, title, ok, message, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [`event-${created.body.id}`, created.body.id, 'Test step', 'Tenant event', true, 'visible only to owner', Date.now()],
+    );
+
+    const readRun = await request!
+      .get(`/api/worlds/${world.id}/runs/${created.body.id}`)
+      .set(asUser('user-a'))
+      .expect(200);
+    expect(readRun.body.events.map((event: { id: string }) => event.id)).toContain(`event-${created.body.id}`);
+
+    const listRunsB = await request!
+      .get(`/api/worlds/${worldB.id}/runs`)
+      .set(asUser('user-b'))
+      .expect(200);
+    expect(listRunsB.body).toEqual([]);
+
+    await request!
+      .get(`/api/worlds/${worldB.id}/runs/${created.body.id}`)
+      .set(asUser('user-b'))
+      .expect(404);
+
+    await request!
+      .post(`/api/worlds/${worldB.id}/runs/${created.body.id}/cancel`)
+      .set(asUser('user-b'))
+      .expect(404);
+
     const cancelled = await request!
       .post(`/api/worlds/${world.id}/runs/${created.body.id}/cancel`)
       .set(asUser('user-a'))
@@ -173,6 +226,7 @@ describe('core routes on Postgres', () => {
     if (skipIfUnavailable(skip)) return;
 
     const { world, categories } = await createWorld('user-a', 'Archive Keys');
+    const { world: worldB } = await createWorld('user-b', 'Blank Archive');
     const created = await createArticle('user-a', world.id, categories[0].id, 'Original Gate');
     const articleId = created.article.id;
 
@@ -210,8 +264,29 @@ describe('core routes on Postgres', () => {
     expect(snapshots.body.map((row: { name: string }) => row.name)).toContain('Before edits');
     expect(snapshots.body.some((row: { name: string }) => row.name.startsWith('Auto-save before restore'))).toBe(true);
 
+    const snapshotsB = await request!
+      .get(`/api/worlds/${worldB.id}/snapshots`)
+      .set(asUser('user-b'))
+      .expect(200);
+    expect(snapshotsB.body).toEqual([]);
+
+    await request!
+      .get(`/api/worlds/${worldB.id}/snapshots/${snapshot.body.id}`)
+      .set(asUser('user-b'))
+      .expect(404);
+
+    await request!
+      .delete(`/api/worlds/${worldB.id}/snapshots/${snapshot.body.id}`)
+      .set(asUser('user-b'))
+      .expect(404);
+
     await request!
       .post(`/api/worlds/${world.id}/snapshots/${snapshot.body.id}/restore`)
+      .set(asUser('user-b'))
+      .expect(404);
+
+    await request!
+      .get(`/api/worlds/${world.id}/export`)
       .set(asUser('user-b'))
       .expect(404);
   });

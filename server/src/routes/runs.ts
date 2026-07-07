@@ -26,7 +26,7 @@ router.get('/:rid', asyncHandler(async (req, res) => {
   const { worldId, ownerId } = requireTenantContext(req);
   const run = await getRun(worldId, ownerId, rid(req));
   if (!run) throw new AppError(404, 'NOT_FOUND', 'Run not found');
-  const events = await listRunEvents(rid(req));
+  const events = await listRunEvents(worldId, ownerId, rid(req));
   res.json({ ...run, events });
 }));
 
