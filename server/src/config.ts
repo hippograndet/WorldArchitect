@@ -17,6 +17,8 @@ export function getPublicBaseUrl(): string {
 
 export function getStorageDriver(): StorageDriver {
   if (process.env.STORAGE_DRIVER === 'postgres') return 'postgres';
+  if (process.env.STORAGE_DRIVER === 'sqlite') return 'sqlite';
+  if (process.env.DATABASE_URL) return 'postgres';
   return 'sqlite';
 }
 

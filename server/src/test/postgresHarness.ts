@@ -9,7 +9,7 @@ const { Client } = pg;
 const REQUIRE_POSTGRES = process.env.CI === 'true';
 
 export interface PostgresTestHarness {
-  schemaName: string;
+  databaseName: string;
   databaseUrl: string;
   cleanup(): Promise<void>;
 }
@@ -36,18 +36,30 @@ export async function setupPostgresTestHarness(prefix: string): Promise<Postgres
     ALLOW_DEV_AUTH_HEADER: process.env.ALLOW_DEV_AUTH_HEADER,
     NODE_ENV: process.env.NODE_ENV,
   };
-  const schemaName = `${prefix}_${nanoid(8)}`;
+  const databaseName = `worldarchitect_test_${prefix}_${nanoid(8)}`
+    .toLowerCase()
+    .replace(/[^a-z0-9_]/g, '_');
+  const databaseUrl = withDatabaseName(baseUrl, databaseName);
 
   try {
-    await admin.query(`CREATE SCHEMA "${schemaName}"`);
-    await admin.query(`SET search_path TO "${schemaName}", public`);
-    await runPostgresMigrations(admin);
+    await admin.query(`CREATE DATABASE "${databaseName}"`);
   } catch (err) {
     await admin.end();
     throw err;
   }
 
-  const databaseUrl = withSearchPath(baseUrl, schemaName);
+  const migrationClient = new Client({ connectionString: databaseUrl, connectionTimeoutMillis: 2000 });
+  try {
+    await migrationClient.connect();
+    await runPostgresMigrations(migrationClient);
+  } catch (err) {
+    await migrationClient.end().catch(() => undefined);
+    await dropDatabase(admin, databaseName);
+    await admin.end();
+    throw err;
+  }
+  await migrationClient.end();
+
   process.env.NODE_ENV = 'test';
   process.env.APP_MODE = 'hosted';
   process.env.STORAGE_DRIVER = 'postgres';
@@ -58,14 +70,13 @@ export async function setupPostgresTestHarness(prefix: string): Promise<Postgres
   await closePgPool();
 
   return {
-    schemaName,
+    databaseName,
     databaseUrl,
     cleanup: async () => {
       await closePgPool();
       resetDbClientForTests();
       try {
-        await admin.query(`DROP SCHEMA IF EXISTS "${schemaName}" CASCADE`);
-        await admin.query('DISCARD ALL');
+        await dropDatabase(admin, databaseName);
       } finally {
         await admin.end();
         restoreEnv(originalEnv);
@@ -74,10 +85,21 @@ export async function setupPostgresTestHarness(prefix: string): Promise<Postgres
   };
 }
 
-function withSearchPath(baseUrl: string, schemaName: string): string {
+function withDatabaseName(baseUrl: string, databaseName: string): string {
   const url = new URL(baseUrl);
-  url.searchParams.set('options', `-c search_path=${schemaName},public`);
+  url.pathname = `/${databaseName}`;
+  url.search = '';
   return url.toString();
+}
+
+async function dropDatabase(admin: pg.Client, databaseName: string): Promise<void> {
+  await admin.query(
+    `SELECT pg_terminate_backend(pid)
+     FROM pg_stat_activity
+     WHERE datname = $1 AND pid <> pg_backend_pid()`,
+    [databaseName],
+  );
+  await admin.query(`DROP DATABASE IF EXISTS "${databaseName}"`);
 }
 
 function restoreEnv(env: Record<string, string | undefined>): void {

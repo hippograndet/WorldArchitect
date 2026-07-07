@@ -122,7 +122,7 @@ Developer notes and older design documents are kept locally in `dev-docs/` and a
 
 ```bash
 npm run dev              # server :3001 + client :5173
-npm run dev:server       # server only
+npm run dev:server       # start local Postgres + server only
 npm run dev:client       # client only
 npm run build -w server
 npm run build -w client

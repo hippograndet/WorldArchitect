@@ -11,6 +11,15 @@ const { Client } = pg;
 const DATABASE_URL = process.env.DRIFT_TEST_DATABASE_URL
   ?? 'postgres://worldarchitect:worldarchitect@localhost:5432/worldarchitect';
 const REQUIRE_POSTGRES = process.env.CI === 'true';
+const SQLITE_ONLY_TABLES = new Set([
+  'article_search_fts',
+  'article_search_fts_config',
+  'article_search_fts_content',
+  'article_search_fts_data',
+  'article_search_fts_docsize',
+  'article_search_fts_idx',
+]);
+const POSTGRES_ONLY_TABLES = new Set(['article_search_index']);
 
 // Schema-mutating admin work (CREATE/DROP SCHEMA) belongs on a direct,
 // unpooled connection, not a shared pooler endpoint — see "Pooled Postgres
@@ -131,8 +140,10 @@ describe('SQLite / Postgres schema drift', () => {
     const sqliteColumns = getSqliteColumns();
     const postgresColumns = await getPostgresColumns(client!, schemaName);
 
-    const tablesOnlyInSqlite = [...sqliteColumns.keys()].filter((t) => !postgresColumns.has(t));
-    const tablesOnlyInPostgres = [...postgresColumns.keys()].filter((t) => !sqliteColumns.has(t));
+    const tablesOnlyInSqlite = [...sqliteColumns.keys()]
+      .filter((t) => !postgresColumns.has(t) && !SQLITE_ONLY_TABLES.has(t));
+    const tablesOnlyInPostgres = [...postgresColumns.keys()]
+      .filter((t) => !sqliteColumns.has(t) && !POSTGRES_ONLY_TABLES.has(t));
     if (tablesOnlyInSqlite.length > 0) logger.warn('schemaDrift.tableOnlyInSqlite', { tables: tablesOnlyInSqlite });
     if (tablesOnlyInPostgres.length > 0) logger.warn('schemaDrift.tableOnlyInPostgres', { tables: tablesOnlyInPostgres });
 

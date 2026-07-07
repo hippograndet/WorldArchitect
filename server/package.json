@@ -12,7 +12,7 @@
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "start": "node dist/index.js",
-    "test:postgres": "APP_MODE=local STORAGE_DRIVER=postgres DATABASE_URL=postgres://worldarchitect:worldarchitect@localhost:5432/worldarchitect vitest run src/db/schemaDrift.test.ts src/db/postgresMigrations.test.ts src/tools/context.search.postgres.test.ts src/services/postgresCore.test.ts src/routes/postgresRoutes.test.ts",
+    "test:postgres": "APP_MODE=local STORAGE_DRIVER=postgres DATABASE_URL=postgres://worldarchitect:worldarchitect@localhost:5432/worldarchitect vitest run --no-file-parallelism src/db/schemaDrift.test.ts src/db/postgresMigrations.test.ts src/tools/context.search.postgres.test.ts src/services/postgresCore.test.ts src/routes/postgresRoutes.test.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },
