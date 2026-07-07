@@ -1,4 +1,5 @@
 import { X, Settings, Check } from 'lucide-react';
+import { useLocation } from 'react-router-dom';
 import { useStore } from '../../stores/index.ts';
 import SparkConfigView from './SparkConfigView.tsx';
 import SolidificationConfigView from './SolidificationConfigView.tsx';
@@ -27,12 +28,14 @@ const PHASE_LABELS: Record<string, string> = {
 };
 
 export default function AgentPanel() {
+  const location = useLocation();
   const {
     agentPanelOpen, agentPhase, agentTargetArticleTitle,
     agentPipelineType, agentPanelMode,
     closeAgentPanel,
   } = useStore();
 
+  if (location.pathname.endsWith('/expand')) return null;
   if (!agentPanelOpen) return null;
 
   const isChildMode = agentPipelineType === 'propose_children';

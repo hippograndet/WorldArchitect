@@ -416,15 +416,52 @@ export default function SparkConfigView() {
               </p>
             )}
 
+            {/* Grounding Check toggle */}
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={agentParams.forgeUseGroundingCheck}
+                onChange={(e) => setAgentParams({ forgeUseGroundingCheck: e.target.checked })}
+                className="accent-amber-500"
+              />
+              <span className="text-xs text-gray-700">Use Grounding Check</span>
+              <span className="text-xs text-gray-400">(+1–2 LLM calls/article)</span>
+            </label>
+            {agentParams.forgeUseGroundingCheck && (
+              <p className="text-xs text-gray-400 -mt-1">
+                After Lorekeeper writes the Introduction, checks it against parent context; an unresolved
+                contradiction skips Expansion/Branching for that article rather than committing it.
+              </p>
+            )}
+
+            {/* Dedup Check toggle */}
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={agentParams.forgeUseDedupCheck}
+                onChange={(e) => setAgentParams({ forgeUseDedupCheck: e.target.checked })}
+                className="accent-amber-500"
+              />
+              <span className="text-xs text-gray-700">Use Dedup Check</span>
+              <span className="text-xs text-gray-400">(+1 LLM call/branching pass)</span>
+            </label>
+            {agentParams.forgeUseDedupCheck && (
+              <p className="text-xs text-gray-400 -mt-1">
+                After Cartographer proposes children, filters out any that duplicate an existing sibling article.
+              </p>
+            )}
+
             {/* Estimated scope */}
             {(() => {
               const articles = estimateForgeScope(agentParams.forgeMaxChildren, agentParams.forgeMaxDepth);
               // Per article: Researcher + Muse + Curator + Scribe + Lorekeeper + Cartographer = 6 calls
-              // + Oracle = +1, + Continuity Editor = +1–2
+              // + Oracle = +1, + Continuity Editor = +1–2, + Grounding Check = +1–2, + Dedup Check = +1
               const callsPerArticle =
                 6 +
                 (agentParams.forgeUseOracle ? 1 : 0) +
-                (agentParams.forgeUseContinuityEditor ? 1 : 0);
+                (agentParams.forgeUseContinuityEditor ? 1 : 0) +
+                (agentParams.forgeUseGroundingCheck ? 1 : 0) +
+                (agentParams.forgeUseDedupCheck ? 1 : 0);
               const totalCalls = articles * callsPerArticle;
               const estTokensK = Math.round(totalCalls * 1.1);
               return (

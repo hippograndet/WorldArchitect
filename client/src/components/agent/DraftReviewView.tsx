@@ -37,16 +37,6 @@ export default function DraftReviewView() {
         </div>
       )}
 
-      {/* Chronology preview */}
-      {agentDraftResult?.chronologySection && (
-        <div>
-          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Chronology</p>
-          <div className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">
-            {agentDraftResult.chronologySection}
-          </div>
-        </div>
-      )}
-
       {/* Retention issues (reorganize only) */}
       {retentionIssues.length > 0 && (
         <div className="p-3 bg-red-50 border border-red-200 rounded-lg">

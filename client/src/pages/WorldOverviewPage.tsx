@@ -1,8 +1,5 @@
-import { useState } from 'react';
-import { Hammer } from 'lucide-react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useStore } from '../stores/index.ts';
-import BibleCompressorModal from '../components/bible/BibleCompressorModal.tsx';
 import type { ArticleStatus } from '../types/article.ts';
 
 export default function WorldOverviewPage() {
@@ -10,8 +7,6 @@ export default function WorldOverviewPage() {
   const navigate = useNavigate();
   const {
     worlds, treeNodes, bibleTokenCount, bibleThreshold,
-    startAudit, agentPanelOpen,
-    selectArticle, openAgentPanel, setAgentParams,
   } = useStore();
 
   const world = worlds.find((w) => w.id === wid);
@@ -35,24 +30,9 @@ export default function WorldOverviewPage() {
     ? Math.min(100, Math.round((bibleTokenCount / bibleThreshold) * 100))
     : 0;
 
-  const [showCompressor, setShowCompressor] = useState(false);
-
-  const handleAudit = () => {
-    if (!wid) return;
-    startAudit(wid).catch(console.error);
-  };
-
   const handleBrowse = () => {
     if (!wid || treeNodes.length === 0) return;
     navigate(`/worlds/${wid}/articles/${treeNodes[0].id}`);
-  };
-
-  const handleForgeWorld = async () => {
-    if (!wid || treeNodes.length === 0 || agentPanelOpen) return;
-    const root = treeNodes[0];
-    await selectArticle(wid, root.id);
-    openAgentPanel(root.id, root.title, 'spark', 'forge_expand');
-    setAgentParams({ forgeEnabled: true, forgeMaxDepth: 1, forgeMaxChildren: 3 });
   };
 
   if (!world) {
@@ -60,7 +40,7 @@ export default function WorldOverviewPage() {
   }
 
   return (
-    <div className="max-w-2xl mx-auto py-10 px-6">
+    <div className="max-w-5xl mx-auto py-10 px-6">
       {/* World header */}
       <div className="flex items-start justify-between gap-4 mb-8">
         <div>
@@ -75,7 +55,7 @@ export default function WorldOverviewPage() {
             onClick={handleBrowse}
             className="shrink-0 px-3 py-1.5 text-xs border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 whitespace-nowrap"
           >
-            Browse Articles →
+            Browse Articles
           </button>
         )}
       </div>
@@ -114,67 +94,6 @@ export default function WorldOverviewPage() {
           />
         </div>
       </div>
-
-      {/* World Tools */}
-      <section>
-        <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">World Tools</h2>
-        <div className="border border-gray-200 rounded-xl overflow-hidden divide-y divide-gray-200">
-          <button
-            onClick={() => wid && navigate(`/worlds/${wid}/graph`)}
-            className="w-full flex items-start gap-4 p-4 hover:bg-gray-50 transition-colors text-left"
-          >
-            <span className="text-xl leading-none mt-0.5">◎</span>
-            <div>
-              <p className="text-sm font-semibold text-gray-800">Graph View</p>
-              <p className="text-xs text-gray-500 mt-0.5">
-                Navigate articles and shape their relationships.
-              </p>
-            </div>
-          </button>
-          <button
-            onClick={handleAudit}
-            disabled={agentPanelOpen}
-            className="w-full flex items-start gap-4 p-4 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-left"
-          >
-            <span className="text-xl leading-none mt-0.5">🔍</span>
-            <div>
-              <p className="text-sm font-semibold text-gray-800">Audit World</p>
-              <p className="text-xs text-gray-500 mt-0.5">
-                Scan the full article graph for missing links and cross-article contradictions.
-              </p>
-            </div>
-          </button>
-          <button
-            onClick={handleForgeWorld}
-            disabled={agentPanelOpen || treeNodes.length === 0}
-            className="w-full flex items-start gap-4 p-4 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-left"
-          >
-            <span className="text-amber-600 leading-none mt-0.5"><Hammer size={20} /></span>
-            <div>
-              <p className="text-sm font-semibold text-gray-800">Forge World</p>
-              <p className="text-xs text-gray-500 mt-0.5">
-                Recursively expand the root article into a small reviewed-afterward article tree.
-              </p>
-            </div>
-          </button>
-          <button
-            onClick={() => setShowCompressor(true)}
-            className="w-full flex items-start gap-4 p-4 hover:bg-gray-50 transition-colors text-left"
-          >
-            <span className="text-xl leading-none mt-0.5">📦</span>
-            <div>
-              <p className="text-sm font-semibold text-gray-800">Compress Bible</p>
-              <p className="text-xs text-gray-500 mt-0.5">
-                Preview and apply AI-compressed summaries to reduce World Bible token usage.
-              </p>
-            </div>
-          </button>
-        </div>
-      </section>
-
-      {showCompressor && wid && (
-        <BibleCompressorModal worldId={wid} onClose={() => setShowCompressor(false)} />
-      )}
     </div>
   );
 }

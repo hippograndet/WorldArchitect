@@ -25,6 +25,7 @@ export default function ForgeProgressView() {
   const progress   = forgeTotal > 0 ? Math.round((forgeCompleted / forgeTotal) * 100) : 0;
   const remaining  = Math.max(forgeTotal - forgeCompleted, 0);
   const modeLabel  = agentParams.forgeMode === 'breadth' ? 'Breadth-first' : 'Depth-first';
+  const latestFailure = forgeLog.find((entry) => !entry.ok && entry.message);
 
   const handlePauseResume = () => {
     if (!wid) return;
@@ -74,6 +75,12 @@ export default function ForgeProgressView() {
         )}
         {isDone && hasError && (
           <p className="mt-2 text-xs text-red-600 font-medium">{agentError}</p>
+        )}
+        {!isDone && latestFailure && (
+          <div className="mt-2 rounded border border-red-200 bg-red-50 px-2 py-1.5">
+            <p className="text-xs font-semibold text-red-700">{latestFailure.step} failed</p>
+            <p className="text-xs text-red-600 mt-0.5">{latestFailure.message}</p>
+          </div>
         )}
         {isDone && !hasError && forgeTotal > 0 && (
           <p className="mt-2 text-xs text-green-700 font-medium">
@@ -131,6 +138,9 @@ export default function ForgeProgressView() {
                     {entry.step}
                   </span>
                   <span className="text-gray-500 ml-1 truncate block">{entry.title}</span>
+                  {!entry.ok && entry.message && (
+                    <span className="text-red-600 mt-0.5 block leading-relaxed">{entry.message}</span>
+                  )}
                 </div>
               </div>
             ))}

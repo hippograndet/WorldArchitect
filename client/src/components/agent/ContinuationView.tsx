@@ -4,7 +4,6 @@ import type { NextStep } from '../../stores/agentSlice.ts';
 
 const PIPELINE_ICONS: Record<string, string> = {
   expand_description: '📝',
-  expand_chronology:  '📅',
   propose_children:   '🌿',
   create_child:       '✨',
   reorganize:         '🔀',

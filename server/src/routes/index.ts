@@ -16,6 +16,7 @@ import nameBankRoutes from './nameBank.js';
 import entityMentionsRoutes from './entityMentions.js';
 import publishRoutes from './publish.js';
 import worldIssueRoutes from './worldIssues.js';
+import consolidationRoutes from './consolidation.js';
 import runRoutes from './runs.js';
 
 export function registerRoutes(app: express.Express): void {
@@ -43,5 +44,6 @@ export function registerRoutes(app: express.Express): void {
   app.use('/api/worlds/:wid/publish', requireWorldTenant, publishRoutes);
   app.use('/api/worlds/:wid/runs', requireWorldTenant, runRoutes);
   app.use('/api/worlds/:wid', requireWorldTenant, worldIssueRoutes);
+  app.use('/api/worlds/:wid', requireWorldTenant, consolidationRoutes);
   app.use('/api/settings', settingsRoutes);
 }

@@ -10,6 +10,7 @@ export interface ForgeLogEntry {
   step: string;
   title: string;
   ok: boolean;
+  message: string | null;
   ts: number;
 }
 
@@ -64,16 +65,28 @@ export const forgeSlice: StateCreator<StoreState, [['zustand/immer', never]], []
         const run = await api.runs.get(worldId, runId);
         if (get().forgeRunId !== runId) return;
 
+        const treeNeedsRefresh = run.itemsTotal > get().forgeTotal;
+
         set((s) => {
           s.forgeCompleted = run.itemsCompleted;
           s.forgeTotal = run.itemsTotal;
-          s.forgeLog = run.events.map((e) => ({ step: e.step, title: e.title, ok: e.ok, ts: e.createdAt }));
+          s.forgeLog = run.events.map((e) => ({
+            step: e.step,
+            title: e.title,
+            ok: e.ok,
+            message: e.message,
+            ts: e.createdAt,
+          }));
           const latest = run.events[0];
           if (latest) {
             s.forgeCurrentTitle = latest.title;
             s.forgeCurrentStep = latest.step;
           }
         });
+
+        if (treeNeedsRefresh) {
+          await get().loadTree(worldId).catch(console.error);
+        }
 
         if (run.status === 'paused') {
           set((s) => { s.forgePaused = true; });
@@ -117,7 +130,11 @@ export const forgeSlice: StateCreator<StoreState, [['zustand/immer', never]], []
     startForge: async (worldId) => {
       const { agentTargetArticleId, agentPipelineType, agentParams } = get();
       if (!agentTargetArticleId) return;
-      const { contextDepth, branchingMode, forgeMode, forgeMaxDepth, forgeMaxChildren, forgeUseOracle, forgeUseContinuityEditor } = agentParams;
+      const {
+        contextDepth, branchingMode, forgeMode, forgeMaxDepth, forgeMaxChildren,
+        forgeUseOracle, forgeUseContinuityEditor, forgeUseGroundingCheck, forgeUseDedupCheck,
+        forgeContinuationMode, forgeInceptionExistingMode, forgeExpansionExistingMode, forgeBranchingExistingMode,
+      } = agentParams;
 
       set((s) => {
         s.agentPhase        = 'forging';
@@ -142,6 +159,12 @@ export const forgeSlice: StateCreator<StoreState, [['zustand/immer', never]], []
           forgeMaxChildren,
           forgeUseOracle,
           forgeUseContinuityEditor,
+          forgeUseGroundingCheck,
+          forgeUseDedupCheck,
+          forgeContinuationMode,
+          forgeInceptionExistingMode,
+          forgeExpansionExistingMode,
+          forgeBranchingExistingMode,
         });
         set((s) => { s.forgeRunId = run.id; });
         poll(worldId, run.id);

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Pencil, Plus, Settings } from 'lucide-react';
-import { useParams, Link } from 'react-router-dom';
+import { ExternalLink, Pencil, Plus, Settings } from 'lucide-react';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useStore } from '../../stores/index.ts';
 import { api } from '../../lib/api.ts';
 import InlineDescriptionEditor from './InlineDescriptionEditor.tsx';
@@ -53,10 +53,11 @@ type EditingSection = 'introduction' | 'description' | 'chronology' | null;
 
 export default function ArticlePage() {
   const { wid, aid } = useParams<{ wid: string; aid: string }>();
+  const navigate = useNavigate();
   const {
     selectArticle, currentArticleDetail, currentArticleId,
     manualEdit, loadTree, addToast, checkDraft,
-    openAgentPanel, agentPanelOpen, closeAgentPanel,
+    agentPanelOpen, closeAgentPanel,
   } = useStore();
 
   const [editingSection, setEditingSection] = useState<EditingSection>(null);
@@ -90,16 +91,15 @@ export default function ArticlePage() {
     setShowHistory(true);
   };
 
-  const handleOpenAgent = () => {
+  const handleOpenExpand = () => {
     if (!wid || !aid) return;
     setShowHistory(false);
-    openAgentPanel(aid, article.title, 'spark');
+    navigate(`/worlds/${wid}/expand?start=${encodeURIComponent(aid)}`);
   };
 
   const handleOpenSolidify = () => {
     if (!wid || !aid) return;
-    setShowHistory(false);
-    openAgentPanel(aid, article.title, 'solidification');
+    navigate(`/worlds/${wid}/consolidate?article=${encodeURIComponent(aid)}`);
   };
 
   // ---------------------------------------------------------------------------
@@ -198,14 +198,10 @@ export default function ArticlePage() {
             <Settings size={14} /> Solidify
           </button>
           <button
-            onClick={handleOpenAgent}
-            className={`px-3 py-1.5 text-xs border rounded-lg font-medium transition-colors ${
-              agentPanelOpen
-                ? 'border-purple-400 bg-purple-50 text-purple-700'
-                : 'border-purple-300 text-purple-600 hover:bg-purple-50'
-            }`}
+            onClick={handleOpenExpand}
+            className="px-3 py-1.5 text-xs border rounded-lg font-medium transition-colors border-purple-300 text-purple-600 hover:bg-purple-50 flex items-center gap-1"
           >
-            ✦ Spark
+            <ExternalLink size={14} /> Expand
           </button>
         </div>
       </div>
@@ -322,7 +318,9 @@ export default function ArticlePage() {
       </section>
 
       {/* Article issues + world notes */}
-      {wid && aid && <ArticleIssuesPanel wid={wid} aid={aid} />}
+      {wid && aid && (
+        <ArticleIssuesPanel wid={wid} aid={aid} onArticleUpdated={() => selectArticle(wid, aid)} />
+      )}
 
       {/* Panels */}
       {showHistory && <VersionHistoryPanel onClose={() => setShowHistory(false)} />}
@@ -343,16 +341,16 @@ export default function ArticlePage() {
 
       </div>{/* end flex row */}
 
-      {/* Spark FAB — only when AgentPanel is closed */}
+      {/* Expand FAB — only when AgentPanel is closed */}
       {!agentPanelOpen && wid && aid && (
         <button
-          onClick={() => openAgentPanel(aid, article.title, 'spark')}
+          onClick={handleOpenExpand}
           className="fixed bottom-8 right-8 w-14 h-14 rounded-full bg-purple-600 text-white
                      shadow-xl hover:bg-purple-700 hover:scale-105 transition-all z-40
                      flex items-center justify-center text-xl font-bold select-none"
-          title="Spark — open AI Agent"
+          title="Expand from this article"
         >
-          ✦
+          <ExternalLink size={22} />
         </button>
       )}
     </div>

@@ -28,7 +28,6 @@ export type PipelineType =
   | 'expand_description'
   | 'create_child'
   | 'propose_children'
-  | 'expand_chronology'
   | 'reorganize'
   | 'summarize'
   | 'improve_intro'
@@ -62,6 +61,12 @@ export interface AgentParams {
   forgeMaxChildren: number; // 0 = all, otherwise take top N
   forgeUseOracle: boolean;          // run Oracle idea-selection step in the Forge loop
   forgeUseContinuityEditor: boolean; // run Continuity Editor self-correction pass after Scribe
+  forgeUseGroundingCheck: boolean;  // run Grounding Check self-correction pass after Lorekeeper (Inception)
+  forgeUseDedupCheck: boolean;      // run Dedup Check pass after Cartographer (Branching)
+  forgeContinuationMode: 'one_step' | 'finish_document' | 'recursive';
+  forgeInceptionExistingMode: 'create' | 'improve' | 'replace' | 'skip_existing';
+  forgeExpansionExistingMode: 'create' | 'improve' | 'replace' | 'skip_existing';
+  forgeBranchingExistingMode: 'append_deduped' | 'skip_if_children';
 }
 
 const defaultParams: AgentParams = {
@@ -81,13 +86,18 @@ const defaultParams: AgentParams = {
   forgeMaxChildren:     5,
   forgeUseOracle:             false,
   forgeUseContinuityEditor:   false,
+  forgeUseGroundingCheck:     false,
+  forgeUseDedupCheck:         false,
+  forgeContinuationMode:      'recursive',
+  forgeInceptionExistingMode: 'improve',
+  forgeExpansionExistingMode: 'improve',
+  forgeBranchingExistingMode: 'append_deduped',
 };
 
 // Pipelines that save a pending_draft on the server and commit via POST /accept
 const DRAFT_PIPELINES: PipelineType[] = [
   'expand_description',
   'create_child',
-  'expand_chronology',
   'reorganize',
   'forge_expand',
 ];
@@ -160,6 +170,7 @@ export interface AgentSlice {
   agentCommit: (worldId: string) => Promise<void>;
   agentDiscard: (worldId: string) => Promise<void>;
   agentBatchCreate: (worldId: string, selectedIndices: number[]) => Promise<void>;
+  dispatchSolidify: (worldId: string, articleId: string, articleTitle: string, pipeline: 'cohere' | 'reorganize') => Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -425,21 +436,6 @@ export const agentSlice: StateCreator<StoreState, [['zustand/immer', never]], []
             set((s) => { s.agentChildProposals = proposals; s.agentPhase = 'proposals_ready'; });
             break;
           }
-          case 'expand_chronology': {
-            const result = await api.agents.chronology(worldId, {
-              articleId:    agentTargetArticleId,
-              userSpec:     agentParams.userSpec || undefined,
-              contextDepth: agentParams.contextDepth,
-            });
-            set((s) => {
-              s.agentDraftResult = {
-                chronologySection: result.chronologySection,
-                coherenceWarnings: result.coherenceWarnings as DraftContent['coherenceWarnings'],
-              };
-              s.agentPhase = 'reviewing';
-            });
-            break;
-          }
           case 'summarize': {
             const mode = agentParams.includeCurrentContent ? 'improve' : 'full';
             const result = await api.agents.summarize(worldId, {
@@ -686,6 +682,12 @@ export const agentSlice: StateCreator<StoreState, [['zustand/immer', never]], []
       } catch (err) {
         get().addToast({ message: (err as Error).message, type: 'error' });
       }
+    },
+
+    dispatchSolidify: async (worldId, articleId, articleTitle, pipeline) => {
+      await get().selectArticle(worldId, articleId);
+      get().openAgentPanel(articleId, articleTitle, 'solidification', pipeline);
+      get().runAgentGenerate(worldId).catch(console.error);
     },
   };
 };

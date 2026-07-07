@@ -188,8 +188,6 @@ export const api = {
     }>(`/worlds/${wid}/agents/expand`, input),
     proposeChildren: (wid: string, input: { articleId: string; contextDepth?: ContextDepth; userSpec?: string }) =>
       post<{ proposals: import('../types/agent.ts').ChildProposal[] }>(`/worlds/${wid}/agents/propose-children`, input),
-    chronology: (wid: string, input: { articleId: string; userSpec?: string; contextDepth?: ContextDepth }) =>
-      post<{ chronologySection: string; coherenceWarnings: CoherenceWarning[] }>(`/worlds/${wid}/agents/chronology`, input),
     summarize: (wid: string, input: { articleId: string; mode?: import('../types/agent.ts').SummarizerMode }) =>
       post<{ introduction: string }>(`/worlds/${wid}/agents/summarize`, input),
     reorganize: (wid: string, input: { articleId: string; userSpec?: string; contextDepth?: ContextDepth }) =>
@@ -349,6 +347,21 @@ export const api = {
       get<WorldIssue[]>(`/worlds/${wid}/articles/${aid}/world-issues`),
   },
 
+  consolidation: {
+    list: (wid: string, params?: { status?: string; severity?: string; scope?: 'world' | 'article'; articleId?: string; q?: string }) => {
+      const qs = new URLSearchParams();
+      if (params?.status)    qs.set('status', params.status);
+      if (params?.severity)  qs.set('severity', params.severity);
+      if (params?.scope)     qs.set('scope', params.scope);
+      if (params?.articleId) qs.set('articleId', params.articleId);
+      if (params?.q)         qs.set('q', params.q);
+      const query = qs.toString() ? `?${qs}` : '';
+      return get<import('./consolidation.ts').ConsolidationIssue[]>(`/worlds/${wid}/consolidation-issues${query}`);
+    },
+    count: (wid: string) =>
+      get<{ open: number }>(`/worlds/${wid}/consolidation-issues/count`),
+  },
+
   runs: {
     list:   (wid: string)               => get<Run[]>(`/worlds/${wid}/runs`),
     get:    (wid: string, rid: string)  => get<RunWithEvents>(`/worlds/${wid}/runs/${rid}`),
@@ -363,6 +376,12 @@ export const api = {
       forgeMaxChildren?: number;
       forgeUseOracle?: boolean;
       forgeUseContinuityEditor?: boolean;
+      forgeUseGroundingCheck?: boolean;
+      forgeUseDedupCheck?: boolean;
+      forgeContinuationMode?: 'one_step' | 'finish_document' | 'recursive';
+      forgeInceptionExistingMode?: 'create' | 'improve' | 'replace' | 'skip_existing';
+      forgeExpansionExistingMode?: 'create' | 'improve' | 'replace' | 'skip_existing';
+      forgeBranchingExistingMode?: 'append_deduped' | 'skip_if_children';
     }) => post<Run>(`/worlds/${wid}/runs`, input),
     cancel: (wid: string, rid: string)  => post<Run>(`/worlds/${wid}/runs/${rid}/cancel`),
     pause:  (wid: string, rid: string)  => post<Run>(`/worlds/${wid}/runs/${rid}/pause`),

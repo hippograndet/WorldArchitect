@@ -1,11 +1,13 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../../lib/api';
+import IssueFixPanel from '../shared/IssueFixPanel.tsx';
 import type { ArticleIssue, WorldIssue } from '../../types/world';
 
 interface Props {
   wid: string;
   aid: string;
+  onArticleUpdated?: () => void;
 }
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -15,11 +17,13 @@ const SOURCE_LABELS: Record<string, string> = {
   publish_check: 'Publish',
 };
 
-function ArticleIssueRow({ issue, onUpdate }: {
+function ArticleIssueRow({ issue, onUpdate, onArticleUpdated }: {
   issue: ArticleIssue;
   onUpdate: (id: string, status: ArticleIssue['status']) => void;
+  onArticleUpdated?: () => void;
 }) {
   const [acting, setActing] = useState(false);
+  const [fixing, setFixing] = useState(false);
 
   async function act(status: ArticleIssue['status']) {
     setActing(true);
@@ -60,6 +64,14 @@ function ArticleIssueRow({ issue, onUpdate }: {
       {issue.suggestion && <p className="text-gray-500 italic">{issue.suggestion}</p>}
       {(isOpen || isInReview) && (
         <div className="flex gap-1.5 pt-0.5">
+          {issue.excerpt && !fixing && (
+            <button
+              onClick={() => setFixing(true)}
+              className="text-[10px] px-1.5 py-0.5 rounded border border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+            >
+              Fix
+            </button>
+          )}
           {isOpen && (
             <button
               onClick={() => act('in_review')}
@@ -87,11 +99,25 @@ function ArticleIssueRow({ issue, onUpdate }: {
           </button>
         </div>
       )}
+      {fixing && issue.excerpt && (
+        <div className="pt-1">
+          <IssueFixPanel
+            wid={issue.worldId}
+            articleId={issue.articleId}
+            issueId={issue.id}
+            excerpt={issue.excerpt}
+            onApplied={() => {
+              onUpdate(issue.id, 'fixed');
+              onArticleUpdated?.();
+            }}
+          />
+        </div>
+      )}
     </div>
   );
 }
 
-export default function ArticleIssuesPanel({ wid, aid }: Props) {
+export default function ArticleIssuesPanel({ wid, aid, onArticleUpdated }: Props) {
   const [issues, setIssues] = useState<ArticleIssue[]>([]);
   const [worldNotes, setWorldNotes] = useState<WorldIssue[]>([]);
   const [loading, setLoading] = useState(true);
@@ -177,7 +203,7 @@ export default function ArticleIssuesPanel({ wid, aid }: Props) {
       {expanded && (
         <div className="space-y-2">
           {openIssues.map(issue => (
-            <ArticleIssueRow key={issue.id} issue={issue} onUpdate={handleIssueUpdate} />
+            <ArticleIssueRow key={issue.id} issue={issue} onUpdate={handleIssueUpdate} onArticleUpdated={onArticleUpdated} />
           ))}
 
           {worldNotes.length > 0 && (
@@ -189,8 +215,8 @@ export default function ArticleIssuesPanel({ wid, aid }: Props) {
                     {note.type}
                   </span>
                   <span className="leading-snug">{note.description}</span>
-                  <Link to={`/worlds/${wid}/inbox`} className="shrink-0 text-[10px] text-gray-400 hover:text-gray-600 underline">
-                    Inbox
+                  <Link to={`/worlds/${wid}/consolidate?issue=${note.id}`} className="shrink-0 text-[10px] text-gray-400 hover:text-gray-600 underline">
+                    Consolidate
                   </Link>
                 </div>
               ))}
