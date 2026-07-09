@@ -11,6 +11,8 @@ export default defineConfig({
       'src/agents/curator.test.ts',
       'src/agents/director.test.ts',
       'src/agents/graphs/masContract.test.ts',
+      'src/agents/graphs/nodes.test.ts',
+      'src/agents/toolAccess.test.ts',
       'src/db/postgresMigrations.test.ts',
       'src/prompts/promptSecurity.test.ts',
       'src/providers/anthropic.test.ts',

@@ -29,6 +29,7 @@ The app runs in local mode (`APP_MODE=local`, no login, local Postgres) by defau
 - Keep changes scoped to what the PR describes. Avoid drive-by refactors mixed into a bug fix or feature PR.
 - Match the existing code style: no comments unless they explain a non-obvious *why*, no new abstractions for a single call site, prefer the patterns already used in the file you're editing over introducing new ones.
 - If you're touching the World layer (`articles`, `article_versions`, `world_bible_entries`) or the database schema, see `dev-docs/engineering/practices.md`'s safe-expansion principles first — this layer is intentionally conservative.
+- If your change affects user-facing behavior or setup steps, update the relevant doc (`README.md`, `docs/*.md`, `DEPLOY.md`) in the same PR — don't leave it for a follow-up.
 
 ## Reporting bugs / requesting features
 
