@@ -359,8 +359,12 @@ async function branchingNode(state: ForgeState): Promise<Partial<ForgeState>> {
 
 async function finishItemNode(state: ForgeState): Promise<Partial<ForgeState>> {
   const completed = state.completed + 1;
+  // Fatal errors never reach this node (they route straight to END_KEY), so any
+  // lastStepError here is non-fatal — the item was still counted "completed"
+  // for progress purposes, but its step failed and finalizeRun needs to know.
+  const failedItemCount = state.failedItemCount + (state.lastStepError ? 1 : 0);
   await updateRunProgress(state.worldId, state.ownerId, state.runId, completed, state.total);
-  return { completed, currentItem: undefined, currentItemStepsDone: [] };
+  return { completed, failedItemCount, currentItem: undefined, currentItemStepsDone: [] };
 }
 
 // ---------------------------------------------------------------------------
@@ -440,7 +444,18 @@ function computeRecursionLimit(forgeMaxDepth: number, forgeMaxChildren: number):
 async function finalizeRun(runId: string, worldId: string, ownerId: string, result: ForgeState): Promise<void> {
   switch (result.signal) {
     case 'completed':
-      await markRunStatus(worldId, ownerId, runId, 'completed');
+      if (result.failedItemCount > 0) {
+        // The queue drained without a fatal error, but at least one item's step
+        // failed (e.g. a timeout) — surface this as 'failed' rather than a
+        // misleading 'completed', matching the failed-step banner the client
+        // already derives from run_events.
+        await markRunStatus(
+          worldId, ownerId, runId, 'failed',
+          `${result.failedItemCount} of ${result.total} item${result.total === 1 ? '' : 's'} failed to complete a step. See step history for details.`,
+        );
+      } else {
+        await markRunStatus(worldId, ownerId, runId, 'completed');
+      }
       await releaseLocks(worldId, ownerId, runId);
       break;
     case 'paused':

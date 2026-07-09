@@ -76,6 +76,16 @@ export const ForgeAnnotation = Annotation.Root({
   // --- progress ---
   completed: Annotation<number>({ reducer: replace, default: () => 0 }),
   total: Annotation<number>({ reducer: replace, default: () => 0 }),
+  /**
+   * Items that finished with a non-fatal lastStepError (fatal ones end the
+   * whole run via signal:'error' and never reach finishItemNode). Lets
+   * finalizeRun tell a run that drained its queue but had failed steps apart
+   * from one that genuinely succeeded end-to-end — without this, the run
+   * status was unconditionally 'completed' even when every item's only step
+   * timed out, contradicting the failed-step banner the client renders from
+   * run_events.
+   */
+  failedItemCount: Annotation<number>({ reducer: replace, default: () => 0 }),
 
   // --- control flow ---
   signal: Annotation<'continue' | 'paused' | 'stopped' | 'completed' | 'error' | undefined>({
