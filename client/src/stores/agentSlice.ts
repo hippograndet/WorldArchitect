@@ -370,14 +370,22 @@ export const agentSlice: StateCreator<StoreState, [['zustand/immer', never]], []
       try {
         switch (agentPipelineType) {
           case 'reorganize': {
-            // Reorganize has no proposal step — the existing article body is the constraint.
-            // Go directly to expanding with a dummy selectedProposalIndex.
-            set((s) => {
-              s.agentProposals = [];
-              s.agentSelectedProposalIndex = 0;
-              s.agentPhase = 'expanding';
+            // Reorganize has its own dedicated endpoint/pipeline (Scribe [reorganize] ->
+            // Sentinel -> Lorekeeper) — no proposal step, so call it directly instead of
+            // faking a proposal through the generic /expand endpoint.
+            const result = await api.agents.reorganize(worldId, {
+              articleId:    agentTargetArticleId,
+              userSpec:     agentParams.userSpec || undefined,
+              contextDepth: agentParams.contextDepth,
             });
-            get().runAgentExpand(worldId).catch(console.error);
+            set((s) => {
+              s.agentDraftResult = {
+                description:      result.description,
+                introduction:     result.introduction,
+                retentionIssues:  result.retentionIssues,
+              };
+              s.agentPhase = 'reviewing';
+            });
             break;
           }
           case 'expand_description':

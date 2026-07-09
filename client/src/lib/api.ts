@@ -194,8 +194,6 @@ export const api = {
       post<{
         description: string; introduction: string;
         retentionIssues: { description: string; severity: 'warning' | 'critical' }[];
-        coherenceWarnings: CoherenceWarning[];
-        suggestedLinks: { targetArticleTitle: string; targetArticleId: string | null }[];
       }>(`/worlds/${wid}/agents/reorganize`, input),
     cohere: (wid: string, input: { articleId: string; contextDepth?: ContextDepth }) =>
       post<{

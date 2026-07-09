@@ -222,8 +222,33 @@ router.post('/reorganize', requireLLM, checkCap, asyncHandler(async (req, res) =
   if (!parse.success) throw new AppError(400, 'VALIDATION_ERROR', 'Invalid request', parse.error.flatten().fieldErrors);
 
   const { worldId, ownerId } = requireTenantContext(req);
-  await assertArticleUnlocked(worldId, ownerId, parse.data.articleId);
-  const result = await coordinator.reorganize(worldId, parse.data.articleId, parse.data.contextDepth);
+  const { articleId } = parse.data;
+  await assertArticleUnlocked(worldId, ownerId, articleId);
+  const result = await coordinator.reorganize(worldId, articleId, parse.data.contextDepth);
+
+  // Persist draft so POST /accept can commit it — mirrors /expand's persistence
+  // (same table/shape), just without a selectedProposal (reorganize has none).
+  const exec = getDbClient();
+  const draftContent = { description: result.description, retentionIssues: result.retentionIssues };
+  const now = Date.now();
+  const existing = await exec.get(
+    'SELECT id FROM pending_drafts WHERE article_id = ? AND owner_id = ? AND pipeline_type = ?',
+    [articleId, ownerId, 'reorganize'],
+  );
+  if (existing) {
+    await exec.run(
+      `UPDATE pending_drafts SET draft_content = ?, updated_at = ? WHERE article_id = ? AND owner_id = ? AND pipeline_type = ?`,
+      [JSON.stringify(draftContent), now, articleId, ownerId, 'reorganize'],
+    );
+  } else {
+    await exec.run(
+      `INSERT INTO pending_drafts
+         (id, owner_id, article_id, draft_content, pipeline_type, expansion_params, phase, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 'reorganize', '{}', 'done', ?, ?)`,
+      [nanoid(), ownerId, articleId, JSON.stringify(draftContent), now, now],
+    );
+  }
+
   res.json(result);
 }));
 
