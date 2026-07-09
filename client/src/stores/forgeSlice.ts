@@ -42,6 +42,20 @@ export interface ForgeSlice {
 // changed from a client-side while(true) loop to create+poll.
 // ---------------------------------------------------------------------------
 
+export const defaultForgeRuntime: Pick<
+  ForgeSlice,
+  'forgeRunning' | 'forgePaused' | 'forgeRunId' | 'forgeLog' | 'forgeCurrentTitle' | 'forgeCurrentStep' | 'forgeCompleted' | 'forgeTotal'
+> = {
+  forgeRunning: false,
+  forgePaused: false,
+  forgeRunId: null,
+  forgeLog: [],
+  forgeCurrentTitle: null,
+  forgeCurrentStep: null,
+  forgeCompleted: 0,
+  forgeTotal: 0,
+};
+
 const POLL_INTERVAL_MS = 1500;
 let pollTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -118,14 +132,7 @@ export const forgeSlice: StateCreator<StoreState, [['zustand/immer', never]], []
   };
 
   return {
-    forgeRunning: false,
-    forgePaused: false,
-    forgeRunId: null,
-    forgeLog: [],
-    forgeCurrentTitle: null,
-    forgeCurrentStep: null,
-    forgeCompleted: 0,
-    forgeTotal: 0,
+    ...defaultForgeRuntime,
 
     startForge: async (worldId) => {
       const { agentTargetArticleId, agentPipelineType, agentParams } = get();

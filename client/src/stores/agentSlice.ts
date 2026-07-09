@@ -3,6 +3,7 @@ import type { StoreState } from './index.ts';
 import { api } from '../lib/api.ts';
 import type { Proposal, ChildProposal, ContextDepth, SummarizerMode, IdeaItem, EdgeProposal, GlobalWarning, StyleWardenResult } from '../types/agent.ts';
 import type { DraftContent, PendingDraft } from '../types/article.ts';
+import { defaultForgeRuntime } from './forgeSlice.ts';
 export type { ForgeLogEntry } from './forgeSlice.ts';
 
 // ---------------------------------------------------------------------------
@@ -94,13 +95,47 @@ const defaultParams: AgentParams = {
   forgeBranchingExistingMode: 'append_deduped',
 };
 
+export const defaultAgentRuntime: Pick<
+  AgentSlice,
+  | 'agentProposals'
+  | 'agentChildProposals'
+  | 'agentSelectedProposalIndex'
+  | 'agentDraftResult'
+  | 'agentEstimatedTokens'
+  | 'agentError'
+  | 'agentNextSteps'
+  | 'agentIdeas'
+  | 'agentSelectedIdeas'
+  | 'agentStyleCheck'
+  | 'agentAuditEdgeProposals'
+  | 'agentAuditGlobalWarnings'
+> = {
+  agentProposals: [],
+  agentChildProposals: [],
+  agentSelectedProposalIndex: null,
+  agentDraftResult: null,
+  agentEstimatedTokens: null,
+  agentError: null,
+  agentNextSteps: [],
+  agentIdeas: [],
+  agentSelectedIdeas: [],
+  agentStyleCheck: null,
+  agentAuditEdgeProposals: [],
+  agentAuditGlobalWarnings: [],
+};
+
 // Pipelines that save a pending_draft on the server and commit via POST /accept
-const DRAFT_PIPELINES: PipelineType[] = [
-  'expand_description',
-  'create_child',
-  'reorganize',
-  'forge_expand',
-];
+const DRAFT_PIPELINE_MAP: Record<PipelineType, boolean> = {
+  expand_description: true,
+  create_child: true,
+  reorganize: true,
+  forge_expand: true,
+  propose_children: false,
+  summarize: false,
+  improve_intro: false,
+  cohere: false,
+  audit: false,
+};
 
 // ---------------------------------------------------------------------------
 // Continuation step suggestion logic
@@ -186,71 +221,27 @@ export const agentSlice: StateCreator<StoreState, [['zustand/immer', never]], []
     agentTargetArticleTitle: null,
     agentPipelineType: 'summarize',
     agentParams: { ...defaultParams },
-    agentProposals: [],
-    agentChildProposals: [],
-    agentSelectedProposalIndex: null,
-    agentDraftResult: null,
-    agentEstimatedTokens: null,
-    agentError: null,
-    agentNextSteps: [],
-    agentIdeas: [],
-    agentSelectedIdeas: [],
-    agentStyleCheck: null,
-    agentAuditEdgeProposals: [],
-    agentAuditGlobalWarnings: [],
+    ...defaultAgentRuntime,
 
     openAgentPanel: (articleId, articleTitle, mode, pipeline) => {
       const defaultPipeline = mode === 'spark' ? 'summarize' : 'reorganize';
       set((s) => {
+        Object.assign(s, defaultAgentRuntime, defaultForgeRuntime);
         s.agentPhase = 'configuring';
         s.agentPanelOpen = true;
         s.agentPanelMode = mode;
         s.agentTargetArticleId = articleId;
         s.agentTargetArticleTitle = articleTitle;
         s.agentPipelineType = pipeline ?? defaultPipeline;
-        s.agentProposals = [];
-        s.agentChildProposals = [];
-        s.agentSelectedProposalIndex = null;
-        s.agentDraftResult = null;
-        s.agentEstimatedTokens = null;
-        s.agentError = null;
-        s.agentNextSteps = [];
-        s.agentIdeas = [];
-        s.agentSelectedIdeas = [];
-        s.agentStyleCheck = null;
-        s.agentAuditEdgeProposals = [];
-        s.agentAuditGlobalWarnings = [];
         s.agentParams = { ...defaultParams };
-        s.forgeRunning = false;
-        s.forgePaused = false;
-        s.forgeRunId = null;
-        s.forgeLog = [];
-        s.forgeCurrentTitle = null;
-        s.forgeCurrentStep = null;
-        s.forgeCompleted = 0;
-        s.forgeTotal = 0;
       });
     },
 
     closeAgentPanel: () => {
       set((s) => {
+        Object.assign(s, defaultAgentRuntime, defaultForgeRuntime);
         s.agentPhase = 'idle';
         s.agentPanelOpen = false;
-        s.agentProposals = [];
-        s.agentChildProposals = [];
-        s.agentSelectedProposalIndex = null;
-        s.agentDraftResult = null;
-        s.agentError = null;
-        s.agentNextSteps = [];
-        s.agentIdeas = [];
-        s.agentSelectedIdeas = [];
-        s.agentStyleCheck = null;
-        s.agentAuditEdgeProposals = [];
-        s.agentAuditGlobalWarnings = [];
-        s.forgeRunning = false;
-        s.forgePaused = false;
-        s.forgeRunId = null;
-        s.forgeLog = [];
       });
     },
 
@@ -305,13 +296,8 @@ export const agentSlice: StateCreator<StoreState, [['zustand/immer', never]], []
 
     agentRetry: () => {
       set((s) => {
+        Object.assign(s, defaultAgentRuntime);
         s.agentPhase = 'configuring';
-        s.agentError = null;
-        s.agentProposals = [];
-        s.agentChildProposals = [];
-        s.agentSelectedProposalIndex = null;
-        s.agentDraftResult = null;
-        s.agentNextSteps = [];
       });
     },
 
@@ -328,14 +314,9 @@ export const agentSlice: StateCreator<StoreState, [['zustand/immer', never]], []
 
     continueWithStep: (step) => {
       set((s) => {
+        Object.assign(s, defaultAgentRuntime);
         s.agentPipelineType = step.pipeline;
         s.agentPhase = 'configuring';
-        s.agentProposals = [];
-        s.agentChildProposals = [];
-        s.agentSelectedProposalIndex = null;
-        s.agentDraftResult = null;
-        s.agentNextSteps = [];
-        s.agentError = null;
         s.agentParams = { ...defaultParams };
       });
     },
@@ -564,7 +545,7 @@ export const agentSlice: StateCreator<StoreState, [['zustand/immer', never]], []
           await get().selectArticle(worldId, agentTargetArticleId);
         } else if (agentPipelineType === 'cohere') {
           // Warnings are display-only — nothing to commit
-        } else if (DRAFT_PIPELINES.includes(agentPipelineType)) {
+        } else if (DRAFT_PIPELINE_MAP[agentPipelineType]) {
           await get().acceptDraft(worldId, agentTargetArticleId);
           await get().loadTree(worldId);
         }
@@ -577,32 +558,15 @@ export const agentSlice: StateCreator<StoreState, [['zustand/immer', never]], []
         if (agentPanelMode === 'spark' && agentParams.autoChain && nextSteps.length > 0) {
           const next = nextSteps[0];
           set((s) => {
+            Object.assign(s, defaultAgentRuntime);
             s.agentPipelineType = next.pipeline;
-            s.agentProposals = [];
-            s.agentChildProposals = [];
-            s.agentSelectedProposalIndex = null;
-            s.agentDraftResult = null;
-            s.agentEstimatedTokens = null;
-            s.agentNextSteps = [];
-            s.agentIdeas = [];
-            s.agentSelectedIdeas = [];
-            s.agentStyleCheck = null;
-            s.agentError = null;
           });
           get().runAgentGenerate(worldId).catch(console.error);
           return;
         }
 
         set((s) => {
-          s.agentDraftResult = null;
-          s.agentProposals = [];
-          s.agentChildProposals = [];
-          s.agentSelectedProposalIndex = null;
-          s.agentEstimatedTokens = null;
-          s.agentIdeas = [];
-          s.agentSelectedIdeas = [];
-          s.agentStyleCheck = null;
-          s.agentError = null;
+          Object.assign(s, defaultAgentRuntime);
 
           if (agentPanelMode === 'spark' && nextSteps.length > 0) {
             // Return to SparkConfigView with the next task pre-selected
@@ -632,21 +596,16 @@ export const agentSlice: StateCreator<StoreState, [['zustand/immer', never]], []
     agentDiscard: async (worldId) => {
       const { agentTargetArticleId, agentPipelineType } = get();
 
-      if (agentTargetArticleId && DRAFT_PIPELINES.includes(agentPipelineType)) {
+      if (agentTargetArticleId && DRAFT_PIPELINE_MAP[agentPipelineType]) {
         try {
           await get().discardDraft(worldId, agentTargetArticleId);
         } catch { /* ignore */ }
       }
 
       set((s) => {
+        Object.assign(s, defaultAgentRuntime);
         s.agentPhase = 'idle';
         s.agentPanelOpen = false;
-        s.agentProposals = [];
-        s.agentChildProposals = [];
-        s.agentSelectedProposalIndex = null;
-        s.agentDraftResult = null;
-        s.agentError = null;
-        s.agentNextSteps = [];
       });
     },
 
