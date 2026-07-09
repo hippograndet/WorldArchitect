@@ -6,6 +6,7 @@ import { fetchWorldContextNode, buildContextPackageNode, cartographerNode } from
 import type { ContextDepth } from '../../../services/archivist.js';
 import type { ChildProposalItem } from '../../cartographer.js';
 import type { DedupCheckOutput } from '../../dedupCheck.js';
+import type { WorldContext } from '../../director.js';
 
 const graph = new StateGraph(OrchestrationAnnotation)
   .addNode('fetchWorldContext', fetchWorldContextNode)
@@ -24,6 +25,7 @@ export async function runProposeChildrenGraph(params: {
   contextDepth?: ContextDepth;
   runDedupCheck?: boolean;
   pipelineRunId?: string;
+  worldContext?: WorldContext;
 }): Promise<{ proposals: ChildProposalItem[]; dedupCheck?: DedupCheckOutput; tokensIn: number; tokensOut: number }> {
   const result = await graph.invoke({
     worldId: params.worldId,
@@ -40,6 +42,7 @@ export async function runProposeChildrenGraph(params: {
     contextDepth: params.contextDepth ?? 'mid',
     contextMode: 'propose_children',
     runDedupCheck: params.runDedupCheck ?? false,
+    ...(params.worldContext ? { worldContext: params.worldContext } : {}),
   });
   return {
     proposals: result.childProposals,

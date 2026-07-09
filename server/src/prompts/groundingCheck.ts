@@ -1,6 +1,6 @@
 import type { WorldContext } from '../agents/director.js';
 import type { ContextPackage } from '../services/archivist.js';
-import { buildWorldHeader } from './shared.js';
+import { buildWorldHeader, buildParentAndFixedPointBlocks } from './shared.js';
 
 export function buildGroundingCheckSystemPrompt(worldContext: WorldContext): string {
   return `You are the Grounding Check for WorldArchitect, a fiction world-building tool.
@@ -29,14 +29,8 @@ Call submit_grounding_check with your assessment.`;
 export function buildGroundingCheckUserMessage(pkg: ContextPackage, draft: string): string {
   const parts: string[] = [
     `## Article: ${pkg.targetTitle}`,
+    ...buildParentAndFixedPointBlocks(pkg),
   ];
-
-  if (pkg.parents.length > 0) {
-    parts.push('## Parent Articles\n' + pkg.parents.map(p => `### ${p.title}\n${p.summary}`).join('\n\n'));
-  }
-  if (pkg.fixedPoints.length > 0) {
-    parts.push('## Fixed Points\n' + pkg.fixedPoints.map(f => `### ${f.title}\n${f.summary}`).join('\n\n'));
-  }
 
   parts.push(`## Draft Introduction to Review\n${draft}`);
   parts.push('Check the draft for factual contradictions against the parent articles and fixed points. Call submit_grounding_check.');

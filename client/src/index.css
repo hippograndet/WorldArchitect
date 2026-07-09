@@ -394,16 +394,6 @@ body {
 [data-theme="data_link"] .prose hr        { border-color: #1e2d4a; }
 [data-theme="data_link"] .prose code      { background-color: #0d1422; color: #00ff88; border: 1px solid #1e2d4a; }
 
-/* Blinking cursor on AgentPanel header mode label */
-@keyframes data-link-blink {
-  0%, 100% { opacity: 1; }
-  50%       { opacity: 0; }
-}
-[data-theme="data_link"] .agent-panel-mode-label::after {
-  content: '_';
-  animation: data-link-blink 1s step-end infinite;
-  margin-left: 2px;
-}
 
 /* Purple accent → cyan */
 [data-theme="data_link"] .text-purple-700,

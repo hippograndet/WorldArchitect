@@ -8,56 +8,64 @@ It is not required to use the app. You can create, edit, version, snapshot, and 
 
 The MAS is designed around user control. Agents can propose, draft, summarize, check, or reorganize content, but important changes are reviewed by the user before they become part of the world.
 
-Forge is the exception: it is an optional automation mode for recursively expanding article trees. It should be used when you want faster generation and are comfortable reviewing the results afterward.
+Expand is the main growth surface for the MAS. It can work on one document or continue through a branch of the world, depending on the run settings the user chooses.
 
-Internally, Spark and Forge are not separate agent systems. They are different policies over the same MAS:
+An Expand run is configured by:
 
-- **Spark** is article-scoped, manual, and review-before-commit.
-- **Forge** is subtree-scoped, automatic, and review-after-generation.
-- **World Tools** are world-scoped and proposal/review oriented.
+- **Location** - the selected document, a subtree rooted at that document, or eventually broader world scopes.
+- **Start step** - Inception, Expansion, or Branching.
+- **Continuation** - one step, finish the selected document, or recurse into created children.
+- **Validation level** - Manual, Assisted, or Autopilot.
+- **Existing-content behavior** - create only if empty, improve current content, replace, or skip existing content.
+- **Quality checks** - grounding, continuity, deduplication, and style checks where applicable.
 
-The shared contract is location, intent, autonomy mode, review policy, and commit policy. This keeps future agent workflows modular while making it clear when the system should ask the user, create a pending draft, or commit automatically.
+Older parts of the code and screenshots may still use the names Spark and Forge. In the current product model, those are not separate systems. They are policies over Expand:
+
+- **Manual Expand** pauses at each meaningful review gate so the user can edit, accept, or reject generated introductions, proposals, ideas, drafts, and child-article plans.
+- **Assisted Expand** can auto-select low-risk directions or ideas while still pausing before important article-changing outputs are committed.
+- **Autopilot Expand** can auto-select, continue, and commit during the run.
+
+The shared MAS contract is location, intent, autonomy mode, review policy, and commit policy. This keeps workflows modular while making it clear when the system should ask the user, create a pending draft, or commit automatically.
 
 ## Main Entry Points
 
-### Spark
+### Expand
 
-Spark is the creation flow on an article. It can:
+Expand grows the world. It can:
 
-- Improve or derive an introduction
+- Improve or derive an introduction through Inception
 - Generate creative proposals
-- Expand an article description
-- Suggest child articles
+- Expand a document description
+- Suggest or create child documents through Branching
 - Continue from one step to the next
+- Recurse into newly created children when configured to do so
 
-Spark is best when you want help growing an article while still choosing the direction.
+Expand is best when you want to grow a world deliberately while choosing how much control the MAS should have.
 
-![Spark inception flow](assets/Screenshot_Spark_Inception.png)
+![Expand inception flow](assets/Screenshot_Spark_Inception.png)
 
-Spark usually starts by asking what kind of work you want to do. For a new or empty article, inception can help establish a usable foundation. For an existing article, Spark can propose expansion directions so you can pick the creative angle before any draft is written.
+For a new or empty document, Inception can help establish a usable introduction. For an existing document, Expansion can propose creative directions before drafting fuller description prose.
 
-![Spark expansion direction selection](assets/Screenshot_Spark_Expansion_Direction_Selection.png)
+![Expand direction selection](assets/Screenshot_Spark_Expansion_Direction_Selection.png)
 
-Spark can also propose child subjects when an article should branch into a richer hierarchy. This is useful for turning a broad concept into connected people, places, factions, events, or ideas while preserving user review.
+Branching can propose child subjects when a document should become a richer hierarchy. This is useful for turning a broad concept into connected people, places, factions, events, or ideas. In recursive runs, created children can be queued and expanded in breadth-first or depth-first order.
 
-![Spark branching suggestions](assets/Screenshot_Spark_Branching.png)
+![Expand branching suggestions](assets/Screenshot_Spark_Branching.png)
 
-### Solidify
+Expand runs execute on the server as resumable runs with progress logs, pause, resume, stop controls, and persisted review items. When a run reaches a user gate it enters `needs_input`; the selected run view shows the pending decision inside Expand, then resumes the server graph from its checkpoint after the user accepts or rejects the item.
 
-Solidify is for cleanup and review. It can:
+Review gates are modular rather than agent-specific. The current Expand graph can ask for introduction review, proposal selection, idea selection, draft review, or child selection. Selection gates allow the user to edit the proposed text before accepting, so a manual choice can still refine what the following agents receive.
+
+### Consolidate
+
+Consolidate is for cleanup and review. It can:
 
 - Reorganize rough article prose
 - Check for coherence issues
 - Preserve facts during cleanup
 - Surface style or consistency warnings
 
-Solidify is best after an article already has useful material but needs structure or polish.
-
-### Forge
-
-Forge automates expansion across an article subtree. It can run inception, expansion, and branching over multiple articles using breadth-first or depth-first traversal.
-
-Forge runs on the server as a resumable run with progress logs, pause, resume, and stop controls. It is powerful, but because it can auto-accept generated drafts, it is best used on stubs or experimental branches of a world.
+Consolidate is best after an article or world already has useful material but needs structure, consistency, or polish.
 
 ### World Tools
 
@@ -93,9 +101,9 @@ WorldArchitect is intentionally explicit about AI use:
 - Agent routes are disabled when no provider is configured.
 - Calls are logged, with a Usage page showing a raw call-by-call log, a per-agent
   rollup (calls, average tokens, average tool-use turns), and a per-pipeline-run
-  view grouping the agent calls behind a single Spark or Forge action together.
+  view grouping the agent calls behind a single Expand or Consolidate action together.
 - Daily caps can be configured.
-- Drafts can be reviewed before commit in normal workflows.
+- Expand review gates can stop a run before important generated content is committed in Manual and Assisted validation modes.
 - Version history makes accepted changes reversible.
 - Snapshots can preserve an entire world before large operations.
 - Repeated calls to the same agent within a world are cheaper than they look — the

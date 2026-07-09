@@ -3,9 +3,10 @@ import { nanoid } from 'nanoid';
 import { OrchestrationAnnotation } from '../state.js';
 import { fetchWorldContextNode, buildContextPackageNode, museProposeNode, curatorAutoSelectNode } from '../nodes.js';
 import { articleContract, contractState, proposalIntent } from '../masContract.js';
-import type { ContextDepth } from '../../../services/archivist.js';
+import type { ContextDepth, ContextPackage } from '../../../services/archivist.js';
 import type { ProposalMode } from '../../../prompts/proposal.js';
 import type { ProposalItem } from '../../muse.js';
+import type { WorldContext } from '../../director.js';
 
 const graph = new StateGraph(OrchestrationAnnotation)
   .addNode('fetchWorldContext', fetchWorldContextNode)
@@ -35,6 +36,8 @@ export async function runProposeGraph(params: {
   autoSelect?: boolean;
   contextDepth?: ContextDepth;
   pipelineRunId?: string;
+  worldContext?: WorldContext;
+  contextPackage?: ContextPackage;
 }): Promise<ProposeGraphOutput> {
   const result = await graph.invoke({
     worldId: params.worldId,
@@ -51,6 +54,8 @@ export async function runProposeGraph(params: {
     userSpec: params.userSpec,
     autoSelect: params.autoSelect ?? false,
     contextDepth: params.contextDepth ?? 'mid',
+    ...(params.worldContext ? { worldContext: params.worldContext } : {}),
+    ...(params.contextPackage ? { contextPackage: params.contextPackage } : {}),
   });
 
   return {

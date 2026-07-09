@@ -5,7 +5,8 @@ import { articleContract, contractState } from '../masContract.js';
 import { fetchWorldContextNode, buildContextPackageNode, lorekeeperSummarizeNode } from '../nodes.js';
 import type { LorekeepMode } from '../../lorekeeper.js';
 import type { GroundingCheckOutput } from '../../groundingCheck.js';
-import type { ContextDepth } from '../../../services/archivist.js';
+import type { ContextDepth, ContextPackage } from '../../../services/archivist.js';
+import type { WorldContext } from '../../director.js';
 
 const graph = new StateGraph(OrchestrationAnnotation)
   .addNode('fetchWorldContext', fetchWorldContextNode)
@@ -17,6 +18,15 @@ const graph = new StateGraph(OrchestrationAnnotation)
   .addEdge('lorekeeperSummarize', '__end__')
   .compile();
 
+export interface SummarizeGraphOutput {
+  introduction: string;
+  groundingCheck?: GroundingCheckOutput;
+  contextPackage: ContextPackage;
+  worldContext: WorldContext;
+  tokensIn: number;
+  tokensOut: number;
+}
+
 export async function runSummarizeGraph(params: {
   worldId: string;
   articleId: string;
@@ -24,7 +34,8 @@ export async function runSummarizeGraph(params: {
   contextDepth?: ContextDepth;
   runGroundingCheck?: boolean;
   pipelineRunId?: string;
-}): Promise<{ introduction: string; groundingCheck?: GroundingCheckOutput; tokensIn: number; tokensOut: number }> {
+  worldContext?: WorldContext;
+}): Promise<SummarizeGraphOutput> {
   const result = await graph.invoke({
     worldId: params.worldId,
     articleId: params.articleId,
@@ -39,10 +50,13 @@ export async function runSummarizeGraph(params: {
     lorekeeperMode: params.mode ?? 'full',
     contextDepth: params.contextDepth ?? 'mid',
     runGroundingCheck: params.runGroundingCheck ?? false,
+    ...(params.worldContext ? { worldContext: params.worldContext } : {}),
   });
   return {
     introduction: result.introduction!,
     ...(result.groundingCheck ? { groundingCheck: result.groundingCheck } : {}),
+    contextPackage: result.contextPackage!,
+    worldContext: result.worldContext!,
     tokensIn: result.tokensIn,
     tokensOut: result.tokensOut,
   };

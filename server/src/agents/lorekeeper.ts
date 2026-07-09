@@ -7,7 +7,8 @@ import {
   type SummarizerPromptMode,
 } from '../prompts/summarizer.js';
 import type { WorldContext } from './director.js';
-import type { ChatMessage } from '../providers/types.js';
+import type { ContextPackage } from '../services/archivist.js';
+import type { ChatMessage, CompletionOptions } from '../providers/types.js';
 import type { Tool } from '../tools/types.js';
 
 // ---------------------------------------------------------------------------
@@ -25,6 +26,7 @@ export interface LorekeepInput {
   articleTitle: string;
   description: string;
   worldContext: WorldContext;
+  contextPackage: ContextPackage;
   mode?: LorekeepMode;
   existingIntro?: string;
   revisionNotes?: string;
@@ -39,6 +41,14 @@ export class LorekeepAgent extends BaseAgent<LorekeepInput, LorekeepOutput> {
   readonly mode = 'write';
   readonly outputToolName = 'submit_introduction';
 
+  protected getMaxTokens(): number { return 700; }
+
+  protected getMaxIterations(): number { return 3; }
+
+  protected getCompletionOptions(): CompletionOptions {
+    return { timeoutMs: 120_000 };
+  }
+
   protected buildMessages(_worldId: string, input: LorekeepInput): ChatMessage[] {
     const promptMode: SummarizerPromptMode = input.mode === 'improve' ? 'improve' : 'full';
     return [
@@ -51,6 +61,7 @@ export class LorekeepAgent extends BaseAgent<LorekeepInput, LorekeepOutput> {
         content: buildSummarizerUserMessage(
           input.articleTitle,
           input.description,
+          input.contextPackage,
           promptMode,
           input.existingIntro,
           input.revisionNotes,

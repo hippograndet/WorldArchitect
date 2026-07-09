@@ -115,9 +115,9 @@ describe('Postgres RLS with a restricted app role', () => {
          WHERE n.nspname = 'public'
            AND c.relname = ANY($1)
          ORDER BY c.relname`,
-        [['checkpoint_blobs', 'checkpoint_writes', 'checkpoints']],
+        [['checkpoint_blobs', 'checkpoint_writes', 'checkpoints', 'llm_traces', 'run_review_items']],
       );
-      expect(checkpointTables.rows).toHaveLength(3);
+      expect(checkpointTables.rows).toHaveLength(5);
       expect(checkpointTables.rows.every((row) => row.relrowsecurity && row.relforcerowsecurity)).toBe(true);
 
       const visibleCheckpoints = await app.query<{ thread_id: string }>(`SELECT thread_id FROM checkpoints ORDER BY thread_id`);
@@ -126,6 +126,25 @@ describe('Postgres RLS with a restricted app role', () => {
       await expect(app.query(
         `INSERT INTO checkpoints (thread_id, checkpoint_ns, checkpoint_id, checkpoint, metadata)
          VALUES ('rls-run-a', '', 'forged-checkpoint', '{}', '{}')`,
+      )).rejects.toThrow(/row-level security|violates/i);
+
+      const tracesToB = await app.query<{ id: string }>(`SELECT id FROM llm_traces ORDER BY id`);
+      expect(tracesToB.rows.map((row) => row.id)).toEqual(['trace-b']);
+
+      await expect(app.query(
+        `INSERT INTO llm_traces
+           (id, owner_id, world_id, run_id, article_id, agent_type, provider, iteration, status,
+            request_json, created_at)
+         VALUES ('forged-trace-a', 'user-a', 'rls-world-a', 'rls-run-a', NULL, 'lorekeeper', 'groq', 1, 'error', '{}', 0)`,
+      )).rejects.toThrow(/row-level security|violates/i);
+
+      const reviewsToB = await app.query<{ id: string }>(`SELECT id FROM run_review_items ORDER BY id`);
+      expect(reviewsToB.rows.map((row) => row.id)).toEqual(['review-b']);
+
+      await expect(app.query(
+        `INSERT INTO run_review_items
+           (id, owner_id, world_id, run_id, article_id, step, kind, status, payload_json, created_at, updated_at)
+         VALUES ('forged-review-a', 'user-a', 'rls-world-a', 'rls-run-a', NULL, 'Inception', 'intro_review', 'pending', '{}', 0, 0)`,
       )).rejects.toThrow(/row-level security|violates/i);
     } finally {
       await app.end().catch(() => undefined);
@@ -201,6 +220,20 @@ async function seedRunsAndCheckpoints(admin: pg.Client): Promise<void> {
     VALUES
       ('rls-run-a', '', 'checkpoint-a', 'task-a', 0, 'owner', 'json', '\\x7b7d'),
       ('rls-run-b', '', 'checkpoint-b', 'task-b', 0, 'owner', 'json', '\\x7b7d')
+  `);
+  await admin.query(`
+    INSERT INTO llm_traces
+      (id, owner_id, world_id, run_id, article_id, agent_type, provider, iteration, status, request_json, created_at)
+    VALUES
+      ('trace-a', 'user-a', 'rls-world-a', 'rls-run-a', NULL, 'lorekeeper', 'groq', 1, 'error', '{}', 0),
+      ('trace-b', 'user-b', 'rls-world-b', 'rls-run-b', NULL, 'lorekeeper', 'groq', 1, 'success', '{}', 0)
+  `);
+  await admin.query(`
+    INSERT INTO run_review_items
+      (id, owner_id, world_id, run_id, article_id, step, kind, status, payload_json, created_at, updated_at)
+    VALUES
+      ('review-a', 'user-a', 'rls-world-a', 'rls-run-a', NULL, 'Inception', 'intro_review', 'pending', '{}', 0, 0),
+      ('review-b', 'user-b', 'rls-world-b', 'rls-run-b', NULL, 'Inception', 'intro_review', 'pending', '{}', 0, 0)
   `);
 }
 

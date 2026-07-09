@@ -4,7 +4,6 @@ import { useStore } from '../../stores/index.ts';
 import TopBar from './TopBar.tsx';
 import Sidebar from './Sidebar.tsx';
 import ConfirmDialog from '../shared/ConfirmDialog.tsx';
-import AgentPanel from '../agent/AgentPanel.tsx';
 
 export default function AppShell() {
   const { wid } = useParams<{ wid: string }>();
@@ -41,7 +40,6 @@ export default function AppShell() {
         </main>
       </div>
       <ConfirmDialog />
-      <AgentPanel />
     </div>
   );
 }

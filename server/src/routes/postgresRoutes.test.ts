@@ -189,15 +189,27 @@ describe('core routes on Postgres', () => {
       ownerId: 'user-a',
       articleId: first.article.id,
       articleTitle: 'Signal Tower',
+      autonomyMode: 'auto_with_post_review',
+      reviewPolicy: 'auto',
+      commitPolicy: 'auto_commit',
     }));
 
     const runRow = await runWithUserContext('user-a', () =>
-      getDbClient().get<{ owner_id: string }>(
-        'SELECT owner_id FROM runs WHERE id = ?',
+      getDbClient().get<{ owner_id: string; graph_type: string; run_config: string }>(
+        'SELECT owner_id, graph_type, run_config FROM runs WHERE id = ?',
         [created.body.id],
       ),
     );
     expect(runRow?.owner_id).toBe('user-a');
+    expect(runRow?.graph_type).toBe('expand');
+    expect(JSON.parse(runRow?.run_config ?? '{}')).toEqual(expect.objectContaining({
+      articleIds: [first.article.id],
+      pipelineType: 'expand_description',
+      startStep: 'expansion',
+      autonomyMode: 'auto_with_post_review',
+      reviewPolicy: 'auto',
+      commitPolicy: 'auto_commit',
+    }));
     await expectOwnedRows('runs', 'user-a', [created.body.id]);
 
     const locked = await runWithUserContext('user-a', () =>
@@ -233,12 +245,90 @@ describe('core routes on Postgres', () => {
         [`event-${created.body.id}`, created.body.id, 'Test step', 'Tenant event', true, 'visible only to owner', Date.now()],
       ),
     );
+    await runWithUserContext('user-a', () =>
+      getDbClient().run(
+        `INSERT INTO llm_traces
+           (id, owner_id, world_id, run_id, article_id, agent_type, provider, iteration, status,
+            request_json, response_json, error_message, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          `trace-${created.body.id}`,
+          'user-a',
+          world.id,
+          created.body.id,
+          first.article.id,
+          'lorekeeper',
+          'groq',
+          1,
+          'error',
+          '{"messages":[]}',
+          null,
+          '401 Invalid API Key',
+          Date.now(),
+        ],
+      ),
+    );
+    await runWithUserContext('user-a', () =>
+      getDbClient().run(
+        `INSERT INTO run_review_items
+           (id, owner_id, world_id, run_id, article_id, step, kind, status, payload_json, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          `review-${created.body.id}`,
+          'user-a',
+          world.id,
+          created.body.id,
+          first.article.id,
+          'Inception',
+          'intro_review',
+          'pending',
+          '{"introduction":"Review me."}',
+          Date.now(),
+          Date.now(),
+        ],
+      ),
+    );
 
     const readRun = await request!
       .get(`/api/worlds/${world.id}/runs/${created.body.id}`)
       .set(asUser('user-a'))
       .expect(200);
     expect(readRun.body.events.map((event: { id: string }) => event.id)).toContain(`event-${created.body.id}`);
+    expect(readRun.body.config).toEqual(expect.objectContaining({
+      pipelineType: 'expand_description',
+      startStep: 'expansion',
+    }));
+    expect(readRun.body.agentCalls).toEqual([]);
+    expect(readRun.body.reviewItems.map((item: { id: string }) => item.id)).toContain(`review-${created.body.id}`);
+
+    const previousTraceFlag = process.env.WORLDARCHITECT_LLM_TRACE;
+    process.env.WORLDARCHITECT_LLM_TRACE = '1';
+    try {
+      const traces = await request!
+        .get(`/api/worlds/${world.id}/runs/${created.body.id}/llm-traces`)
+        .set(asUser('user-a'))
+        .expect(200);
+      expect(traces.body.map((trace: { id: string }) => trace.id)).toContain(`trace-${created.body.id}`);
+
+      await expectTenantHidden(request!, {
+        method: 'get',
+        path: `/api/worlds/${worldB.id}/runs/${created.body.id}/llm-traces`,
+        userId: 'user-b',
+      });
+      await expectTenantHidden(request!, {
+        method: 'post',
+        path: `/api/worlds/${worldB.id}/runs/${created.body.id}/review-items/review-${created.body.id}/decision`,
+        userId: 'user-b',
+        expectedStatuses: [404],
+        body: { action: 'accept', decision: { introduction: 'Nope' } },
+      });
+    } finally {
+      if (previousTraceFlag === undefined) {
+        delete process.env.WORLDARCHITECT_LLM_TRACE;
+      } else {
+        process.env.WORLDARCHITECT_LLM_TRACE = previousTraceFlag;
+      }
+    }
 
     await expectTenantListExcludes<Array<{ id: string }>>(request!, {
       path: `/api/worlds/${worldB.id}/runs`,
@@ -272,6 +362,38 @@ describe('core routes on Postgres', () => {
       ),
     );
     expect(released?.locked_by_run_id).toBeNull();
+
+    const cleared = await request!
+      .delete(`/api/worlds/${world.id}/runs`)
+      .set(asUser('user-a'))
+      .expect(200);
+    expect(cleared.body).toEqual({ deleted: 1, retained: 0 });
+
+    await request!
+      .get(`/api/worlds/${world.id}/runs/${created.body.id}`)
+      .set(asUser('user-a'))
+      .expect(404);
+
+    const assisted = await request!
+      .post(`/api/worlds/${world.id}/runs`)
+      .set(asUser('user-a'))
+      .send({
+        articleIds: [second.article.id],
+        pipelineType: 'expand_description',
+        validationLevel: 'assisted',
+      })
+      .expect(202);
+    expect(forgeGraph.startForgeRun).toHaveBeenLastCalledWith(expect.objectContaining({
+      runId: assisted.body.id,
+      autonomyMode: 'review_each_step',
+      reviewPolicy: 'user_must_accept',
+      commitPolicy: 'pending_draft',
+    }));
+
+    await request!
+      .post(`/api/worlds/${world.id}/runs/${assisted.body.id}/cancel`)
+      .set(asUser('user-a'))
+      .expect(200);
   });
 
   it('captures and restores snapshots on Postgres', async ({ skip }) => {

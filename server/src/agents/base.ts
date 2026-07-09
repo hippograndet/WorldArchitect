@@ -1,7 +1,9 @@
 import { getProvider } from '../providers/index.js';
 import { logCall } from '../services/callLogger.js';
+import { logLlmTrace } from '../services/llmTraceService.js';
 import { executeContextTool, CONTEXT_TOOLS } from '../tools/context.js';
-import type { ChatMessage } from '../providers/types.js';
+import { redactErrorMessage } from '../security/redaction.js';
+import type { ChatMessage, CompletionOptions, CompletionResult } from '../providers/types.js';
 import type { Tool, ToolCall } from '../tools/types.js';
 import type { ArticleDependencyReference, ProposedArticleMetadataChange } from '../types/articleSemantics.js';
 
@@ -10,9 +12,7 @@ import type { ArticleDependencyReference, ProposedArticleMetadataChange } from '
 // ---------------------------------------------------------------------------
 
 function tryRecoverToolUseFailed(err: unknown): Record<string, unknown> | null {
-  if (typeof err !== 'object' || err === null) return null;
-  if ((err as { code?: unknown }).code !== 'tool_use_failed') return null;
-  const gen = ((err as { error?: { failed_generation?: unknown } }).error)?.failed_generation;
+  const gen = getToolUseFailedGeneration(err);
   if (typeof gen !== 'string') return null;
 
   const braceIdx = gen.search(/[{[]/);
@@ -27,6 +27,26 @@ function tryRecoverToolUseFailed(err: unknown): Record<string, unknown> | null {
   } catch {
     return null;
   }
+}
+
+function getToolUseFailedGeneration(err: unknown): string | null {
+  if (typeof err !== 'object' || err === null) return null;
+  const direct = err as { code?: unknown; failed_generation?: unknown; error?: unknown };
+  const nested = typeof direct.error === 'object' && direct.error !== null
+    ? direct.error as { code?: unknown; failed_generation?: unknown }
+    : null;
+  const code = direct.code ?? nested?.code;
+  if (code !== 'tool_use_failed') return null;
+  const gen = direct.failed_generation ?? nested?.failed_generation;
+  return typeof gen === 'string' ? gen : null;
+}
+
+function providerErrorMessage(err: unknown): string {
+  const message = redactErrorMessage(err);
+  const failedGeneration = getToolUseFailedGeneration(err);
+  if (!failedGeneration) return message;
+  const compact = failedGeneration.replace(/\s+/g, ' ').slice(0, 500);
+  return `${message} failed_generation: ${compact}`;
 }
 
 const MAX_ITERATIONS = 10;
@@ -81,6 +101,9 @@ export abstract class BaseAgent<TInput, TOutput> {
   /** Override in subclasses that generate long prose (e.g. ScribeAgent). */
   protected getMaxTokens(): number { return 1024; }
 
+  /** Override when a specific agent needs provider safety settings. */
+  protected getCompletionOptions(): CompletionOptions { return {}; }
+
   /** Override in agents that only ever call the output tool once (e.g. Curator, Sentinel). */
   protected getMaxIterations(): number { return MAX_ITERATIONS; }
 
@@ -90,7 +113,7 @@ export abstract class BaseAgent<TInput, TOutput> {
   async run(
     worldId: string,
     input: TInput,
-    callCtx?: { pipelineRunId?: string; pipelineType?: string },
+    callCtx?: { pipelineRunId?: string; pipelineType?: string; articleId?: string },
   ): Promise<AgentResult<TOutput>> {
     const provider = await getProvider();
     const messages: ChatMessage[] = await this.buildMessages(worldId, input);
@@ -101,19 +124,38 @@ export abstract class BaseAgent<TInput, TOutput> {
     let status: 'success' | 'error' = 'error';
     let output: TOutput | null = null;
     let iterations = 0;
+    let lastOutputRejection: string | undefined;
+    let stoppedWithoutToolUse: CompletionResult['stopReason'] | undefined;
+    let errorMessage: string | undefined;
 
     try {
       for (let iter = 0; iter < this.getMaxIterations(); iter++) {
         iterations++;
         const toolChoice = this.getToolChoice();
+        const completionOptions = this.getCompletionOptions();
+        const requestOptions = { maxTokens: this.getMaxTokens(), ...completionOptions, ...(toolChoice ? { toolChoice } : {}) };
         let result;
         try {
           result = await provider.complete(
             messages,
-            { maxTokens: this.getMaxTokens(), ...(toolChoice ? { toolChoice } : {}) },
+            requestOptions,
             tools,
           );
         } catch (providerErr: unknown) {
+          errorMessage = providerErrorMessage(providerErr);
+          await logLlmTrace({
+            worldId,
+            agentType: this.agentType,
+            articleId: callCtx?.articleId,
+            runId: callCtx?.pipelineRunId,
+            provider: provider.name,
+            iteration: iterations,
+            status: 'error',
+            messages,
+            options: requestOptions,
+            tools,
+            errorMessage,
+          });
           const recovered = tryRecoverToolUseFailed(providerErr);
           if (recovered !== null) {
             try { output = this.parseOutput(recovered); status = 'success'; } catch { /* fall through */ }
@@ -121,10 +163,26 @@ export abstract class BaseAgent<TInput, TOutput> {
           if (output === null) throw providerErr;
           break;
         }
+        await logLlmTrace({
+          worldId,
+          agentType: this.agentType,
+          articleId: callCtx?.articleId,
+          runId: callCtx?.pipelineRunId,
+          provider: provider.name,
+          iteration: iterations,
+          status: 'success',
+          messages,
+          options: requestOptions,
+          tools,
+          response: result,
+        });
         tokensIn += result.tokensIn;
         tokensOut += result.tokensOut;
 
-        if (result.stopReason !== 'tool_use' || !result.toolCalls?.length) break;
+        if (result.stopReason !== 'tool_use' || !result.toolCalls?.length) {
+          stoppedWithoutToolUse = result.stopReason ?? 'end_turn';
+          break;
+        }
 
         // Append the assistant turn with its tool calls
         messages.push({
@@ -142,6 +200,7 @@ export abstract class BaseAgent<TInput, TOutput> {
             } catch (parseErr) {
               // Feed validation error back so the LLM can self-correct in the next iteration
               const msg = parseErr instanceof Error ? parseErr.message : 'Validation failed';
+              lastOutputRejection = msg;
               messages.push({ role: 'tool', content: `Tool call rejected: ${msg}. Please revise and call the tool again.`, toolCallId: call.id });
             }
           } else {
@@ -163,17 +222,27 @@ export abstract class BaseAgent<TInput, TOutput> {
           tokensIn,
           tokensOut,
           status,
+          errorMessage,
           iterations,
           pipelineRunId: callCtx?.pipelineRunId,
           pipelineType: callCtx?.pipelineType,
+          articleId: callCtx?.articleId,
         });
       } catch { /* logging must never crash the agent */ }
     }
 
     if (output === null) {
-      throw new Error(
-        `Agent "${this.agentType}" did not produce output within ${this.getMaxIterations()} iterations`,
-      );
+      const attempts = `${iterations} attempt${iterations === 1 ? '' : 's'}`;
+      const detail = lastOutputRejection
+        ? ` Last rejection: ${lastOutputRejection}`
+        : stoppedWithoutToolUse
+          ? ` Last stop reason: ${stoppedWithoutToolUse}.`
+          : '';
+      const hasContextTools = this.getContextTools().length > 0;
+      const message = hasContextTools
+        ? `Agent "${this.agentType}" did not produce output within ${this.getMaxIterations()} iterations.${detail}`
+        : `Agent "${this.agentType}" did not call ${this.outputToolName} with valid output after ${attempts}.${detail}`;
+      throw new Error(message);
     }
 
     return { output, tokensIn, tokensOut };

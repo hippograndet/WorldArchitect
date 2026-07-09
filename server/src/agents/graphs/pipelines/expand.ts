@@ -10,13 +10,14 @@ import {
   styleWardenNode,
 } from '../nodes.js';
 import { articleContract, contractState, expanderIntent } from '../masContract.js';
-import type { ContextDepth, ArchivistMode } from '../../../services/archivist.js';
+import type { ContextDepth, ArchivistMode, ContextPackage } from '../../../services/archivist.js';
 import type { ExpanderMode } from '../../../prompts/expander.js';
 import type { ProposalItem } from '../../muse.js';
 import type { IdeaItem } from '../../oracle.js';
 import type { MentionItem } from '../../scribe.js';
 import type { StyleWardenOutput } from '../../styleWarden.js';
 import type { ContinuityEditorOutput } from '../../continuityEditor.js';
+import type { WorldContext } from '../../director.js';
 
 const graph = new StateGraph(OrchestrationAnnotation)
   .addNode('fetchWorldContext', fetchWorldContextNode)
@@ -57,8 +58,17 @@ export async function runExpandGraph(params: {
   runContinuityEditor?: boolean;
   wordCountPreset?: 'short' | 'medium' | 'long';
   pipelineRunId?: string;
+  worldContext?: WorldContext;
+  /**
+   * Only honored when this call's own contextMode resolves to 'default' — a
+   * package built under a different ArchivistMode (e.g. 'reorganize') would
+   * be missing/extra tiers this call expects. See buildContextPackageNode's
+   * guard comment in nodes.ts for the underlying invariant.
+   */
+  contextPackage?: ContextPackage;
 }): Promise<ExpandGraphOutput> {
   const contextMode: ArchivistMode = params.pipelineType === 'reorganize' ? 'reorganize' : 'default';
+  const cachedContextPackage = contextMode === 'default' ? params.contextPackage : undefined;
 
   const result = await graph.invoke({
     worldId: params.worldId,
@@ -80,6 +90,8 @@ export async function runExpandGraph(params: {
     runStyleWarden: params.runStyleWarden ?? false,
     runContinuityEditor: params.runContinuityEditor ?? false,
     wordCountPreset: params.wordCountPreset ?? 'medium',
+    ...(params.worldContext ? { worldContext: params.worldContext } : {}),
+    ...(cachedContextPackage ? { contextPackage: cachedContextPackage } : {}),
   });
 
   return {

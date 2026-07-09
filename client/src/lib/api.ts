@@ -1,5 +1,5 @@
 import type { World, CreateWorldInput, BibleMeta, WorldIssue } from '../types/world.ts';
-import type { Run, RunWithEvents } from '../types/run.ts';
+import type { Run, RunConfig, RunLlmTrace, RunReviewItem, RunWithEvents } from '../types/run.ts';
 import type { PipelineType } from '../stores/agentSlice.ts';
 import type { FlatArticle } from './tree.ts';
 import type { Article, ArticleDetail, ArticleGraph, ArticleGraphEdge, ArticleVersion, PendingDraft, CoherenceWarning, AcceptDraftResult } from '../types/article.ts';
@@ -363,27 +363,19 @@ export const api = {
   runs: {
     list:   (wid: string)               => get<Run[]>(`/worlds/${wid}/runs`),
     get:    (wid: string, rid: string)  => get<RunWithEvents>(`/worlds/${wid}/runs/${rid}`),
-    create: (wid: string, input: {
+    create: (wid: string, input: RunConfig & {
       articleIds: string[];
       pipelineType: PipelineType;
-      budgetLimit?: number;
-      contextDepth?: ContextDepth;
-      branchingMode?: 'conceptual' | 'specific';
-      forgeMode?: 'breadth' | 'depth';
-      forgeMaxDepth?: number;
-      forgeMaxChildren?: number;
-      forgeUseOracle?: boolean;
-      forgeUseContinuityEditor?: boolean;
-      forgeUseGroundingCheck?: boolean;
-      forgeUseDedupCheck?: boolean;
-      forgeContinuationMode?: 'one_step' | 'finish_document' | 'recursive';
-      forgeInceptionExistingMode?: 'create' | 'improve' | 'replace' | 'skip_existing';
-      forgeExpansionExistingMode?: 'create' | 'improve' | 'replace' | 'skip_existing';
-      forgeBranchingExistingMode?: 'append_deduped' | 'skip_if_children';
     }) => post<Run>(`/worlds/${wid}/runs`, input),
     cancel: (wid: string, rid: string)  => post<Run>(`/worlds/${wid}/runs/${rid}/cancel`),
     pause:  (wid: string, rid: string)  => post<Run>(`/worlds/${wid}/runs/${rid}/pause`),
     resume: (wid: string, rid: string)  => post<Run>(`/worlds/${wid}/runs/${rid}/resume`),
+    clear:  (wid: string)               => request<{ deleted: number; retained: number }>('DELETE', `/worlds/${wid}/runs`),
+    llmTraces: (wid: string, rid: string) => get<RunLlmTrace[]>(`/worlds/${wid}/runs/${rid}/llm-traces`),
+    decideReview: (wid: string, rid: string, reviewId: string, input: {
+      action: 'accept' | 'reject';
+      decision?: Record<string, unknown>;
+    }) => post<RunReviewItem>(`/worlds/${wid}/runs/${rid}/review-items/${reviewId}/decision`, input),
   },
 
   publish: {

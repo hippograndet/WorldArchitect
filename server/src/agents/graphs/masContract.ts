@@ -16,8 +16,7 @@ export type MasIntent =
   | 'reorganize'
   | 'cohere'
   | 'compress'
-  | 'audit'
-  | 'forge';
+  | 'audit';
 
 export type AutonomyMode = 'manual' | 'review_each_step' | 'auto_with_post_review';
 export type ReviewPolicy = 'none' | 'user_must_select' | 'user_must_accept' | 'auto';
@@ -75,14 +74,25 @@ export function worldContract(intent: Extract<MasIntent, 'create_world' | 'audit
   };
 }
 
-export function forgeContract(rootArticleId: string, maxDepth: number): MasContract {
+export function expandRunContract(params: {
+  rootArticleId: string;
+  maxDepth: number;
+  autonomyMode?: AutonomyMode;
+  reviewPolicy?: ReviewPolicy;
+  commitPolicy?: CommitPolicy;
+}): MasContract {
   return {
-    location: { type: 'subtree', rootArticleId, maxDepth },
-    intent: 'forge',
-    autonomyMode: 'auto_with_post_review',
-    reviewPolicy: 'auto',
-    commitPolicy: 'auto_commit',
+    location: { type: 'subtree', rootArticleId: params.rootArticleId, maxDepth: params.maxDepth },
+    intent: 'expand',
+    autonomyMode: params.autonomyMode ?? 'auto_with_post_review',
+    reviewPolicy: params.reviewPolicy ?? 'auto',
+    commitPolicy: params.commitPolicy ?? 'auto_commit',
   };
+}
+
+/** @deprecated Use expandRunContract. Kept for compatibility while UI/store names are cleaned up. */
+export function forgeContract(rootArticleId: string, maxDepth: number): MasContract {
+  return expandRunContract({ rootArticleId, maxDepth });
 }
 
 export function proposalIntent(_mode: ProposalMode): MasIntent {

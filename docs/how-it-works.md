@@ -11,7 +11,8 @@ The app gives each world its own local encyclopedia. You create articles, group 
 - **World list** - create and reopen local worlds.
 - **World creation wizard** - define a world premise, categories, and writing style.
 - **World overview** - see article counts, World Bible status, and world-level tools.
-- **Article page** - read, edit, expand, organize, and review an article.
+- **Article page** - read, edit, organize, and review a document.
+- **Expand** - configure MAS generation runs that incept, expand, branch, and optionally recurse through part of the world.
 - **Graph** - inspect the world as connected articles, with hierarchy rings and reference links.
 - **Toolbox** - generate and manage reusable worldbuilding material such as names.
 - **Snapshots** - create and restore named checkpoints of an entire world.
@@ -63,11 +64,30 @@ A typical workflow looks like this:
 
 1. Create a world and initial categories.
 2. Add article stubs manually or with the world creation tools.
-3. Write articles yourself, or use Spark to generate proposals and drafts.
-4. Review, edit, and accept only the content you want to keep.
-5. Use Solidify, Issues, and Publish tools to clean up contradictions or rough prose.
-6. Take snapshots before major changes.
-7. Export the world as Markdown when you want a portable copy.
+3. Write articles yourself, or use Expand to incept, elaborate, branch, or recurse through selected parts of the world.
+4. Choose the validation level for each run: Manual, Assisted, or Autopilot.
+5. Review, edit, and accept generated introductions, proposals, ideas, drafts, or child plans when the selected validation level asks for user input.
+6. Use Consolidate, Issues, and Publish tools to clean up contradictions or rough prose.
+7. Take snapshots before major changes.
+8. Export the world as Markdown when you want a portable copy.
+
+## Expand Runs
+
+Expand is the growth workflow for the encyclopedia. A run starts from a selected document and can begin at Inception, Expansion, or Branching.
+
+- **Inception** creates or improves the document introduction used by the World Bible.
+- **Expansion** writes fuller description prose from creative direction, world context, and optional guidance.
+- **Branching** proposes or creates child documents below the selected node.
+
+The user controls how far the MAS continues. A run can stop after one step, finish the selected document, or recurse into newly created children. Recursive runs can use breadth-first or depth-first queue order, child limits, creation-depth limits, and existing-content rules such as improve, replace, skip, or create only if empty.
+
+Validation level controls how much autonomy the MAS has:
+
+- **Manual** pauses at each meaningful review gate, including introduction review, proposal selection, idea selection, draft review, and child selection where those gates apply.
+- **Assisted** can auto-select low-risk directions or ideas while still pausing before important article-changing outputs are committed.
+- **Autopilot** can auto-select, continue, and commit during the run.
+
+When a run needs the user, it enters a `needs_input` state and the selected run view shows an action panel inside Expand. The same panel renders different gate types, so the user can select, edit, accept, or reject the pending MAS output without leaving the run view.
 
 ## Local App Shape
 

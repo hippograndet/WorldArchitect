@@ -13,6 +13,8 @@ export const POSTGRES_MIGRATIONS = [
   '004_call_log_instrumentation.sql',
   '005_search_index.sql',
   '006_row_level_security.sql',
+  '007_llm_traces.sql',
+  '008_run_review_items.sql',
 ] as const;
 
 export type StorageHealth = {

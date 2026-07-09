@@ -3,9 +3,10 @@ import { nanoid } from 'nanoid';
 import { OrchestrationAnnotation } from '../state.js';
 import { articleContract, contractState } from '../masContract.js';
 import { fetchWorldContextNode, buildContextPackageNode, oracleNode } from '../nodes.js';
-import type { ContextDepth } from '../../../services/archivist.js';
+import type { ContextDepth, ContextPackage } from '../../../services/archivist.js';
 import type { ProposalItem } from '../../muse.js';
 import type { IdeaItem } from '../../oracle.js';
+import type { WorldContext } from '../../director.js';
 
 const graph = new StateGraph(OrchestrationAnnotation)
   .addNode('fetchWorldContext', fetchWorldContextNode)
@@ -25,6 +26,8 @@ export async function runProposeIdeasGraph(params: {
   userSpec?: string;
   contextDepth?: ContextDepth;
   pipelineRunId?: string;
+  worldContext?: WorldContext;
+  contextPackage?: ContextPackage;
 }): Promise<{ ideas: IdeaItem[]; tokensIn: number; tokensOut: number }> {
   const result = await graph.invoke({
     worldId: params.worldId,
@@ -41,6 +44,8 @@ export async function runProposeIdeasGraph(params: {
     selectedProposal: params.selectedProposal,
     userSpec: params.userSpec,
     contextDepth: params.contextDepth ?? 'mid',
+    ...(params.worldContext ? { worldContext: params.worldContext } : {}),
+    ...(params.contextPackage ? { contextPackage: params.contextPackage } : {}),
   });
   return { ideas: result.ideas, tokensIn: result.tokensIn, tokensOut: result.tokensOut };
 }

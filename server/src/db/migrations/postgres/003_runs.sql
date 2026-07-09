@@ -22,6 +22,7 @@ CREATE INDEX IF NOT EXISTS idx_runs_world ON runs(owner_id, world_id, status);
 
 ALTER TABLE runs ADD COLUMN IF NOT EXISTS items_completed BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE runs ADD COLUMN IF NOT EXISTS items_total BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE runs ADD COLUMN IF NOT EXISTS run_config TEXT NOT NULL DEFAULT '{}';
 
 ALTER TABLE articles ADD COLUMN IF NOT EXISTS locked_by_run_id TEXT REFERENCES runs(id) ON DELETE SET NULL;
 CREATE INDEX IF NOT EXISTS idx_articles_locked_by_run ON articles(locked_by_run_id);

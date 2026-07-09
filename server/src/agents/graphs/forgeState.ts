@@ -1,6 +1,7 @@
 import { Annotation } from '@langchain/langgraph';
-import type { ContextDepth } from '../../services/archivist.js';
+import type { ContextDepth, ContextPackage } from '../../services/archivist.js';
 import type { AutonomyMode, CommitPolicy, MasContract, MasIntent, MasLocation, ReviewPolicy } from './masContract.js';
+import type { WorldContext } from '../director.js';
 
 const replace = <T>(_a: T, b: T): T => b;
 
@@ -37,6 +38,8 @@ export const ForgeAnnotation = Annotation.Root({
   ownerId: Annotation<string>(),
 
   // --- config, set once at start, unchanged for the life of the run ---
+  /** Fetched once in startForgeRun and reused for every article — world-level metadata can't change mid-run. */
+  worldContext: Annotation<WorldContext | undefined>({ reducer: replace, default: () => undefined }),
   contextDepth: Annotation<ContextDepth>({ reducer: replace, default: () => 'mid' }),
   branchingMode: Annotation<'specific' | 'conceptual'>({ reducer: replace, default: () => 'conceptual' }),
   forgeMode: Annotation<'breadth' | 'depth'>({ reducer: replace, default: () => 'breadth' }),
@@ -61,6 +64,14 @@ export const ForgeAnnotation = Annotation.Root({
   queue: Annotation<ForgeQueueItem[]>({ reducer: replace, default: () => [] }),
   currentItem: Annotation<ForgeQueueItem | undefined>({ reducer: replace, default: () => undefined }),
   inceptionIntro: Annotation<string | undefined>({ reducer: replace, default: () => undefined }),
+  /**
+   * Context package built while processing currentItem — set by inceptionNode
+   * (patched with the freshly-written intro) when Inception runs, reused by
+   * expansionNode instead of rebuilding; reset alongside inceptionIntro each
+   * time dequeueNode pops a new item, since it's scoped to one article, not
+   * the whole run (unlike worldContext above).
+   */
+  currentItemContextPackage: Annotation<ContextPackage | undefined>({ reducer: replace, default: () => undefined }),
   /**
    * Steps already completed for currentItem — lets a resume after a crash
    * mid-cascade (server killed between, say, Inception and Expansion) skip
@@ -88,7 +99,7 @@ export const ForgeAnnotation = Annotation.Root({
   failedItemCount: Annotation<number>({ reducer: replace, default: () => 0 }),
 
   // --- control flow ---
-  signal: Annotation<'continue' | 'paused' | 'stopped' | 'completed' | 'error' | undefined>({
+  signal: Annotation<'continue' | 'paused' | 'needs_input' | 'stopped' | 'completed' | 'error' | undefined>({
     reducer: replace,
     default: () => undefined,
   }),

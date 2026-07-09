@@ -37,6 +37,7 @@ export type PipelineType =
   | 'audit';
 
 export type AgentPanelMode = 'spark' | 'solidification';
+export type RunValidationLevel = 'manual' | 'assisted' | 'autopilot';
 
 export interface NextStep {
   label: string;
@@ -65,6 +66,7 @@ export interface AgentParams {
   forgeUseGroundingCheck: boolean;  // run Grounding Check self-correction pass after Lorekeeper (Inception)
   forgeUseDedupCheck: boolean;      // run Dedup Check pass after Cartographer (Branching)
   forgeContinuationMode: 'one_step' | 'finish_document' | 'recursive';
+  runValidationLevel: RunValidationLevel;
   forgeInceptionExistingMode: 'create' | 'improve' | 'replace' | 'skip_existing';
   forgeExpansionExistingMode: 'create' | 'improve' | 'replace' | 'skip_existing';
   forgeBranchingExistingMode: 'append_deduped' | 'skip_if_children';
@@ -90,6 +92,7 @@ const defaultParams: AgentParams = {
   forgeUseGroundingCheck:     false,
   forgeUseDedupCheck:         false,
   forgeContinuationMode:      'recursive',
+  runValidationLevel:         'autopilot',
   forgeInceptionExistingMode: 'improve',
   forgeExpansionExistingMode: 'improve',
   forgeBranchingExistingMode: 'append_deduped',

@@ -10,6 +10,7 @@ export default defineConfig({
       'src/agents/base.test.ts',
       'src/agents/curator.test.ts',
       'src/agents/director.test.ts',
+      'src/agents/graphs/forgeGraph.test.ts',
       'src/agents/graphs/masContract.test.ts',
       'src/agents/graphs/nodes.test.ts',
       'src/agents/toolAccess.test.ts',

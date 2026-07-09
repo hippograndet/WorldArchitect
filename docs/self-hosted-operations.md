@@ -134,12 +134,14 @@ On startup, the server creates `schema_migrations` if needed, applies any unappl
 - `004_call_log_instrumentation.sql`
 - `005_search_index.sql`
 - `006_row_level_security.sql`
+- `007_llm_traces.sql`
+- `008_run_review_items.sql`
 
 If a migration fails, that migration transaction rolls back and the server does not record it as applied.
 
 Hosted deployments should provide `MIGRATION_DATABASE_URL` for the owner/migration role and `DATABASE_URL` for the restricted runtime app role. The runtime role should have table/function grants but must be `NOSUPERUSER NOBYPASSRLS` so Postgres Row-Level Security remains effective.
 
-WorldArchitect creates LangGraph-compatible checkpoint tables for Forge runs during migration. Those rows can contain resumable run state, so the app applies RLS to the checkpoint tables too and scopes them through the owning `runs` row.
+WorldArchitect creates LangGraph-compatible checkpoint tables for Expand runs during migration. Those rows can contain resumable run state, so the app applies RLS to the checkpoint tables too and scopes them through the owning `runs` row. Expand review items are tenant-owned rows used when Manual or Assisted runs enter `needs_input`.
 
 The helper script `ops/postgres/grant_runtime_role.sql` grants runtime privileges to an already-created restricted app role.
 

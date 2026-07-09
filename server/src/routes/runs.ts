@@ -4,8 +4,11 @@ import type { Request } from 'express';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
 import { requireTenantContext } from '../tenant.js';
 import { getDbClient } from '../db/client.js';
-import { createRun, getRun, listRuns, cancelRun, markRunStatus, listRunEvents, RunConflictError } from '../services/runsService.js';
+import { createRun, getRun, listRuns, cancelRun, markRunStatus, listRunEvents, listRunAgentCalls, clearTerminalRunHistory, RunConflictError } from '../services/runsService.js';
+import { isLlmTraceEnabled, listRunLlmTraces } from '../services/llmTraceService.js';
+import { decideRunReviewItem, listRunReviewItems } from '../services/runReviewItems.js';
 import { startForgeRun, resumeForgeRun } from '../agents/graphs/forgeGraph.js';
+import type { AutonomyMode, CommitPolicy, ReviewPolicy } from '../agents/graphs/masContract.js';
 
 const router = Router({ mergeParams: true });
 
@@ -22,12 +25,59 @@ router.get('/', asyncHandler(async (req, res) => {
   res.json(await listRuns(worldId, ownerId));
 }));
 
+router.delete('/', asyncHandler(async (req, res) => {
+  const { worldId, ownerId } = requireTenantContext(req);
+  res.json(await clearTerminalRunHistory(worldId, ownerId));
+}));
+
 router.get('/:rid', asyncHandler(async (req, res) => {
   const { worldId, ownerId } = requireTenantContext(req);
   const run = await getRun(worldId, ownerId, rid(req));
   if (!run) throw new AppError(404, 'NOT_FOUND', 'Run not found');
   const events = await listRunEvents(worldId, ownerId, rid(req));
-  res.json({ ...run, events });
+  const agentCalls = await listRunAgentCalls(worldId, ownerId, rid(req));
+  const reviewItems = await listRunReviewItems(worldId, ownerId, rid(req));
+  res.json({ ...run, events, agentCalls, reviewItems });
+}));
+
+const ReviewDecisionSchema = z.object({
+  action: z.enum(['accept', 'reject']),
+  decision: z.record(z.unknown()).optional().default({}),
+});
+
+router.post('/:rid/review-items/:reviewId/decision', asyncHandler(async (req, res) => {
+  const parse = ReviewDecisionSchema.safeParse(req.body);
+  if (!parse.success) throw new AppError(400, 'VALIDATION_ERROR', 'Invalid review decision', parse.error.flatten().fieldErrors);
+  const { worldId, ownerId } = requireTenantContext(req);
+  const run = await getRun(worldId, ownerId, rid(req));
+  if (!run) throw new AppError(404, 'NOT_FOUND', 'Run not found');
+
+  const review = await decideRunReviewItem({
+    worldId,
+    ownerId,
+    runId: run.id,
+    reviewId: (req.params as Record<string, string>).reviewId,
+    status: parse.data.action === 'accept' ? 'accepted' : 'rejected',
+    decision: parse.data.decision,
+  });
+
+  void resumeForgeRun({ worldId, ownerId, runId: run.id }).catch((err) => {
+    // eslint-disable-next-line no-console
+    console.error(`Forge run ${run.id} crashed after review decision`, err);
+  });
+
+  res.json(review);
+}));
+
+router.get('/:rid/llm-traces', asyncHandler(async (req, res) => {
+  const { worldId, ownerId } = requireTenantContext(req);
+  const run = await getRun(worldId, ownerId, rid(req));
+  if (!run) throw new AppError(404, 'NOT_FOUND', 'Run not found');
+  if (!isLlmTraceEnabled()) {
+    res.status(404).json({ error: 'LLM tracing is disabled.' });
+    return;
+  }
+  res.json(await listRunLlmTraces(worldId, ownerId, run.id));
 }));
 
 const CreateRunSchema = z.object({
@@ -50,6 +100,10 @@ const CreateRunSchema = z.object({
   forgeInceptionExistingMode: z.enum(['create', 'improve', 'replace', 'skip_existing']).optional().default('improve'),
   forgeExpansionExistingMode: z.enum(['create', 'improve', 'replace', 'skip_existing']).optional().default('improve'),
   forgeBranchingExistingMode: z.enum(['append_deduped', 'skip_if_children']).optional().default('append_deduped'),
+  validationLevel: z.enum(['manual', 'assisted', 'autopilot']).optional(),
+  autonomyMode: z.enum(['manual', 'review_each_step', 'auto_with_post_review']).optional(),
+  reviewPolicy: z.enum(['none', 'user_must_select', 'user_must_accept', 'auto']).optional(),
+  commitPolicy: z.enum(['no_commit', 'pending_draft', 'auto_commit']).optional(),
 });
 
 /** Same derivation forgeSlice.ts's startForge already used client-side. */
@@ -57,6 +111,47 @@ function deriveStartStep(pipelineType: string): 'inception' | 'expansion' | 'bra
   if (pipelineType === 'propose_children') return 'branching';
   if (pipelineType === 'forge_expand' || pipelineType === 'expand_description') return 'expansion';
   return 'inception';
+}
+
+function deriveRunPolicy(input: z.infer<typeof CreateRunSchema>): {
+  autonomyMode: AutonomyMode;
+  reviewPolicy: ReviewPolicy;
+  commitPolicy: CommitPolicy;
+} {
+  const fromValidation = (() => {
+    switch (input.validationLevel) {
+      case 'manual':
+        return {
+          autonomyMode: 'manual' as const,
+          reviewPolicy: 'user_must_accept' as const,
+          commitPolicy: 'pending_draft' as const,
+        };
+      case 'assisted':
+        return {
+          autonomyMode: 'review_each_step' as const,
+          reviewPolicy: 'user_must_accept' as const,
+          commitPolicy: 'pending_draft' as const,
+        };
+      case 'autopilot':
+        return {
+          autonomyMode: 'auto_with_post_review' as const,
+          reviewPolicy: 'auto' as const,
+          commitPolicy: 'auto_commit' as const,
+        };
+      default:
+        return {
+          autonomyMode: 'auto_with_post_review' as const,
+          reviewPolicy: 'auto' as const,
+          commitPolicy: 'auto_commit' as const,
+        };
+    }
+  })();
+
+  return {
+    autonomyMode: input.autonomyMode ?? fromValidation.autonomyMode,
+    reviewPolicy: input.reviewPolicy ?? fromValidation.reviewPolicy,
+    commitPolicy: input.commitPolicy ?? fromValidation.commitPolicy,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -90,10 +185,27 @@ router.post('/', asyncHandler(async (req, res) => {
     throw new AppError(404, 'NOT_FOUND', 'One or more articles not found in this world');
   }
   const rootArticle = existing.find((a) => a.id === rootArticleId)!;
+  const runPolicy = deriveRunPolicy(parse.data);
+  const startStep = deriveStartStep(parse.data.pipelineType);
+  const runConfig = {
+    ...parse.data,
+    rootArticleId,
+    startStep,
+    autonomyMode: runPolicy.autonomyMode,
+    reviewPolicy: runPolicy.reviewPolicy,
+    commitPolicy: runPolicy.commitPolicy,
+  };
 
   let run;
   try {
-    run = await createRun({ worldId, ownerId, articleIds, budgetLimit: parse.data.budgetLimit });
+    run = await createRun({
+      worldId,
+      ownerId,
+      articleIds,
+      budgetLimit: parse.data.budgetLimit,
+      graphType: 'expand',
+      config: runConfig,
+    });
   } catch (err) {
     if (err instanceof RunConflictError) {
       throw new AppError(409, 'ARTICLE_LOCKED', err.message, { articleIds: err.lockedArticleIds });
@@ -107,7 +219,7 @@ router.post('/', asyncHandler(async (req, res) => {
     ownerId,
     articleId: rootArticleId,
     articleTitle: rootArticle.title,
-    startStep: deriveStartStep(parse.data.pipelineType),
+    startStep,
     contextDepth: parse.data.contextDepth,
     branchingMode: parse.data.branchingMode,
     forgeMode: parse.data.forgeMode,
@@ -121,6 +233,9 @@ router.post('/', asyncHandler(async (req, res) => {
     forgeInceptionExistingMode: parse.data.forgeInceptionExistingMode,
     forgeExpansionExistingMode: parse.data.forgeExpansionExistingMode,
     forgeBranchingExistingMode: parse.data.forgeBranchingExistingMode,
+    autonomyMode: runPolicy.autonomyMode,
+    reviewPolicy: runPolicy.reviewPolicy,
+    commitPolicy: runPolicy.commitPolicy,
   }).catch((err) => {
     // eslint-disable-next-line no-console
     console.error(`Forge run ${run.id} crashed outside its own error handling`, err);
@@ -163,7 +278,7 @@ router.post('/:rid/resume', asyncHandler(async (req, res) => {
   const run = await getRun(worldId, ownerId, rid(req));
   if (!run) throw new AppError(404, 'NOT_FOUND', 'Run not found');
   const isStaleRunning = run.status === 'running' && Date.now() - run.updatedAt > STALE_RUN_MS;
-  if (run.status !== 'paused' && !isStaleRunning) {
+  if (run.status !== 'paused' && run.status !== 'needs_input' && !isStaleRunning) {
     throw new AppError(409, 'RUN_NOT_PAUSED', 'Run is not currently paused');
   }
 

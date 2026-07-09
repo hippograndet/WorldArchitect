@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { PanelRightOpen } from 'lucide-react';
 import { useParams, useSearchParams } from 'react-router-dom';
-import { useStore } from '../stores/index.ts';
 import { api } from '../lib/api.ts';
 import WorkspaceLayout from '../components/shared/WorkspaceLayout.tsx';
 import IssueQueueSidebar from '../components/consolidate/IssueQueueSidebar.tsx';
@@ -12,7 +11,6 @@ import type { ConsolidationIssue } from '../lib/consolidation.ts';
 export default function ConsolidatePage() {
   const { wid } = useParams<{ wid: string }>();
   const [searchParams] = useSearchParams();
-  const { agentPanelOpen } = useStore();
 
   const [issues, setIssues] = useState<ConsolidationIssue[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -31,17 +29,6 @@ export default function ConsolidatePage() {
   useEffect(() => {
     if (deepLinkedIssueId) setSelectedId(deepLinkedIssueId);
   }, [deepLinkedIssueId]);
-
-  // Refetch once a dispatched subsystem (Audit / Coherence Check / Reorganize) finishes
-  // and the floating agent panel closes — it mutates world_issues/article_issues server-side
-  // without this page knowing otherwise.
-  const wasPanelOpen = useRef(agentPanelOpen);
-  useEffect(() => {
-    if (wasPanelOpen.current && !agentPanelOpen) {
-      loadIssues().catch(console.error);
-    }
-    wasPanelOpen.current = agentPanelOpen;
-  }, [agentPanelOpen, loadIssues]);
 
   const selectedIssue = issues.find((i) => i.id === selectedId) ?? null;
 

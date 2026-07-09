@@ -8,9 +8,9 @@ function flattenTree(nodes: TreeNode[]): TreeNode[] {
 
 export default function ArticleInfoSidebar() {
   const { wid, aid } = useParams<{ wid: string; aid: string }>();
-  const { currentArticleDetail, treeNodes, agentPanelOpen } = useStore();
+  const { currentArticleDetail, treeNodes } = useStore();
 
-  if (!currentArticleDetail || agentPanelOpen) return null;
+  if (!currentArticleDetail) return null;
 
   const { links, version } = currentArticleDetail;
 

@@ -2,7 +2,7 @@
 
 WorldArchitect is a local-first fiction worldbuilding app for writers, game masters, and narrative designers. It helps you grow a fictional world into a structured encyclopedia: articles, categories, timelines, version history, snapshots, exportable Markdown, and optional AI-assisted expansion.
 
-The app is fully usable without an LLM. When you do connect a provider, WorldArchitect adds a multi-agent creative system that can propose ideas, expand articles, check continuity, create child entries, and help maintain a coherent World Bible while keeping you in control of what gets accepted.
+The app is fully usable without an LLM. When you do connect a provider, WorldArchitect adds a multi-agent creative system that can incept, expand, branch, consolidate, and check world documents while keeping you in control of how much gets reviewed or committed automatically.
 
 ## Project Status
 
@@ -20,8 +20,8 @@ The intended release path is:
 
 - **Own your world locally, by default.** In local mode your encyclopedia is stored in a local Postgres database — no account, cloud sync, or hosted backend required. An opt-in hosted multi-tenant mode is also available for self-deployment (accounts via Clerk and Postgres storage) — see [DEPLOY.md](DEPLOY.md).
 - **Write with structure.** Build a browsable wiki with categories, article hierarchy, cross-links, chronology, and snapshots.
-- **Use AI without surrendering control.** Agent drafts are reviewed before they are committed, and the app works normally with AI disabled.
-- **Grow worlds deliberately.** Spark creates and expands articles, Solidify cleans them up, Forge can recursively expand a subtree, and World Tools help audit the larger graph.
+- **Use AI without surrendering control.** Expand runs use modular review gates for introductions, proposals, ideas, drafts, and child-article plans; Assisted and Autopilot modes decide how much the MAS can continue or commit on its own.
+- **Grow worlds deliberately.** Expand can incept, elaborate, branch, and recurse through selected parts of the world; Consolidate and World Tools help audit and clean up the larger graph.
 - **Keep long projects durable.** Version history, crash recovery, World Bible summaries, issue checks, call logs, and ZIP export are built in.
 
 ## Features
@@ -34,7 +34,7 @@ The intended release path is:
 - Manual editing with TipTap and Markdown-oriented article content
 - Version history, non-destructive reverts, and named world snapshots
 - World Bible summaries used for continuity and context
-- Optional multi-agent system for proposals, expansion, cleanup, auditing, naming, and publishing
+- Optional multi-agent system for expansion, branching, consolidation, cleanup, auditing, naming, and publishing
 - Provider support for Anthropic, OpenAI-compatible APIs, Groq, and Ollama
 - Cost controls, call logs, daily caps, and provider settings
 - ZIP export of the world as Markdown files
@@ -45,7 +45,7 @@ The intended release path is:
 
 ![Article editing and reading view](docs/assets/Screenshot_Document_Text.png)
 
-![Spark proposal selection](docs/assets/Screenshot_Spark_Expansion_Direction_Selection.png)
+![Expand proposal selection](docs/assets/Screenshot_Spark_Expansion_Direction_Selection.png)
 
 ![World graph view](docs/assets/Screenshot_World_Graph.png)
 

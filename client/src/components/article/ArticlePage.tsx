@@ -7,7 +7,6 @@ import InlineDescriptionEditor from './InlineDescriptionEditor.tsx';
 import ChronologyEditor from './ChronologyEditor.tsx';
 import VersionHistoryPanel from './VersionHistoryPanel.tsx';
 import AddSubsectionDialog from './AddSubsectionDialog.tsx';
-import DraftCrashRecovery from './DraftCrashRecovery.tsx';
 import ArticleInfoSidebar from './ArticleInfoSidebar.tsx';
 import ArticleIssuesPanel from './ArticleIssuesPanel.tsx';
 
@@ -57,7 +56,6 @@ export default function ArticlePage() {
   const {
     selectArticle, currentArticleDetail, currentArticleId,
     manualEdit, loadTree, addToast, checkDraft,
-    agentPanelOpen, closeAgentPanel,
   } = useStore();
 
   const [editingSection, setEditingSection] = useState<EditingSection>(null);
@@ -82,12 +80,7 @@ export default function ArticlePage() {
   const description = version?.description ?? '';
   const chronology  = version?.chronology  ?? '';
 
-  // ---------------------------------------------------------------------------
-  // Panel mutual exclusion
-  // ---------------------------------------------------------------------------
-
   const handleOpenHistory = () => {
-    if (agentPanelOpen) closeAgentPanel();
     setShowHistory(true);
   };
 
@@ -151,9 +144,6 @@ export default function ArticlePage() {
 
   return (
     <div className="max-w-screen-xl mx-auto py-8 px-6">
-      {/* Crash recovery banner */}
-      {wid && <DraftCrashRecovery worldId={wid} />}
-
       <div className="flex gap-10 items-start">
       {/* ── Main content column ── */}
       <div className="flex-1 min-w-0 max-w-2xl">
@@ -341,8 +331,8 @@ export default function ArticlePage() {
 
       </div>{/* end flex row */}
 
-      {/* Expand FAB — only when AgentPanel is closed */}
-      {!agentPanelOpen && wid && aid && (
+      {/* Expand FAB */}
+      {wid && aid && (
         <button
           onClick={handleOpenExpand}
           className="fixed bottom-8 right-8 w-14 h-14 rounded-full bg-purple-600 text-white

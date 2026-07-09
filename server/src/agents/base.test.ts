@@ -50,6 +50,16 @@ class TestAgent extends BaseAgent<Record<string, never>, { value: string }> {
   }
 }
 
+class DirectOutputAgent extends TestAgent {
+  protected getContextTools(): Tool[] {
+    return [];
+  }
+
+  protected getMaxIterations(): number {
+    return 2;
+  }
+}
+
 function toolUseResult(toolName: string, input: Record<string, unknown>): CompletionResult {
   return {
     content: '',
@@ -98,6 +108,25 @@ describe('BaseAgent.run() iteration counting', () => {
       pipelineRunId: 'run-abc',
       pipelineType: 'test_pipeline',
       status: 'success',
+    }));
+  });
+
+  it('reports direct-output agents that never call their output tool clearly', async () => {
+    completeMock.mockResolvedValue({
+      content: 'plain text',
+      tokensIn: 5,
+      tokensOut: 2,
+      stopReason: 'end_turn',
+    });
+
+    const agent = new DirectOutputAgent();
+    await expect(agent.run('world1', {})).rejects.toThrow(
+      'Agent "test_agent" did not call submit_test with valid output after 1 attempt. Last stop reason: end_turn.',
+    );
+    expect(completeMock).toHaveBeenCalledTimes(1);
+    expect(logCallMock).toHaveBeenCalledWith(expect.objectContaining({
+      iterations: 1,
+      status: 'error',
     }));
   });
 });

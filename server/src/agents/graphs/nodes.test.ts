@@ -18,7 +18,7 @@ vi.mock('../../services/callLogger.js', () => ({
 // Import after the mocks above are registered, and after the harness sets
 // APP_MODE/DATABASE_URL — nodes.js only touches getDbClient() lazily inside
 // each function call, so a static import here is safe.
-import { wardenNode } from './nodes.js';
+import { wardenNode, fetchWorldContextNode, buildContextPackageNode } from './nodes.js';
 
 const OWNER_ID = 'owner-warden-node-test';
 
@@ -121,6 +121,76 @@ describe('wardenNode sparse-world guard (hasSufficientBibleContent)', () => {
 
       expect(completeMock).toHaveBeenCalledTimes(1);
       expect(result.warnings).toHaveLength(1);
+    });
+  });
+});
+
+describe('fetchWorldContextNode caching guard', () => {
+  it('fetches and returns worldContext when none is cached', async ({ skip }) => {
+    if (!harness) { skip(); return; }
+
+    await runWithUserContext(OWNER_ID, async () => {
+      await seedWorldWithBibleEntries('fetch-world-context-miss', 0);
+
+      const result = await fetchWorldContextNode({
+        worldId: 'fetch-world-context-miss',
+        worldContext: undefined,
+      } as unknown as OrchestrationState);
+
+      expect(result.worldContext).toMatchObject({ worldId: 'fetch-world-context-miss', name: 'Test World' });
+    });
+  });
+
+  it('skips the fetch (never touches the DB) when worldContext is already cached', async ({ skip }) => {
+    if (!harness) { skip(); return; }
+
+    await runWithUserContext(OWNER_ID, async () => {
+      // Bogus worldId — fetchWorldContext() would throw "World ... not found"
+      // if the guard didn't short-circuit before reaching the DB.
+      const result = await fetchWorldContextNode({
+        worldId: 'this-world-id-does-not-exist',
+        worldContext: { worldId: 'cached', name: 'Cached World', tone: 'narrative', originPoint: null, styleConfig: null },
+      } as unknown as OrchestrationState);
+
+      expect(result).toEqual({});
+    });
+  });
+});
+
+describe('buildContextPackageNode caching guard', () => {
+  it('builds and returns contextPackage when none is cached', async ({ skip }) => {
+    if (!harness) { skip(); return; }
+
+    await runWithUserContext(OWNER_ID, async () => {
+      await seedWorldWithBibleEntries('build-context-package-miss', 1);
+
+      const result = await buildContextPackageNode({
+        worldId: 'build-context-package-miss',
+        articleId: 'build-context-package-miss-article-0',
+        contextPackage: undefined,
+        contextMode: 'default',
+        contextDepth: 'mid',
+      } as unknown as OrchestrationState);
+
+      expect(result.contextPackage).toMatchObject({ targetId: 'build-context-package-miss-article-0', targetTitle: 'Article 0' });
+    });
+  });
+
+  it('skips the build (never touches the DB) when contextPackage is already cached', async ({ skip }) => {
+    if (!harness) { skip(); return; }
+
+    await runWithUserContext(OWNER_ID, async () => {
+      // Bogus articleId — buildContextPackage() would throw "Article ... not
+      // found" if the guard didn't short-circuit before reaching the DB.
+      const result = await buildContextPackageNode({
+        worldId: 'build-context-package-guard',
+        articleId: 'this-article-id-does-not-exist',
+        contextPackage: { targetId: 'cached', targetTitle: 'Cached Article' } as unknown as OrchestrationState['contextPackage'],
+        contextMode: 'default',
+        contextDepth: 'mid',
+      } as unknown as OrchestrationState);
+
+      expect(result).toEqual({});
     });
   });
 });

@@ -163,3 +163,30 @@ describe('agentDiscard', () => {
     expect(mockApi.articles.draft.discard).not.toHaveBeenCalled();
   });
 });
+
+describe('startForge', () => {
+  it('forwards the configured run validation level to the runs API', async () => {
+    vi.useFakeTimers();
+    mockApi.runs.create.mockResolvedValue({ id: 'run1' });
+
+    try {
+      S().openAgentPanel('art1', 'Some Article', 'spark', 'forge_expand');
+      S().setAgentParams({
+        runValidationLevel: 'assisted',
+        forgeContinuationMode: 'finish_document',
+      });
+
+      await S().startForge('w1');
+
+      expect(mockApi.runs.create).toHaveBeenCalledWith('w1', expect.objectContaining({
+        articleIds: ['art1'],
+        pipelineType: 'forge_expand',
+        validationLevel: 'assisted',
+        forgeContinuationMode: 'finish_document',
+      }));
+    } finally {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    }
+  });
+});

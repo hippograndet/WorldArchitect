@@ -19,7 +19,7 @@ The first isolation layer is in the application. Hosted requests are authenticat
 
 Postgres Row-Level Security (RLS) is the second isolation layer. RLS is a Postgres feature that attaches access policies directly to database tables. For WorldArchitect, those policies compare each row's `owner_id` to a per-request Postgres setting named `app.current_owner_id`. The server sets that value from the authenticated request user before it runs tenant-scoped queries. If a future route or service accidentally forgets an `owner_id` predicate, Postgres should still hide rows owned by another user.
 
-Long-running Forge work re-enters that tenant context explicitly with the run owner id before it touches Postgres. LangGraph checkpoint tables do not carry `owner_id` columns, so their RLS policies scope rows through `thread_id = runs.id`; checkpoint state is only visible to the owner of the parent run.
+Long-running Expand work re-enters that tenant context explicitly with the run owner id before it touches Postgres. Expand review items carry `owner_id` and remain run-scoped so user decisions are checked against the owning world and run. LangGraph checkpoint tables do not carry `owner_id` columns, so their RLS policies scope rows through `thread_id = runs.id`; checkpoint state is only visible to the owner of the parent run.
 
 Before RLS, tenant isolation depended on application code alone: route guards, tenant context helpers, and explicit SQL filters. That is still necessary and remains the main API-level boundary, but RLS adds database-level defense in depth for hosted deployments.
 
@@ -70,3 +70,5 @@ World/article/user content is wrapped as untrusted data in prompts and context-t
 ## Observability
 
 Logs are structured JSON, redact API-key-shaped values, and include a request correlation id and user id where available. `SENTRY_DSN` enables a Sentry-compatible error hook; without a DSN it is a no-op.
+
+Local development can opt into raw LLM request/response tracing with `WORLDARCHITECT_LLM_TRACE=1` on the server and `VITE_WORLDARCHITECT_DEV_TOOLS=1` on the client. This is a developer diagnostic path for inspecting provider failures inside Expand runs; it may include prompt context and model output, so it should stay disabled for normal users and hosted production deployments.

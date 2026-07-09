@@ -14,7 +14,7 @@ These documents are for people evaluating or using WorldArchitect. They explain 
 
 ![WorldArchitect world list](assets/Screenshot_Worlds_Menu.png)
 
-![WorldArchitect Spark workflow](assets/Screenshot_Spark_Inception.png)
+![WorldArchitect Expand workflow](assets/Screenshot_Spark_Inception.png)
 
 ![WorldArchitect graph view](assets/Screenshot_World_Graph.png)
 

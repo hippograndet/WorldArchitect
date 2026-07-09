@@ -102,8 +102,11 @@ export const forgeSlice: StateCreator<StoreState, [['zustand/immer', never]], []
           await get().loadTree(worldId).catch(console.error);
         }
 
-        if (run.status === 'paused') {
-          set((s) => { s.forgePaused = true; });
+        if (run.status === 'paused' || run.status === 'needs_input') {
+          set((s) => {
+            s.forgePaused = true;
+            if (run.status === 'needs_input') s.agentPhase = 'reviewing';
+          });
           return; // resumeForge restarts polling
         }
 
@@ -140,7 +143,8 @@ export const forgeSlice: StateCreator<StoreState, [['zustand/immer', never]], []
       const {
         contextDepth, branchingMode, forgeMode, forgeMaxDepth, forgeMaxChildren,
         forgeUseOracle, forgeUseContinuityEditor, forgeUseGroundingCheck, forgeUseDedupCheck,
-        forgeContinuationMode, forgeInceptionExistingMode, forgeExpansionExistingMode, forgeBranchingExistingMode,
+        forgeContinuationMode, runValidationLevel,
+        forgeInceptionExistingMode, forgeExpansionExistingMode, forgeBranchingExistingMode,
       } = agentParams;
 
       set((s) => {
@@ -169,6 +173,7 @@ export const forgeSlice: StateCreator<StoreState, [['zustand/immer', never]], []
           forgeUseGroundingCheck,
           forgeUseDedupCheck,
           forgeContinuationMode,
+          validationLevel: runValidationLevel,
           forgeInceptionExistingMode,
           forgeExpansionExistingMode,
           forgeBranchingExistingMode,
