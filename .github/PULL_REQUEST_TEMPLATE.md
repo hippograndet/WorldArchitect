@@ -11,5 +11,6 @@
 - [ ] `npm run typecheck` passes
 - [ ] `npm run test:postgres -w server` passes when database/RLS behavior changes
 - [ ] `npm test` passes
+- [ ] Tenant-isolation checklist covered for route/job/database changes: scoped lists, cross-user raw IDs, cross-user mutations, background ownership, and RLS coverage for new tenant tables
 - [ ] Scoped to what this PR describes (no unrelated drive-by changes)
 - [ ] Docs updated if this changes user-facing behavior or setup steps

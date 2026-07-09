@@ -57,6 +57,16 @@ Finally set the hosted app's `DATABASE_URL` to the `worldarchitect_app` connecti
 
 When `APP_MODE=hosted` and `ALLOW_DEV_AUTH_HEADER` is not enabled, startup refuses to run with a runtime database role that is superuser or `BYPASSRLS`.
 
+Before serving hosted production traffic, confirm:
+
+- `DATABASE_URL` uses the restricted runtime app role.
+- `MIGRATION_DATABASE_URL` uses the owner/migration role.
+- The runtime role is `NOSUPERUSER NOBYPASSRLS`.
+- Clerk production secrets are set for the deployed domain.
+- `ALLOW_DEV_AUTH_HEADER` is unset.
+- Backups and restores use the owner, migration, or backup connection, not the restricted runtime URL.
+- Staging or production smoke tests cover user A/user B visibility and direct-ID access.
+
 ## Pool Sizing
 
 `PGPOOL_MAX` (default `5`) caps how many Postgres connections each server process opens. Keep `PGPOOL_MAX ≤ (Neon plan's pooled connection limit) ÷ (max concurrent server instances)` — e.g. if your Neon plan's pooler allows 100 and you run 3 instances, `PGPOOL_MAX=30` is safe; the conservative default of 5 is fine for a single instance. Also configurable: `PGPOOL_IDLE_TIMEOUT_MS` (default `30000`), `PGPOOL_CONN_TIMEOUT_MS` (default `5000`).
@@ -144,6 +154,7 @@ After Render deploys:
 5. Save and reload a provider setting; confirm the key is masked.
 6. Create, edit, snapshot, export, and delete a world.
 7. Sign in with a second Clerk user and confirm the first user's world is not visible.
+8. Try direct world/article/snapshot/run URLs or raw IDs from the first user as the second user and confirm they return `404`.
 
 ## Docker
 
@@ -253,7 +264,7 @@ Provider settings live in the database. User-entered provider keys are stored en
 
 - Visit `/health` and confirm `status: ok`, `mode: hosted`, and `database.ok: true`.
 - Sign in as user A, create a world, and confirm it appears in the worlds list.
-- Sign in as user B and confirm user A's world is absent and direct URLs return 404.
+- Sign in as user B and confirm user A's world is absent and direct URLs/raw IDs return `404`.
 - Save a provider API key, refresh settings, and confirm only a masked key is returned.
 - Run an AI settings test with the configured provider.
 - Create, edit, snapshot, export, and delete a world.

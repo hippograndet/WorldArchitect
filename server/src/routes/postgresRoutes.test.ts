@@ -11,6 +11,15 @@ import { createApp } from '../app.js';
 import { getDbClient } from '../db/client.js';
 import { setupPostgresTestHarness, type PostgresTestHarness } from '../test/postgresHarness.js';
 import { runWithUserContext } from '../requestContext.js';
+import {
+  asUser,
+  createArticleFixture,
+  createTenantFixture,
+  expectCrossTenantMutationBlocked,
+  expectOwnedRows,
+  expectTenantHidden,
+  expectTenantListExcludes,
+} from '../test/tenantIsolation.js';
 
 let harness: PostgresTestHarness | null = null;
 let request: ReturnType<typeof supertest> | null = null;
@@ -29,8 +38,8 @@ describe('core routes on Postgres', () => {
   it('creates worlds and enforces hosted tenant isolation', async ({ skip }) => {
     if (skipIfUnavailable(skip)) return;
 
-    const { world: worldA } = await createWorld('user-a', 'Aurelian Reach');
-    const { world: worldB } = await createWorld('user-b', 'Boreal Archive');
+    const { world: worldA } = await createTenantFixture(request!, 'user-a', 'Aurelian Reach');
+    const { world: worldB } = await createTenantFixture(request!, 'user-b', 'Boreal Archive');
 
     const listA = await request!
       .get('/api/worlds')
@@ -38,10 +47,11 @@ describe('core routes on Postgres', () => {
       .expect(200);
     expect(listA.body.map((world: { id: string }) => world.id)).toEqual([worldA.id]);
 
-    await request!
-      .get(`/api/worlds/${worldB.id}`)
-      .set(asUser('user-a'))
-      .expect(404);
+    await expectTenantHidden(request!, {
+      method: 'get',
+      path: `/api/worlds/${worldB.id}`,
+      userId: 'user-a',
+    });
 
     await request!
       .get(`/api/worlds/${worldB.id}`)
@@ -101,8 +111,8 @@ describe('core routes on Postgres', () => {
   it('creates and reads articles under the world tenant guard', async ({ skip }) => {
     if (skipIfUnavailable(skip)) return;
 
-    const { world, categories } = await createWorld('user-a', 'Charter Isles');
-    const { world: worldB } = await createWorld('user-b', 'Quiet Ledger');
+    const { world, categories } = await createTenantFixture(request!, 'user-a', 'Charter Isles');
+    const { world: worldB } = await createTenantFixture(request!, 'user-b', 'Quiet Ledger');
     const categoryId = categories[0].id;
 
     const created = await request!
@@ -127,36 +137,40 @@ describe('core routes on Postgres', () => {
     expect(read.body.article.title).toBe('Harbor Charter');
     expect(read.body.version.description).toContain('ferry guilds');
 
-    await request!
-      .get(`/api/worlds/${world.id}/articles/${created.body.article.id}`)
-      .set(asUser('user-b'))
-      .expect(404);
+    await expectTenantHidden(request!, {
+      method: 'get',
+      path: `/api/worlds/${world.id}/articles/${created.body.article.id}`,
+      userId: 'user-b',
+    });
 
-    const listB = await request!
-      .get(`/api/worlds/${worldB.id}/articles`)
-      .set(asUser('user-b'))
-      .expect(200);
-    expect(listB.body.map((article: { id: string }) => article.id)).not.toContain(created.body.article.id);
+    await expectTenantListExcludes<Array<{ id: string }>>(request!, {
+      path: `/api/worlds/${worldB.id}/articles`,
+      userId: 'user-b',
+      hiddenId: created.body.article.id,
+      extractIds: (body) => body.map((article) => article.id),
+    });
 
-    await request!
-      .get(`/api/worlds/${worldB.id}/articles/${created.body.article.id}`)
-      .set(asUser('user-b'))
-      .expect(404);
+    await expectTenantHidden(request!, {
+      method: 'get',
+      path: `/api/worlds/${worldB.id}/articles/${created.body.article.id}`,
+      userId: 'user-b',
+    });
 
-    await request!
-      .patch(`/api/worlds/${worldB.id}/articles/${created.body.article.id}`)
-      .set(asUser('user-b'))
-      .send({ title: 'Borrowed Charter' })
-      .expect(404);
+    await expectCrossTenantMutationBlocked(request!, {
+      method: 'patch',
+      path: `/api/worlds/${worldB.id}/articles/${created.body.article.id}`,
+      userId: 'user-b',
+      body: { title: 'Borrowed Charter' },
+    });
   });
 
   it('creates runs, preserves lock rollback on conflict, and releases locks on cancel', async ({ skip }) => {
     if (skipIfUnavailable(skip)) return;
 
-    const { world, categories } = await createWorld('user-a', 'Forge Coast');
-    const { world: worldB } = await createWorld('user-b', 'Silent Foundry');
-    const first = await createArticle('user-a', world.id, categories[0].id, 'Signal Tower');
-    const second = await createArticle('user-a', world.id, categories[0].id, 'Mirror Gate');
+    const { world, categories } = await createTenantFixture(request!, 'user-a', 'Forge Coast');
+    const { world: worldB } = await createTenantFixture(request!, 'user-b', 'Silent Foundry');
+    const first = await createArticleFixture(request!, 'user-a', world.id, categories[0].id, 'Signal Tower');
+    const second = await createArticleFixture(request!, 'user-a', world.id, categories[0].id, 'Mirror Gate');
 
     const created = await request!
       .post(`/api/worlds/${world.id}/runs`)
@@ -184,6 +198,7 @@ describe('core routes on Postgres', () => {
       ),
     );
     expect(runRow?.owner_id).toBe('user-a');
+    await expectOwnedRows('runs', 'user-a', [created.body.id]);
 
     const locked = await runWithUserContext('user-a', () =>
       getDbClient().get<{ locked_by_run_id: string | null }>(
@@ -225,21 +240,24 @@ describe('core routes on Postgres', () => {
       .expect(200);
     expect(readRun.body.events.map((event: { id: string }) => event.id)).toContain(`event-${created.body.id}`);
 
-    const listRunsB = await request!
-      .get(`/api/worlds/${worldB.id}/runs`)
-      .set(asUser('user-b'))
-      .expect(200);
-    expect(listRunsB.body).toEqual([]);
+    await expectTenantListExcludes<Array<{ id: string }>>(request!, {
+      path: `/api/worlds/${worldB.id}/runs`,
+      userId: 'user-b',
+      hiddenId: created.body.id,
+      extractIds: (body) => body.map((run) => run.id),
+    });
 
-    await request!
-      .get(`/api/worlds/${worldB.id}/runs/${created.body.id}`)
-      .set(asUser('user-b'))
-      .expect(404);
+    await expectTenantHidden(request!, {
+      method: 'get',
+      path: `/api/worlds/${worldB.id}/runs/${created.body.id}`,
+      userId: 'user-b',
+    });
 
-    await request!
-      .post(`/api/worlds/${worldB.id}/runs/${created.body.id}/cancel`)
-      .set(asUser('user-b'))
-      .expect(404);
+    await expectCrossTenantMutationBlocked(request!, {
+      method: 'post',
+      path: `/api/worlds/${worldB.id}/runs/${created.body.id}/cancel`,
+      userId: 'user-b',
+    });
 
     const cancelled = await request!
       .post(`/api/worlds/${world.id}/runs/${created.body.id}/cancel`)
@@ -259,9 +277,9 @@ describe('core routes on Postgres', () => {
   it('captures and restores snapshots on Postgres', async ({ skip }) => {
     if (skipIfUnavailable(skip)) return;
 
-    const { world, categories } = await createWorld('user-a', 'Archive Keys');
-    const { world: worldB } = await createWorld('user-b', 'Blank Archive');
-    const created = await createArticle('user-a', world.id, categories[0].id, 'Original Gate');
+    const { world, categories } = await createTenantFixture(request!, 'user-a', 'Archive Keys');
+    const { world: worldB } = await createTenantFixture(request!, 'user-b', 'Blank Archive');
+    const created = await createArticleFixture(request!, 'user-a', world.id, categories[0].id, 'Original Gate');
     const articleId = created.article.id;
 
     const snapshot = await request!
@@ -304,33 +322,37 @@ describe('core routes on Postgres', () => {
       .expect(200);
     expect(snapshotsB.body).toEqual([]);
 
-    await request!
-      .get(`/api/worlds/${worldB.id}/snapshots/${snapshot.body.id}`)
-      .set(asUser('user-b'))
-      .expect(404);
+    await expectTenantHidden(request!, {
+      method: 'get',
+      path: `/api/worlds/${worldB.id}/snapshots/${snapshot.body.id}`,
+      userId: 'user-b',
+    });
 
-    await request!
-      .delete(`/api/worlds/${worldB.id}/snapshots/${snapshot.body.id}`)
-      .set(asUser('user-b'))
-      .expect(404);
+    await expectCrossTenantMutationBlocked(request!, {
+      method: 'delete',
+      path: `/api/worlds/${worldB.id}/snapshots/${snapshot.body.id}`,
+      userId: 'user-b',
+    });
 
-    await request!
-      .post(`/api/worlds/${world.id}/snapshots/${snapshot.body.id}/restore`)
-      .set(asUser('user-b'))
-      .expect(404);
+    await expectCrossTenantMutationBlocked(request!, {
+      method: 'post',
+      path: `/api/worlds/${world.id}/snapshots/${snapshot.body.id}/restore`,
+      userId: 'user-b',
+    });
 
-    await request!
-      .get(`/api/worlds/${world.id}/export`)
-      .set(asUser('user-b'))
-      .expect(404);
+    await expectTenantHidden(request!, {
+      method: 'get',
+      path: `/api/worlds/${world.id}/export`,
+      userId: 'user-b',
+    });
   });
 
   it('isolates name bank and entity mention routes by tenant', async ({ skip }) => {
     if (skipIfUnavailable(skip)) return;
 
-    const { world: worldA, categories } = await createWorld('user-a', 'Lexicon Gate');
-    const { world: worldB } = await createWorld('user-b', 'Empty Lexicon');
-    const article = await createArticle('user-a', worldA.id, categories[0].id, 'Mention Source');
+    const { world: worldA, categories } = await createTenantFixture(request!, 'user-a', 'Lexicon Gate');
+    const { world: worldB } = await createTenantFixture(request!, 'user-b', 'Empty Lexicon');
+    const article = await createArticleFixture(request!, 'user-a', worldA.id, categories[0].id, 'Mention Source');
 
     const savedNames = await request!
       .post(`/api/worlds/${worldA.id}/names`)
@@ -353,16 +375,19 @@ describe('core routes on Postgres', () => {
       .expect(200);
     expect(namesA.body.names.map((name: { id: string }) => name.id)).toContain(nameId);
 
-    const namesB = await request!
-      .get(`/api/worlds/${worldB.id}/names`)
-      .set(asUser('user-b'))
-      .expect(200);
-    expect(namesB.body.names).toEqual([]);
+    await expectTenantListExcludes<{ names: Array<{ id: string }> }>(request!, {
+      path: `/api/worlds/${worldB.id}/names`,
+      userId: 'user-b',
+      hiddenId: nameId,
+      extractIds: (body) => body.names.map((name) => name.id),
+    });
 
-    await request!
-      .delete(`/api/worlds/${worldB.id}/names/${nameId}`)
-      .set(asUser('user-b'))
-      .expect(204);
+    await expectCrossTenantMutationBlocked(request!, {
+      method: 'delete',
+      path: `/api/worlds/${worldB.id}/names/${nameId}`,
+      userId: 'user-b',
+      expectedStatuses: [204],
+    });
 
     const namesAfterDeleteAttempt = await request!
       .get(`/api/worlds/${worldA.id}/names`)
@@ -386,58 +411,21 @@ describe('core routes on Postgres', () => {
       .expect(200);
     expect(mentionsA.body.map((mention: { id: string }) => mention.id)).toContain(mentionId);
 
-    const mentionsB = await request!
-      .get(`/api/worlds/${worldB.id}/entity-mentions`)
-      .set(asUser('user-b'))
-      .expect(200);
-    expect(mentionsB.body).toEqual([]);
+    await expectTenantListExcludes<Array<{ id: string }>>(request!, {
+      path: `/api/worlds/${worldB.id}/entity-mentions`,
+      userId: 'user-b',
+      hiddenId: mentionId,
+      extractIds: (body) => body.map((mention) => mention.id),
+    });
 
-    await request!
-      .patch(`/api/worlds/${worldB.id}/entity-mentions/${mentionId}`)
-      .set(asUser('user-b'))
-      .send({ status: 'ignored' })
-      .expect(404);
+    await expectCrossTenantMutationBlocked(request!, {
+      method: 'patch',
+      path: `/api/worlds/${worldB.id}/entity-mentions/${mentionId}`,
+      userId: 'user-b',
+      body: { status: 'ignored' },
+    });
   });
 });
-
-function asUser(userId: string) {
-  return { 'x-worldarchitect-user-id': userId };
-}
-
-async function createWorld(
-  userId: string,
-  name: string,
-): Promise<{ world: { id: string; name: string }; categories: Array<{ id: string; name: string }> }> {
-  const res = await request!
-    .post('/api/worlds')
-    .set(asUser(userId))
-    .send({
-      name,
-      description: `A long enough description for ${name}.`,
-    })
-    .expect(201);
-  return { world: res.body.world, categories: res.body.categories };
-}
-
-async function createArticle(
-  userId: string,
-  worldId: string,
-  categoryId: string,
-  title: string,
-): Promise<{ article: { id: string; title: string }; version: { description: string } }> {
-  const res = await request!
-    .post(`/api/worlds/${worldId}/articles`)
-    .set(asUser(userId))
-    .send({
-      categoryId,
-      title,
-      introduction: 'A short archive note.',
-      description: 'The old gate records the first treaty.',
-      chronology: 'Year 1: the treaty is signed.',
-    })
-    .expect(201);
-  return res.body;
-}
 
 function skipIfUnavailable(skip: () => void): boolean {
   if (harness && request) return false;

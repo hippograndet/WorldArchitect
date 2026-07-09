@@ -27,6 +27,18 @@ RLS only provides that backstop when the runtime database role cannot bypass it.
 
 Local mode still behaves as a single-user app. It uses the implicit local user id and the same Postgres storage path, but it does not expose untrusted multi-user traffic.
 
+## Tenant Isolation Change Checklist
+
+Use this checklist for every new or changed route, service, background job, or table that touches tenant data:
+
+- Lists return only the current user's rows.
+- Direct raw IDs owned by another user return `404`.
+- Cross-user mutations return `404`, no-op, or an RLS failure.
+- Background-created rows inherit the owning user's `owner_id`.
+- New tenant-owned tables have application-level owner scoping, RLS policies, runtime-role grants, and restricted-role tests.
+
+Pay special attention to routes outside `/api/worlds/:wid/...`, raw IDs in params or bodies, export/import/snapshot/restore flows, agent callbacks, run-event reads, and any background work started from a request. Use the shared helpers in `server/src/test/tenantIsolation.ts` when adding Postgres route behavior tests.
+
 ## Provider Secrets
 
 - Users can enter provider keys in the app Settings screen.

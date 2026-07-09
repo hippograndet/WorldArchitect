@@ -158,6 +158,8 @@ World ZIP export is a portable content export, not a full database backup. Use P
 - Keep `ALLOW_DEV_AUTH_HEADER` unset in production.
 - Use a restricted runtime Postgres role in `DATABASE_URL`; do not use a superuser or any role with `BYPASSRLS`.
 - Use an owner/migration Postgres role only through `MIGRATION_DATABASE_URL` or an explicit migration release step.
+- Run backups and restores with an owner, migration, or backup connection, not the restricted runtime URL.
+- After deploy, smoke-test two real users: user A creates data, user B cannot list it, and direct user A IDs return `404`.
 - Keep `TRUST_PROXY` correct for your host.
 - Keep rate limiting enabled in hosted mode.
 - Rotate provider keys if you suspect exposure.
