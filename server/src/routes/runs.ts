@@ -147,7 +147,7 @@ router.post('/:rid/pause', asyncHandler(async (req, res) => {
   // Takes effect at the next per-item queue boundary — the Forge graph's
   // dequeue node checks status before popping the next item, same
   // granularity forgeSlice.ts's client-side pauseForge already had.
-  await markRunStatus(run.id, 'paused');
+  await markRunStatus(worldId, ownerId, run.id, 'paused');
   res.json({ ...run, status: 'paused' });
 }));
 
@@ -167,7 +167,7 @@ router.post('/:rid/resume', asyncHandler(async (req, res) => {
     throw new AppError(409, 'RUN_NOT_PAUSED', 'Run is not currently paused');
   }
 
-  void resumeForgeRun({ worldId, runId: run.id }).catch((err) => {
+  void resumeForgeRun({ worldId, ownerId, runId: run.id }).catch((err) => {
     // eslint-disable-next-line no-console
     console.error(`Forge run ${run.id} crashed on resume`, err);
   });

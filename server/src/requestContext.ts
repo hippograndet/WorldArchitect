@@ -19,3 +19,8 @@ export function getContextUserId(): string | undefined {
 export function getContextRequestId(): string | undefined {
   return contextStorage.getStore()?.requestId;
 }
+
+export function runWithUserContext<T>(userId: string, fn: () => T): T {
+  const existing = contextStorage.getStore() ?? {};
+  return contextStorage.run({ ...existing, userId }, fn);
+}

@@ -4,6 +4,7 @@ import { closePgPool } from '../db/pgPool.js';
 import { resetDbClientForTests } from '../db/client.js';
 import { runPostgresMigrations } from '../db/storage.js';
 import { logger } from '../observability/logger.js';
+import { resetCheckpointerForTests } from '../agents/checkpointer.js';
 
 const { Client } = pg;
 const REQUIRE_POSTGRES = process.env.CI === 'true';
@@ -31,6 +32,7 @@ export async function setupPostgresTestHarness(prefix: string): Promise<Postgres
   const originalEnv = {
     APP_MODE: process.env.APP_MODE,
     DATABASE_URL: process.env.DATABASE_URL,
+    MIGRATION_DATABASE_URL: process.env.MIGRATION_DATABASE_URL,
     PROVIDER_SETTINGS_ENCRYPTION_KEY: process.env.PROVIDER_SETTINGS_ENCRYPTION_KEY,
     ALLOW_DEV_AUTH_HEADER: process.env.ALLOW_DEV_AUTH_HEADER,
     NODE_ENV: process.env.NODE_ENV,
@@ -62,9 +64,11 @@ export async function setupPostgresTestHarness(prefix: string): Promise<Postgres
   process.env.NODE_ENV = 'test';
   process.env.APP_MODE = 'hosted';
   process.env.DATABASE_URL = databaseUrl;
+  delete process.env.MIGRATION_DATABASE_URL;
   process.env.PROVIDER_SETTINGS_ENCRYPTION_KEY = 'test-postgres-provider-settings-key';
   process.env.ALLOW_DEV_AUTH_HEADER = '1';
   resetDbClientForTests();
+  resetCheckpointerForTests();
   await closePgPool();
 
   return {
@@ -73,6 +77,7 @@ export async function setupPostgresTestHarness(prefix: string): Promise<Postgres
     cleanup: async () => {
       await closePgPool();
       resetDbClientForTests();
+      resetCheckpointerForTests();
       try {
         await dropDatabase(admin, databaseName);
       } finally {

@@ -1,9 +1,10 @@
 import { readFileSync } from 'fs';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
-import type pg from 'pg';
+import pg from 'pg';
 import { getPgPool } from './pgPool.js';
 
+const { Client } = pg;
 const __dirname = dirname(fileURLToPath(import.meta.url));
 export const POSTGRES_MIGRATIONS = [
   '001_initial.sql',
@@ -11,6 +12,7 @@ export const POSTGRES_MIGRATIONS = [
   '003_runs.sql',
   '004_call_log_instrumentation.sql',
   '005_search_index.sql',
+  '006_row_level_security.sql',
 ] as const;
 
 export type StorageHealth = {
@@ -39,11 +41,23 @@ class PostgresStorageAdapter implements StorageAdapter {
 
   async migrate(): Promise<void> {
     if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is required for Postgres migrations');
-    const client = await getPgPool().connect();
+    const migrationUrl = process.env.MIGRATION_DATABASE_URL;
+    if (migrationUrl && migrationUrl !== process.env.DATABASE_URL) {
+      const client = new Client({ connectionString: migrationUrl });
+      try {
+        await client.connect();
+        await runPostgresMigrations(client);
+      } finally {
+        await client.end();
+      }
+      return;
+    }
+
+    const pooledClient = await getPgPool().connect();
     try {
-      await runPostgresMigrations(client);
+      await runPostgresMigrations(pooledClient);
     } finally {
-      client.release();
+      pooledClient.release();
     }
   }
 }

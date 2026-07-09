@@ -14,6 +14,7 @@ export default defineConfig({
       'src/agents/graphs/nodes.test.ts',
       'src/agents/toolAccess.test.ts',
       'src/db/postgresMigrations.test.ts',
+      'src/db/rlsRestrictedRole.test.ts',
       'src/prompts/promptSecurity.test.ts',
       'src/providers/anthropic.test.ts',
       'src/providers/safety.test.ts',

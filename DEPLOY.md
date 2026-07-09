@@ -13,7 +13,8 @@ Railway and Fly.io are also supported deployment targets, but the Render + Neon 
 ## Required Environment
 
 - `APP_MODE=hosted`
-- `DATABASE_URL=postgres://...`
+- `DATABASE_URL=postgres://...` - runtime app role; must not be a superuser and must not have `BYPASSRLS`
+- `MIGRATION_DATABASE_URL=postgres://...` - owner/migration role; can run schema migrations and grant runtime privileges
 - `PUBLIC_BASE_URL=https://your-domain.example`
 - `PROVIDER_SETTINGS_ENCRYPTION_KEY=<long random secret>`
 - `CLERK_JWKS_URL=https://<your-clerk-domain>/.well-known/jwks.json`
@@ -23,6 +24,38 @@ Railway and Fly.io are also supported deployment targets, but the Render + Neon 
 - Optional provider env overrides: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GROQ_API_KEY`, `OLLAMA_BASE_URL`
 
 For local hosted-mode smoke tests only, set `ALLOW_DEV_AUTH_HEADER=1` and send `x-worldarchitect-user-id`.
+
+## Postgres Roles And RLS
+
+Hosted deployments should use two Postgres roles:
+
+- **Migration/owner role** - owns schema changes and is used only by `MIGRATION_DATABASE_URL`.
+- **Runtime app role** - used by `DATABASE_URL`, has table/function privileges, and must be `NOSUPERUSER NOBYPASSRLS`.
+
+WorldArchitect enables Postgres Row-Level Security (RLS) on tenant-owned tables. The runtime role must not bypass RLS; otherwise the database backstop is weakened. The server sets `app.current_owner_id` for request queries, and RLS policies compare rows against that value.
+
+Forge uses LangGraph Postgres checkpointing for resumable background runs. Migrations create those checkpoint tables before runtime traffic uses them. The rows are also protected: the app applies RLS to LangGraph checkpoint tables and scopes them through their parent `runs` row.
+
+A minimal setup flow is:
+
+```sql
+CREATE ROLE worldarchitect_app
+  LOGIN PASSWORD 'replace-with-a-long-random-password'
+  NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION;
+```
+
+Then run the runtime grants with an owner/migration connection. On a fresh database this can be done before the first app start; the script also sets default privileges for tables/functions created by later migrations. On an existing database, run it after migrations too.
+
+```sh
+psql "$MIGRATION_DATABASE_URL" \
+  -v db_name=worldarchitect \
+  -v app_role=worldarchitect_app \
+  -f ops/postgres/grant_runtime_role.sql
+```
+
+Finally set the hosted app's `DATABASE_URL` to the `worldarchitect_app` connection string and `MIGRATION_DATABASE_URL` to the owner/migration connection string. For small self-hosted deployments, startup can run migrations before the app begins serving; for stricter deployments, run migrations as a separate release step and keep the runtime service on the restricted `DATABASE_URL`.
+
+When `APP_MODE=hosted` and `ALLOW_DEV_AUTH_HEADER` is not enabled, startup refuses to run with a runtime database role that is superuser or `BYPASSRLS`.
 
 ## Pool Sizing
 
@@ -45,8 +78,8 @@ Use this path for the first self-hosted beta deployment.
 ### 1. Create Neon Postgres
 
 1. Create a Neon project.
-2. Copy the pooled connection string.
-3. Use the pooled URL as `DATABASE_URL`.
+2. Create or choose an owner/migration connection string for `MIGRATION_DATABASE_URL`.
+3. Create a restricted runtime role, run `ops/postgres/grant_runtime_role.sql`, and use that role's pooled URL as `DATABASE_URL`.
 4. Keep the database region near your app host region.
 
 Use a pooled connection string when possible. Keep `PGPOOL_MAX` conservative for small plans; the default `5` is a good first value for one Render instance.
@@ -78,7 +111,8 @@ Set these environment variables in Render:
 
 ```sh
 APP_MODE=hosted
-DATABASE_URL=postgres://...
+DATABASE_URL=postgres://worldarchitect_app:...@...
+MIGRATION_DATABASE_URL=postgres://owner-role:...@...
 PUBLIC_BASE_URL=https://your-render-or-custom-domain.example
 STATIC_DIR=client/dist
 PROVIDER_SETTINGS_ENCRYPTION_KEY=<64-hex-character-random-secret>
@@ -138,10 +172,12 @@ curl http://localhost:3001/health
 ## Railway
 
 1. Create a Railway project from this repository.
-2. Add a Postgres service and copy its connection string to `DATABASE_URL`.
-3. Set the required environment variables above.
-4. Railway will build with `railway.toml` and use `/health`.
-5. Add your custom domain in Railway, then create the DNS record Railway shows.
+2. Add a Postgres service.
+3. Create a restricted runtime role, grant it runtime privileges, and set its connection string as `DATABASE_URL`.
+4. Set the owner/migration connection string as `MIGRATION_DATABASE_URL`.
+5. Set the required environment variables above.
+6. Railway will build with `railway.toml` and use `/health`.
+7. Add your custom domain in Railway, then create the DNS record Railway shows.
 
 ## Fly.io
 
@@ -149,7 +185,8 @@ curl http://localhost:3001/health
 2. Set secrets:
 
 ```sh
-fly secrets set APP_MODE=hosted DATABASE_URL='postgres://...' \
+fly secrets set APP_MODE=hosted DATABASE_URL='postgres://worldarchitect_app:...' \
+  MIGRATION_DATABASE_URL='postgres://owner-role:...' \
   PUBLIC_BASE_URL='https://worldarchitect.example' \
   PROVIDER_SETTINGS_ENCRYPTION_KEY='replace-with-random-secret' \
   CLERK_JWKS_URL='https://example.clerk.accounts.dev/.well-known/jwks.json' \
@@ -183,16 +220,16 @@ For hosted mode, Postgres is the system of record. Configure managed backups in 
 Before major upgrades, create a manual backup from your database provider. A basic custom-format `pg_dump` backup looks like:
 
 ```sh
-pg_dump --format=custom --file=worldarchitect-backup.dump "$DATABASE_URL"
+pg_dump --format=custom --file=worldarchitect-backup.dump "$MIGRATION_DATABASE_URL"
 ```
 
 Restore into a fresh empty database with:
 
 ```sh
-pg_restore --clean --if-exists --no-owner --dbname="$DATABASE_URL" worldarchitect-backup.dump
+pg_restore --clean --if-exists --no-owner --dbname="$MIGRATION_DATABASE_URL" worldarchitect-backup.dump
 ```
 
-If your host only supports SQL-format backups, `pg_dump "$DATABASE_URL" > worldarchitect-backup.sql` and `psql "$DATABASE_URL" < worldarchitect-backup.sql` also work, but custom-format backups are easier to restore selectively.
+Use an owner, migration, or dedicated backup connection for full backups and restores. The restricted runtime `DATABASE_URL` is protected by RLS and, without a tenant context, should not be able to read tenant rows. If your host only supports SQL-format backups, `pg_dump "$MIGRATION_DATABASE_URL" > worldarchitect-backup.sql` and `psql "$MIGRATION_DATABASE_URL" < worldarchitect-backup.sql` also work, but custom-format backups are easier to restore selectively.
 
 World ZIP export downloads Markdown files for a world's current articles. It includes article title, category, status, template type, temporal anchor, introduction, description, chronology, and summary fallback. It does not replace Postgres backups because it does not include the full database: article version history, snapshots, pending drafts, provider settings, call logs, usage/cost settings, issues, warnings, user ownership rows, and other internal metadata may be absent.
 
@@ -201,6 +238,9 @@ Provider settings live in the database. User-entered provider keys are stored en
 ## Troubleshooting
 
 - `/health` fails: verify `APP_MODE`, `DATABASE_URL`, and database network access.
+- Migrations fail in hosted mode: verify `MIGRATION_DATABASE_URL` uses the owner/migration role, not the restricted app role.
+- Server refuses to start because the database role can bypass RLS: point `DATABASE_URL` at the restricted runtime role, not the owner/migration role.
+- Tenant data appears missing after deploy: verify the request/job tenant id, the runtime `DATABASE_URL` role grants from `ops/postgres/grant_runtime_role.sql`, and that `DATABASE_URL` does not have `BYPASSRLS`.
 - Sign-in screen does not load: verify `VITE_CLERK_PUBLISHABLE_KEY` was present at build time.
 - API returns auth errors: verify `CLERK_ISSUER`, `CLERK_JWKS_URL`, Clerk allowed origins, and the browser domain.
 - Browser CORS errors: verify `PUBLIC_BASE_URL` exactly matches the deployed `https://` origin.

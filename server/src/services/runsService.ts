@@ -97,10 +97,17 @@ export async function listRuns(worldId: string, ownerId: string): Promise<RunRow
   return rows.map(parseRun);
 }
 
-export async function markRunStatus(runId: string, status: string, errorMessage?: string): Promise<void> {
+export async function markRunStatus(
+  worldId: string,
+  ownerId: string,
+  runId: string,
+  status: string,
+  errorMessage?: string,
+): Promise<void> {
   await getDbClient().run(
-    `UPDATE runs SET status = ?, error_message = ?, updated_at = ? WHERE id = ?`,
-    [status, errorMessage ?? null, Date.now(), runId],
+    `UPDATE runs SET status = ?, error_message = ?, updated_at = ?
+     WHERE id = ? AND world_id = ? AND owner_id = ?`,
+    [status, errorMessage ?? null, Date.now(), runId, worldId, ownerId],
   );
 }
 
@@ -135,32 +142,41 @@ export async function listRunEvents(worldId: string, ownerId: string, runId: str
 }
 
 /** Surfaces the Forge graph's queue progress for the client's forgeCompleted/forgeTotal UI. */
-export async function updateRunProgress(runId: string, itemsCompleted: number, itemsTotal: number): Promise<void> {
+export async function updateRunProgress(
+  worldId: string,
+  ownerId: string,
+  runId: string,
+  itemsCompleted: number,
+  itemsTotal: number,
+): Promise<void> {
   await getDbClient().run(
-    `UPDATE runs SET items_completed = ?, items_total = ?, updated_at = ? WHERE id = ?`,
-    [itemsCompleted, itemsTotal, Date.now(), runId],
+    `UPDATE runs SET items_completed = ?, items_total = ?, updated_at = ?
+     WHERE id = ? AND world_id = ? AND owner_id = ?`,
+    [itemsCompleted, itemsTotal, Date.now(), runId, worldId, ownerId],
   );
 }
 
-export async function bumpRunBudget(runId: string, deltaTokens: number): Promise<void> {
+export async function bumpRunBudget(worldId: string, ownerId: string, runId: string, deltaTokens: number): Promise<void> {
   await getDbClient().run(
-    `UPDATE runs SET budget_used = budget_used + ?, updated_at = ? WHERE id = ?`,
-    [deltaTokens, Date.now(), runId],
+    `UPDATE runs SET budget_used = budget_used + ?, updated_at = ?
+     WHERE id = ? AND world_id = ? AND owner_id = ?`,
+    [deltaTokens, Date.now(), runId, worldId, ownerId],
   );
 }
 
-export async function releaseLocks(worldId: string, runId: string, ownerId?: string): Promise<void> {
+export async function releaseLocks(worldId: string, ownerId: string, runId: string): Promise<void> {
   await getDbClient().run(
-    `UPDATE articles SET locked_by_run_id = NULL WHERE world_id = ? AND locked_by_run_id = ?${ownerId ? ' AND owner_id = ?' : ''}`,
-    ownerId ? [worldId, runId, ownerId] : [worldId, runId],
+    `UPDATE articles SET locked_by_run_id = NULL
+     WHERE world_id = ? AND owner_id = ? AND locked_by_run_id = ?`,
+    [worldId, ownerId, runId],
   );
 }
 
 export async function cancelRun(worldId: string, ownerId: string, runId: string): Promise<RunRow | null> {
   const run = await getRun(worldId, ownerId, runId);
   if (!run) return null;
-  await markRunStatus(runId, 'stopped');
-  await releaseLocks(worldId, runId, ownerId);
+  await markRunStatus(worldId, ownerId, runId, 'stopped');
+  await releaseLocks(worldId, ownerId, runId);
   return getRun(worldId, ownerId, runId);
 }
 
@@ -171,10 +187,10 @@ export async function cancelRun(worldId: string, ownerId: string, runId: string)
  * defense-in-depth layer at the actual write chokepoint — this one exists
  * purely to avoid wasting a provider call on a request that would fail anyway.
  */
-export async function assertArticleUnlocked(worldId: string, articleId: string): Promise<void> {
+export async function assertArticleUnlocked(worldId: string, ownerId: string, articleId: string): Promise<void> {
   const row = await getDbClient().get<{ locked_by_run_id: string | null }>(
-    `SELECT locked_by_run_id FROM articles WHERE id = ? AND world_id = ?`,
-    [articleId, worldId],
+    `SELECT locked_by_run_id FROM articles WHERE id = ? AND world_id = ? AND owner_id = ?`,
+    [articleId, worldId, ownerId],
   );
   if (row?.locked_by_run_id) {
     throw new AppError(409, 'ARTICLE_LOCKED', 'This article is locked by an in-progress run.', { articleId });

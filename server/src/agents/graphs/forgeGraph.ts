@@ -6,6 +6,7 @@ import { acceptDraft, batchCreateChildArticles } from '../../services/articlesSe
 import { getRun, markRunStatus, bumpRunBudget, releaseLocks, updateRunProgress } from '../../services/runsService.js';
 import { recordArticleIssues } from '../../services/issueRecorder.js';
 import { getCheckpointer } from '../checkpointer.js';
+import { runWithUserContext } from '../../requestContext.js';
 import { runSummarizeGraph } from './pipelines/summarize.js';
 import { runProposeGraph } from './pipelines/propose.js';
 import { runProposeIdeasGraph } from './pipelines/proposeIdeas.js';
@@ -69,10 +70,13 @@ async function getChildCount(ownerId: string, articleId: string): Promise<number
   return row?.count ?? 0;
 }
 
-async function logEvent(runId: string, step: string, title: string, ok: boolean, message?: string): Promise<void> {
+async function logEvent(state: Pick<ForgeState, 'runId' | 'worldId' | 'ownerId'>, step: string, title: string, ok: boolean, message?: string): Promise<void> {
   await getDbClient().run(
-    `INSERT INTO run_events (id, run_id, step, title, ok, message, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [nanoid(), runId, step, title, ok ? 1 : 0, message ?? null, Date.now()],
+    `INSERT INTO run_events (id, run_id, step, title, ok, message, created_at)
+     SELECT ?, r.id, ?, ?, ?, ?, ?
+       FROM runs r
+      WHERE r.id = ? AND r.world_id = ? AND r.owner_id = ?`,
+    [nanoid(), step, title, ok ? 1 : 0, message ?? null, Date.now(), state.runId, state.worldId, state.ownerId],
   );
 }
 
@@ -151,7 +155,7 @@ async function inceptionNode(state: ForgeState): Promise<Partial<ForgeState>> {
     const existingIntro = await getCurrentIntro(state.worldId, state.ownerId, item.articleId);
     const hasExistingIntro = existingIntro.trim().length > 0;
     if (hasExistingIntro && (state.forgeInceptionExistingMode === 'skip_existing' || state.forgeInceptionExistingMode === 'create')) {
-      await logEvent(state.runId, 'Inception', item.title, true, 'Skipped existing introduction.');
+      await logEvent(state, 'Inception', item.title, true, 'Skipped existing introduction.');
       return { inceptionIntro: existingIntro, currentItemStepsDone: [...state.currentItemStepsDone, 'inception'] };
     }
 
@@ -163,7 +167,7 @@ async function inceptionNode(state: ForgeState): Promise<Partial<ForgeState>> {
       pipelineRunId: state.runId,
       runGroundingCheck: state.forgeUseGroundingCheck,
     });
-    await bumpRunBudget(state.runId, result.tokensIn + result.tokensOut);
+    await bumpRunBudget(state.worldId, state.ownerId, state.runId, result.tokensIn + result.tokensOut);
 
     if (state.forgeUseGroundingCheck && result.groundingCheck && !result.groundingCheck.approved) {
       await recordArticleIssues(getDbClient(), {
@@ -179,7 +183,7 @@ async function inceptionNode(state: ForgeState): Promise<Partial<ForgeState>> {
           suggestion: c.correction,
         })),
       });
-      await logEvent(state.runId, 'Inception', item.title, false, 'Grounding check failed after revision — introduction not grounded in parent/world context.');
+      await logEvent(state, 'Inception', item.title, false, 'Grounding check failed after revision — introduction not grounded in parent/world context.');
       // Deliberately skip upsertEntry(): an ungrounded intro must never be
       // committed to the World Bible, since Expansion/Branching and every
       // descendant would otherwise read it as trusted context.
@@ -189,16 +193,16 @@ async function inceptionNode(state: ForgeState): Promise<Partial<ForgeState>> {
     const introWordCount = countWords(result.introduction);
     if (introWordCount < 15) {
       const message = `Inception generated only ${introWordCount} word${introWordCount === 1 ? '' : 's'}; expected at least 15 words for a usable introduction. Nothing was saved.`;
-      await logEvent(state.runId, 'Inception', item.title, false, message);
+      await logEvent(state, 'Inception', item.title, false, message);
       return { lastStepError: { step: 'Inception', fatal: false, message } };
     }
 
     await upsertEntry(getDbClient(), state.worldId, item.articleId, result.introduction);
-    await logEvent(state.runId, 'Inception', item.title, true, `Saved ${introWordCount}-word introduction.`);
+    await logEvent(state, 'Inception', item.title, true, `Saved ${introWordCount}-word introduction.`);
     return { inceptionIntro: result.introduction, currentItemStepsDone: [...state.currentItemStepsDone, 'inception'] };
   } catch (err) {
     const fatal = isFatal(err);
-    await logEvent(state.runId, 'Inception', item.title, false, errorMessage(err));
+    await logEvent(state, 'Inception', item.title, false, errorMessage(err));
     return { lastStepError: { step: 'Inception', fatal, message: errorMessage(err) }, ...(fatal ? { signal: 'error' as const } : {}) };
   }
 }
@@ -210,7 +214,7 @@ async function expansionNode(state: ForgeState): Promise<Partial<ForgeState>> {
   try {
     const existingDescription = await getCurrentDescription(state.ownerId, item.articleId);
     if (existingDescription.trim() && (state.forgeExpansionExistingMode === 'skip_existing' || state.forgeExpansionExistingMode === 'create')) {
-      await logEvent(state.runId, 'Expansion', item.title, true, 'Skipped existing description.');
+      await logEvent(state, 'Expansion', item.title, true, 'Skipped existing description.');
       return { currentItemStepsDone: [...state.currentItemStepsDone, 'expansion'] };
     }
 
@@ -224,7 +228,7 @@ async function expansionNode(state: ForgeState): Promise<Partial<ForgeState>> {
     });
     const selectedIndex = proposeResult.autoSelectedIndex ?? 0;
     const selectedProposal = proposeResult.proposals[selectedIndex];
-    await bumpRunBudget(state.runId, proposeResult.tokensIn + proposeResult.tokensOut);
+    await bumpRunBudget(state.worldId, state.ownerId, state.runId, proposeResult.tokensIn + proposeResult.tokensOut);
 
     let selectedIdeas: Awaited<ReturnType<typeof runProposeIdeasGraph>>['ideas'] | undefined;
     if (state.forgeUseOracle && state.inceptionIntro?.trim() && selectedProposal) {
@@ -238,7 +242,7 @@ async function expansionNode(state: ForgeState): Promise<Partial<ForgeState>> {
           pipelineRunId: state.runId,
         });
         selectedIdeas = ideasResult.ideas;
-        await bumpRunBudget(state.runId, ideasResult.tokensIn + ideasResult.tokensOut);
+        await bumpRunBudget(state.worldId, state.ownerId, state.runId, ideasResult.tokensIn + ideasResult.tokensOut);
       } catch {
         // Oracle failure is non-fatal — Scribe runs without ideas, same as the client loop.
       }
@@ -257,7 +261,7 @@ async function expansionNode(state: ForgeState): Promise<Partial<ForgeState>> {
       runContinuityEditor: state.forgeUseContinuityEditor,
       pipelineRunId: state.runId,
     });
-    await bumpRunBudget(state.runId, expandResult.tokensIn + expandResult.tokensOut);
+    await bumpRunBudget(state.worldId, state.ownerId, state.runId, expandResult.tokensIn + expandResult.tokensOut);
 
     await persistExpandDraft({
       articleId: item.articleId,
@@ -267,11 +271,11 @@ async function expansionNode(state: ForgeState): Promise<Partial<ForgeState>> {
     });
     await acceptDraft({ worldId: state.worldId, articleId: item.articleId, ownerId: state.ownerId, activeRunId: state.runId });
 
-    await logEvent(state.runId, 'Expansion', item.title, true, 'Description saved.');
+    await logEvent(state, 'Expansion', item.title, true, 'Description saved.');
     return { currentItemStepsDone: [...state.currentItemStepsDone, 'expansion'] };
   } catch (err) {
     const fatal = isFatal(err);
-    await logEvent(state.runId, 'Expansion', item.title, false, errorMessage(err));
+    await logEvent(state, 'Expansion', item.title, false, errorMessage(err));
     return { lastStepError: { step: 'Expansion', fatal, message: errorMessage(err) }, ...(fatal ? { signal: 'error' as const } : {}) };
   }
 }
@@ -283,7 +287,7 @@ async function branchingNode(state: ForgeState): Promise<Partial<ForgeState>> {
   try {
     const existingChildren = await getChildCount(state.ownerId, item.articleId);
     if (existingChildren > 0 && state.forgeBranchingExistingMode === 'skip_if_children') {
-      await logEvent(state.runId, 'Branching', item.title, true, `Skipped branching because ${existingChildren} child article${existingChildren === 1 ? '' : 's'} already exist.`);
+      await logEvent(state, 'Branching', item.title, true, `Skipped branching because ${existingChildren} child article${existingChildren === 1 ? '' : 's'} already exist.`);
       return { currentItemStepsDone: [...state.currentItemStepsDone, 'branching'] };
     }
 
@@ -299,7 +303,7 @@ async function branchingNode(state: ForgeState): Promise<Partial<ForgeState>> {
       pipelineRunId: state.runId,
       runDedupCheck: state.forgeUseDedupCheck,
     });
-    await bumpRunBudget(state.runId, childResult.tokensIn + childResult.tokensOut);
+    await bumpRunBudget(state.worldId, state.ownerId, state.runId, childResult.tokensIn + childResult.tokensOut);
 
     if (childResult.dedupCheck?.duplicates.length) {
       await recordArticleIssues(getDbClient(), {
@@ -336,9 +340,9 @@ async function branchingNode(state: ForgeState): Promise<Partial<ForgeState>> {
     }));
 
     const shouldQueueChildren = state.forgeContinuationMode === 'recursive';
-    await logEvent(state.runId, 'Branching', item.title, true, `Created ${newItems.length} child article${newItems.length === 1 ? '' : 's'}.`);
+    await logEvent(state, 'Branching', item.title, true, `Created ${newItems.length} child article${newItems.length === 1 ? '' : 's'}.`);
     const total = shouldQueueChildren ? state.total + newItems.length : state.total;
-    await updateRunProgress(state.runId, state.completed, total);
+    await updateRunProgress(state.worldId, state.ownerId, state.runId, state.completed, total);
     return {
       queue: shouldQueueChildren
         ? (state.forgeMode === 'breadth' ? [...state.queue, ...newItems] : [...newItems, ...state.queue])
@@ -348,14 +352,14 @@ async function branchingNode(state: ForgeState): Promise<Partial<ForgeState>> {
     };
   } catch (err) {
     const fatal = isFatal(err);
-    await logEvent(state.runId, 'Branching', item.title, false, errorMessage(err));
+    await logEvent(state, 'Branching', item.title, false, errorMessage(err));
     return { lastStepError: { step: 'Branching', fatal, message: errorMessage(err) }, ...(fatal ? { signal: 'error' as const } : {}) };
   }
 }
 
 async function finishItemNode(state: ForgeState): Promise<Partial<ForgeState>> {
   const completed = state.completed + 1;
-  await updateRunProgress(state.runId, completed, state.total);
+  await updateRunProgress(state.worldId, state.ownerId, state.runId, completed, state.total);
   return { completed, currentItem: undefined, currentItemStepsDone: [] };
 }
 
@@ -433,18 +437,18 @@ function computeRecursionLimit(forgeMaxDepth: number, forgeMaxChildren: number):
   return Math.min(20_000, totalItems * 5 + 20);
 }
 
-async function finalizeRun(runId: string, worldId: string, ownerId: string | undefined, result: ForgeState): Promise<void> {
+async function finalizeRun(runId: string, worldId: string, ownerId: string, result: ForgeState): Promise<void> {
   switch (result.signal) {
     case 'completed':
-      await markRunStatus(runId, 'completed');
-      await releaseLocks(worldId, runId, ownerId);
+      await markRunStatus(worldId, ownerId, runId, 'completed');
+      await releaseLocks(worldId, ownerId, runId);
       break;
     case 'paused':
-      await markRunStatus(runId, 'paused');
+      await markRunStatus(worldId, ownerId, runId, 'paused');
       break;
     case 'error':
-      await markRunStatus(runId, 'failed', result.lastStepError?.message);
-      await releaseLocks(worldId, runId, ownerId);
+      await markRunStatus(worldId, ownerId, runId, 'failed', result.lastStepError?.message);
+      await releaseLocks(worldId, ownerId, runId);
       break;
     case 'stopped':
       // Already set to 'stopped' + unlocked by runsService.cancelRun.
@@ -478,79 +482,83 @@ export async function startForgeRun(params: {
   forgeExpansionExistingMode?: ForgeExistingContentMode;
   forgeBranchingExistingMode?: ForgeBranchingExistingMode;
 }): Promise<void> {
-  await markRunStatus(params.runId, 'running');
-  await updateRunProgress(params.runId, 0, 1);
-  const graph = await getForgeGraph();
-  const config = {
-    configurable: { thread_id: params.runId },
-    recursionLimit: computeRecursionLimit(params.forgeMaxDepth, params.forgeMaxChildren),
-  };
+  await runWithUserContext(params.ownerId, async () => {
+    await markRunStatus(params.worldId, params.ownerId, params.runId, 'running');
+    await updateRunProgress(params.worldId, params.ownerId, params.runId, 0, 1);
+    const graph = await getForgeGraph();
+    const config = {
+      configurable: { thread_id: params.runId },
+      recursionLimit: computeRecursionLimit(params.forgeMaxDepth, params.forgeMaxChildren),
+    };
 
-  try {
-    const result = await graph.invoke(
-      {
-        worldId: params.worldId,
-        runId: params.runId,
-        ownerId: params.ownerId,
-        ...contractState(forgeContract(params.articleId, params.forgeMaxDepth)),
-        contextDepth: params.contextDepth,
-        branchingMode: params.branchingMode,
-        forgeMode: params.forgeMode,
-        forgeMaxDepth: params.forgeMaxDepth,
-        forgeMaxChildren: params.forgeMaxChildren,
-        forgeUseOracle: params.forgeUseOracle,
-        forgeUseContinuityEditor: params.forgeUseContinuityEditor,
-        forgeUseGroundingCheck: params.forgeUseGroundingCheck,
-        forgeUseDedupCheck: params.forgeUseDedupCheck,
-        forgeContinuationMode: params.forgeContinuationMode ?? 'recursive',
-        forgeInceptionExistingMode: params.forgeInceptionExistingMode ?? 'improve',
-        forgeExpansionExistingMode: params.forgeExpansionExistingMode ?? 'improve',
-        forgeBranchingExistingMode: params.forgeBranchingExistingMode ?? 'append_deduped',
-        queue: [{ articleId: params.articleId, title: params.articleTitle, depth: 0, startStep: params.startStep }],
-        total: 1,
-      },
-      config,
-    );
-    await finalizeRun(params.runId, params.worldId, params.ownerId, result as ForgeState);
-  } catch (err) {
-    if (err instanceof GraphRecursionError) {
-      await markRunStatus(params.runId, 'failed', 'Forge run exceeded its recursion limit.');
-      await releaseLocks(params.worldId, params.runId, params.ownerId);
-      return;
+    try {
+      const result = await graph.invoke(
+        {
+          worldId: params.worldId,
+          runId: params.runId,
+          ownerId: params.ownerId,
+          ...contractState(forgeContract(params.articleId, params.forgeMaxDepth)),
+          contextDepth: params.contextDepth,
+          branchingMode: params.branchingMode,
+          forgeMode: params.forgeMode,
+          forgeMaxDepth: params.forgeMaxDepth,
+          forgeMaxChildren: params.forgeMaxChildren,
+          forgeUseOracle: params.forgeUseOracle,
+          forgeUseContinuityEditor: params.forgeUseContinuityEditor,
+          forgeUseGroundingCheck: params.forgeUseGroundingCheck,
+          forgeUseDedupCheck: params.forgeUseDedupCheck,
+          forgeContinuationMode: params.forgeContinuationMode ?? 'recursive',
+          forgeInceptionExistingMode: params.forgeInceptionExistingMode ?? 'improve',
+          forgeExpansionExistingMode: params.forgeExpansionExistingMode ?? 'improve',
+          forgeBranchingExistingMode: params.forgeBranchingExistingMode ?? 'append_deduped',
+          queue: [{ articleId: params.articleId, title: params.articleTitle, depth: 0, startStep: params.startStep }],
+          total: 1,
+        },
+        config,
+      );
+      await finalizeRun(params.runId, params.worldId, params.ownerId, result as ForgeState);
+    } catch (err) {
+      if (err instanceof GraphRecursionError) {
+        await markRunStatus(params.worldId, params.ownerId, params.runId, 'failed', 'Forge run exceeded its recursion limit.');
+        await releaseLocks(params.worldId, params.ownerId, params.runId);
+        return;
+      }
+      await markRunStatus(params.worldId, params.ownerId, params.runId, 'failed', errorMessage(err));
+      await releaseLocks(params.worldId, params.ownerId, params.runId);
     }
-    await markRunStatus(params.runId, 'failed', errorMessage(err));
-    await releaseLocks(params.worldId, params.runId, params.ownerId);
-  }
+  });
 }
 
-export async function resumeForgeRun(params: { runId: string; worldId: string }): Promise<void> {
-  const graph = await getForgeGraph();
-  const config = { configurable: { thread_id: params.runId } };
+export async function resumeForgeRun(params: { runId: string; worldId: string; ownerId: string }): Promise<void> {
+  await runWithUserContext(params.ownerId, async () => {
+    const graph = await getForgeGraph();
+    const config = { configurable: { thread_id: params.runId } };
 
-  const snapshot = await graph.getState(config);
-  const restored = snapshot.values as ForgeState;
-  if (!restored?.queue) {
-    await markRunStatus(params.runId, 'failed', 'No checkpointed state found to resume from.');
-    return;
-  }
-
-  await markRunStatus(params.runId, 'running');
-  const invokeConfig = {
-    ...config,
-    recursionLimit: computeRecursionLimit(restored.forgeMaxDepth, restored.forgeMaxChildren),
-  };
-
-  try {
-    const result = await graph.invoke(restored, invokeConfig);
-    const finalState = result as ForgeState;
-    await finalizeRun(params.runId, params.worldId, finalState.ownerId, finalState);
-  } catch (err) {
-    if (err instanceof GraphRecursionError) {
-      await markRunStatus(params.runId, 'failed', 'Forge run exceeded its recursion limit.');
-      await releaseLocks(params.worldId, params.runId, restored.ownerId);
+    const snapshot = await graph.getState(config);
+    const restored = snapshot.values as ForgeState;
+    if (!restored?.queue) {
+      await markRunStatus(params.worldId, params.ownerId, params.runId, 'failed', 'No checkpointed state found to resume from.');
       return;
     }
-    await markRunStatus(params.runId, 'failed', errorMessage(err));
-    await releaseLocks(params.worldId, params.runId, restored.ownerId);
-  }
+
+    await markRunStatus(params.worldId, params.ownerId, params.runId, 'running');
+    const invokeConfig = {
+      ...config,
+      recursionLimit: computeRecursionLimit(restored.forgeMaxDepth, restored.forgeMaxChildren),
+    };
+
+    try {
+      const result = await graph.invoke(restored, invokeConfig);
+      const finalState = result as ForgeState;
+      await finalizeRun(params.runId, params.worldId, params.ownerId, finalState);
+    } catch (err) {
+      if (err instanceof GraphRecursionError) {
+        await markRunStatus(params.worldId, params.ownerId, params.runId, 'failed', 'Forge run exceeded its recursion limit.');
+        await releaseLocks(params.worldId, params.ownerId, params.runId);
+        return;
+      }
+      await markRunStatus(params.worldId, params.ownerId, params.runId, 'failed', errorMessage(err));
+      await releaseLocks(params.worldId, params.ownerId, params.runId);
+    }
+  });
 }

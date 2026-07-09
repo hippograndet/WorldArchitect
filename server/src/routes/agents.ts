@@ -91,8 +91,8 @@ router.post('/propose', requireLLM, checkCap, asyncHandler(async (req, res) => {
   const parse = ProposeSchema.safeParse(req.body);
   if (!parse.success) throw new AppError(400, 'VALIDATION_ERROR', 'Invalid request', parse.error.flatten().fieldErrors);
 
-  const { worldId } = requireTenantContext(req);
-  await assertArticleUnlocked(worldId, parse.data.articleId);
+  const { worldId, ownerId } = requireTenantContext(req);
+  await assertArticleUnlocked(worldId, ownerId, parse.data.articleId);
   const result = await coordinator.propose(
     worldId,
     parse.data.articleId,
@@ -136,7 +136,7 @@ router.post('/expand', requireLLM, checkCap, asyncHandler(async (req, res) => {
   if (!selectedProposal) throw new AppError(400, 'VALIDATION_ERROR', 'Invalid selectedProposalIndex');
 
   const { worldId, ownerId } = requireTenantContext(req);
-  await assertArticleUnlocked(worldId, articleId);
+  await assertArticleUnlocked(worldId, ownerId, articleId);
   const result = await coordinator.expand(worldId, articleId, pipelineType, selectedProposal, userSpec, contextDepth, selectedIdeas, runStyleWarden, runContinuityEditor, wordCountPreset);
 
   // Persist draft so POST /accept can commit it
@@ -186,8 +186,8 @@ router.post('/propose-children', requireLLM, checkCap, asyncHandler(async (req, 
   }).safeParse(req.body);
   if (!parse.success) throw new AppError(400, 'VALIDATION_ERROR', 'Invalid request', parse.error.flatten().fieldErrors);
 
-  const { worldId } = requireTenantContext(req);
-  await assertArticleUnlocked(worldId, parse.data.articleId);
+  const { worldId, ownerId } = requireTenantContext(req);
+  await assertArticleUnlocked(worldId, ownerId, parse.data.articleId);
   const result = await coordinator.proposeChildren(worldId, parse.data.articleId, parse.data.userSpec, parse.data.contextDepth);
   res.json({ proposals: result.proposals });
 }));
@@ -203,8 +203,8 @@ router.post('/summarize', requireLLM, checkCap, asyncHandler(async (req, res) =>
   }).safeParse(req.body);
   if (!parse.success) throw new AppError(400, 'VALIDATION_ERROR', 'Invalid request', parse.error.flatten().fieldErrors);
 
-  const { worldId } = requireTenantContext(req);
-  await assertArticleUnlocked(worldId, parse.data.articleId);
+  const { worldId, ownerId } = requireTenantContext(req);
+  await assertArticleUnlocked(worldId, ownerId, parse.data.articleId);
   const result = await coordinator.summarize(worldId, parse.data.articleId, parse.data.mode);
   res.json({ introduction: result.introduction });
 }));
@@ -221,8 +221,8 @@ router.post('/reorganize', requireLLM, checkCap, asyncHandler(async (req, res) =
   }).safeParse(req.body);
   if (!parse.success) throw new AppError(400, 'VALIDATION_ERROR', 'Invalid request', parse.error.flatten().fieldErrors);
 
-  const { worldId } = requireTenantContext(req);
-  await assertArticleUnlocked(worldId, parse.data.articleId);
+  const { worldId, ownerId } = requireTenantContext(req);
+  await assertArticleUnlocked(worldId, ownerId, parse.data.articleId);
   const result = await coordinator.reorganize(worldId, parse.data.articleId, parse.data.contextDepth);
   res.json(result);
 }));
@@ -240,7 +240,7 @@ router.post('/cohere', requireLLM, checkCap, asyncHandler(async (req, res) => {
 
   const { worldId, ownerId } = requireTenantContext(req);
   const { articleId } = parse.data;
-  await assertArticleUnlocked(worldId, articleId);
+  await assertArticleUnlocked(worldId, ownerId, articleId);
   const result = await coordinator.cohere(worldId, articleId, parse.data.contextDepth);
 
   // Persist Warden warnings to article_issues (replacing previous warden issues for this article)
@@ -286,8 +286,8 @@ router.post('/propose-ideas', requireLLM, checkCap, asyncHandler(async (req, res
   }).safeParse(req.body);
   if (!parse.success) throw new AppError(400, 'VALIDATION_ERROR', 'Invalid request', parse.error.flatten().fieldErrors);
 
-  const { worldId } = requireTenantContext(req);
-  await assertArticleUnlocked(worldId, parse.data.articleId);
+  const { worldId, ownerId } = requireTenantContext(req);
+  await assertArticleUnlocked(worldId, ownerId, parse.data.articleId);
   const result = await coordinator.proposeIdeas(
     worldId,
     parse.data.articleId,

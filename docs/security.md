@@ -11,6 +11,22 @@ WorldArchitect also supports an opt-in hosted mode (`APP_MODE=hosted`) for self-
 - `/api/*` is rate-limited in hosted mode; local mode (a single trusted user) is never throttled.
 - Every request is assigned a correlation id, returned as `X-Request-Id` and included in every related server log line, so a reported issue can be traced through the logs.
 
+## Tenant Isolation
+
+Hosted mode is multi-tenant: each authenticated Clerk user owns their own worlds, articles, settings, runs, snapshots, and generated metadata.
+
+The first isolation layer is in the application. Hosted requests are authenticated, world-scoped routes verify that the requested world belongs to the current user, and server queries include `owner_id` filters for tenant-owned data.
+
+Postgres Row-Level Security (RLS) is the second isolation layer. RLS is a Postgres feature that attaches access policies directly to database tables. For WorldArchitect, those policies compare each row's `owner_id` to a per-request Postgres setting named `app.current_owner_id`. The server sets that value from the authenticated request user before it runs tenant-scoped queries. If a future route or service accidentally forgets an `owner_id` predicate, Postgres should still hide rows owned by another user.
+
+Long-running Forge work re-enters that tenant context explicitly with the run owner id before it touches Postgres. LangGraph checkpoint tables do not carry `owner_id` columns, so their RLS policies scope rows through `thread_id = runs.id`; checkpoint state is only visible to the owner of the parent run.
+
+Before RLS, tenant isolation depended on application code alone: route guards, tenant context helpers, and explicit SQL filters. That is still necessary and remains the main API-level boundary, but RLS adds database-level defense in depth for hosted deployments.
+
+RLS only provides that backstop when the runtime database role cannot bypass it. Hosted `DATABASE_URL` should use a restricted app role with `NOSUPERUSER NOBYPASSRLS`. Schema migrations should use a separate owner/migration role through `MIGRATION_DATABASE_URL` or an explicit migration release step. Local development may use a more powerful Postgres role, so behavior tests and explicit application-level `owner_id` filters still matter.
+
+Local mode still behaves as a single-user app. It uses the implicit local user id and the same Postgres storage path, but it does not expose untrusted multi-user traffic.
+
 ## Provider Secrets
 
 - Users can enter provider keys in the app Settings screen.

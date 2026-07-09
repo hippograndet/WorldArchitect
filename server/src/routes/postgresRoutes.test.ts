@@ -10,6 +10,7 @@ vi.mock('../agents/graphs/forgeGraph.js', () => forgeGraph);
 import { createApp } from '../app.js';
 import { getDbClient } from '../db/client.js';
 import { setupPostgresTestHarness, type PostgresTestHarness } from '../test/postgresHarness.js';
+import { runWithUserContext } from '../requestContext.js';
 
 let harness: PostgresTestHarness | null = null;
 let request: ReturnType<typeof supertest> | null = null;
@@ -46,6 +47,29 @@ describe('core routes on Postgres', () => {
       .get(`/api/worlds/${worldB.id}`)
       .set(asUser('user-b'))
       .expect(200);
+
+    const rlsState = await getDbClient().get<{ relrowsecurity: boolean; relforcerowsecurity: boolean }>(
+      `SELECT relrowsecurity, relforcerowsecurity FROM pg_class WHERE oid = 'worlds'::regclass`,
+    );
+    expect(rlsState).toMatchObject({ relrowsecurity: true, relforcerowsecurity: true });
+
+    const role = await getDbClient().get<{ bypasses_rls: boolean }>(
+      `SELECT (rolsuper OR rolbypassrls) AS bypasses_rls FROM pg_roles WHERE rolname = current_user`,
+    );
+    if (!role?.bypasses_rls) {
+      const hiddenByRls = await runWithUserContext('user-b', () =>
+        getDbClient().get<{ id: string }>('SELECT id FROM worlds WHERE id = ?', [worldA.id]),
+      );
+      expect(hiddenByRls).toBeUndefined();
+
+      await expect(runWithUserContext('user-b', () =>
+        getDbClient().run(
+          `INSERT INTO categories (id, owner_id, world_id, name, sort_order, created_at)
+           VALUES (?, ?, ?, ?, 0, ?)`,
+          ['forged-category', 'user-a', worldB.id, 'Forged Category', Date.now()],
+        ),
+      )).rejects.toThrow(/row-level security|violates/i);
+    }
   });
 
   it('stores provider settings per hosted user and masks keys', async ({ skip }) => {
@@ -153,15 +177,19 @@ describe('core routes on Postgres', () => {
       articleTitle: 'Signal Tower',
     }));
 
-    const runRow = await getDbClient().get<{ owner_id: string }>(
-      'SELECT owner_id FROM runs WHERE id = ?',
-      [created.body.id],
+    const runRow = await runWithUserContext('user-a', () =>
+      getDbClient().get<{ owner_id: string }>(
+        'SELECT owner_id FROM runs WHERE id = ?',
+        [created.body.id],
+      ),
     );
     expect(runRow?.owner_id).toBe('user-a');
 
-    const locked = await getDbClient().get<{ locked_by_run_id: string | null }>(
-      'SELECT locked_by_run_id FROM articles WHERE id = ?',
-      [first.article.id],
+    const locked = await runWithUserContext('user-a', () =>
+      getDbClient().get<{ locked_by_run_id: string | null }>(
+        'SELECT locked_by_run_id FROM articles WHERE id = ?',
+        [first.article.id],
+      ),
     );
     expect(locked?.locked_by_run_id).toBe(created.body.id);
 
@@ -175,16 +203,20 @@ describe('core routes on Postgres', () => {
       .expect(409);
     expect(conflict.body.code).toBe('ARTICLE_LOCKED');
 
-    const secondAfterConflict = await getDbClient().get<{ locked_by_run_id: string | null }>(
-      'SELECT locked_by_run_id FROM articles WHERE id = ?',
-      [second.article.id],
+    const secondAfterConflict = await runWithUserContext('user-a', () =>
+      getDbClient().get<{ locked_by_run_id: string | null }>(
+        'SELECT locked_by_run_id FROM articles WHERE id = ?',
+        [second.article.id],
+      ),
     );
     expect(secondAfterConflict?.locked_by_run_id).toBeNull();
 
-    await getDbClient().run(
-      `INSERT INTO run_events (id, run_id, step, title, ok, message, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [`event-${created.body.id}`, created.body.id, 'Test step', 'Tenant event', true, 'visible only to owner', Date.now()],
+    await runWithUserContext('user-a', () =>
+      getDbClient().run(
+        `INSERT INTO run_events (id, run_id, step, title, ok, message, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [`event-${created.body.id}`, created.body.id, 'Test step', 'Tenant event', true, 'visible only to owner', Date.now()],
+      ),
     );
 
     const readRun = await request!
@@ -215,9 +247,11 @@ describe('core routes on Postgres', () => {
       .expect(200);
     expect(cancelled.body.status).toBe('stopped');
 
-    const released = await getDbClient().get<{ locked_by_run_id: string | null }>(
-      'SELECT locked_by_run_id FROM articles WHERE id = ?',
-      [first.article.id],
+    const released = await runWithUserContext('user-a', () =>
+      getDbClient().get<{ locked_by_run_id: string | null }>(
+        'SELECT locked_by_run_id FROM articles WHERE id = ?',
+        [first.article.id],
+      ),
     );
     expect(released?.locked_by_run_id).toBeNull();
   });
@@ -288,6 +322,80 @@ describe('core routes on Postgres', () => {
     await request!
       .get(`/api/worlds/${world.id}/export`)
       .set(asUser('user-b'))
+      .expect(404);
+  });
+
+  it('isolates name bank and entity mention routes by tenant', async ({ skip }) => {
+    if (skipIfUnavailable(skip)) return;
+
+    const { world: worldA, categories } = await createWorld('user-a', 'Lexicon Gate');
+    const { world: worldB } = await createWorld('user-b', 'Empty Lexicon');
+    const article = await createArticle('user-a', worldA.id, categories[0].id, 'Mention Source');
+
+    const savedNames = await request!
+      .post(`/api/worlds/${worldA.id}/names`)
+      .set(asUser('user-a'))
+      .send({
+        names: [{
+          name: 'Maris Vale',
+          profileId: 'roman',
+          entityType: 'person',
+          tags: ['harbor'],
+          source: 'user',
+        }],
+      })
+      .expect(201);
+    const nameId = savedNames.body.names[0].id;
+
+    const namesA = await request!
+      .get(`/api/worlds/${worldA.id}/names`)
+      .set(asUser('user-a'))
+      .expect(200);
+    expect(namesA.body.names.map((name: { id: string }) => name.id)).toContain(nameId);
+
+    const namesB = await request!
+      .get(`/api/worlds/${worldB.id}/names`)
+      .set(asUser('user-b'))
+      .expect(200);
+    expect(namesB.body.names).toEqual([]);
+
+    await request!
+      .delete(`/api/worlds/${worldB.id}/names/${nameId}`)
+      .set(asUser('user-b'))
+      .expect(204);
+
+    const namesAfterDeleteAttempt = await request!
+      .get(`/api/worlds/${worldA.id}/names`)
+      .set(asUser('user-a'))
+      .expect(200);
+    expect(namesAfterDeleteAttempt.body.names.map((name: { id: string }) => name.id)).toContain(nameId);
+
+    const mentionId = `mention-${article.article.id}`;
+    await runWithUserContext('user-a', () =>
+      getDbClient().run(
+        `INSERT INTO entity_mentions
+           (id, owner_id, world_id, source_article_id, article_id, title, template_type, summary, status, created_at)
+         VALUES (?, ?, ?, ?, NULL, ?, 'character', ?, 'created', ?)`,
+        [mentionId, 'user-a', worldA.id, article.article.id, 'Maris Vale', 'A harbor pilot.', Date.now()],
+      ),
+    );
+
+    const mentionsA = await request!
+      .get(`/api/worlds/${worldA.id}/entity-mentions`)
+      .set(asUser('user-a'))
+      .expect(200);
+    expect(mentionsA.body.map((mention: { id: string }) => mention.id)).toContain(mentionId);
+
+    const mentionsB = await request!
+      .get(`/api/worlds/${worldB.id}/entity-mentions`)
+      .set(asUser('user-b'))
+      .expect(200);
+    expect(mentionsB.body).toEqual([]);
+
+    await request!
+      .patch(`/api/worlds/${worldB.id}/entity-mentions/${mentionId}`)
+      .set(asUser('user-b'))
+      .send({ status: 'ignored' })
       .expect(404);
   });
 });

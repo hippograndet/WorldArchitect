@@ -13,10 +13,12 @@ Before calling a deployment self-hosted beta ready:
 
 - Deploy from a clean checkout using [DEPLOY.md](../DEPLOY.md).
 - Use Postgres for hosted mode.
+- Use separate Postgres roles for migrations and runtime traffic.
 - Use HTTPS and set `PUBLIC_BASE_URL` to the final public origin.
 - Configure Clerk for the same origin.
 - Set a stable `PROVIDER_SETTINGS_ENCRYPTION_KEY`.
 - Confirm `/health` reports hosted mode and Postgres storage.
+- Confirm the runtime database role is not a superuser and does not have `BYPASSRLS`.
 - Create and restore at least one database backup.
 - Confirm world ZIP export works for a real world.
 - Run the manual QA checklist in [DEPLOY.md](../DEPLOY.md).
@@ -34,22 +36,22 @@ Use your database provider's automatic backups if available. Hosted mode uses Po
 For manual backups, prefer custom-format `pg_dump`:
 
 ```sh
-pg_dump --format=custom --file=worldarchitect-backup.dump "$DATABASE_URL"
+pg_dump --format=custom --file=worldarchitect-backup.dump "$MIGRATION_DATABASE_URL"
 ```
 
-Store backups somewhere separate from the app host. Treat backups as sensitive because they may include private world content and encrypted provider keys.
+Use an owner, migration, or dedicated backup connection for full backups. The restricted runtime `DATABASE_URL` is protected by RLS and, without a tenant context, should not be able to read tenant rows. Store backups somewhere separate from the app host. Treat backups as sensitive because they may include private world content and encrypted provider keys.
 
 Restore into a fresh empty database with:
 
 ```sh
-pg_restore --clean --if-exists --no-owner --dbname="$DATABASE_URL" worldarchitect-backup.dump
+pg_restore --clean --if-exists --no-owner --dbname="$MIGRATION_DATABASE_URL" worldarchitect-backup.dump
 ```
 
 If you use SQL-format dumps instead:
 
 ```sh
-pg_dump "$DATABASE_URL" > worldarchitect-backup.sql
-psql "$DATABASE_URL" < worldarchitect-backup.sql
+pg_dump "$MIGRATION_DATABASE_URL" > worldarchitect-backup.sql
+psql "$MIGRATION_DATABASE_URL" < worldarchitect-backup.sql
 ```
 
 ## Restore Drill
@@ -62,7 +64,7 @@ At least once before a public beta:
 2. Restore a backup into it:
 
    ```sh
-   pg_restore --clean --if-exists --no-owner --dbname="$DATABASE_URL" worldarchitect-backup.dump
+   pg_restore --clean --if-exists --no-owner --dbname="$MIGRATION_DATABASE_URL" worldarchitect-backup.dump
    ```
 
 3. Point a staging WorldArchitect deployment at that restored database.
@@ -131,8 +133,15 @@ On startup, the server creates `schema_migrations` if needed, applies any unappl
 - `003_runs.sql`
 - `004_call_log_instrumentation.sql`
 - `005_search_index.sql`
+- `006_row_level_security.sql`
 
 If a migration fails, that migration transaction rolls back and the server does not record it as applied.
+
+Hosted deployments should provide `MIGRATION_DATABASE_URL` for the owner/migration role and `DATABASE_URL` for the restricted runtime app role. The runtime role should have table/function grants but must be `NOSUPERUSER NOBYPASSRLS` so Postgres Row-Level Security remains effective.
+
+WorldArchitect creates LangGraph-compatible checkpoint tables for Forge runs during migration. Those rows can contain resumable run state, so the app applies RLS to the checkpoint tables too and scopes them through the owning `runs` row.
+
+The helper script `ops/postgres/grant_runtime_role.sql` grants runtime privileges to an already-created restricted app role.
 
 World ZIP export is a portable content export, not a full database backup. Use Postgres backups for hosted recovery.
 
@@ -147,6 +156,8 @@ World ZIP export is a portable content export, not a full database backup. Use P
 - Configure Clerk allowed origins/callbacks for the deployed domain.
 - Treat `PUBLIC_BASE_URL` as the server CORS allow-origin value; if it is wrong, browsers should fail closed.
 - Keep `ALLOW_DEV_AUTH_HEADER` unset in production.
+- Use a restricted runtime Postgres role in `DATABASE_URL`; do not use a superuser or any role with `BYPASSRLS`.
+- Use an owner/migration Postgres role only through `MIGRATION_DATABASE_URL` or an explicit migration release step.
 - Keep `TRUST_PROXY` correct for your host.
 - Keep rate limiting enabled in hosted mode.
 - Rotate provider keys if you suspect exposure.
@@ -159,5 +170,6 @@ World ZIP export is a portable content export, not a full database backup. Use P
 - CORS failure: check `PUBLIC_BASE_URL`.
 - 500 on provider settings: check `PROVIDER_SETTINGS_ENCRYPTION_KEY`.
 - Postgres connection errors: check `DATABASE_URL`, SSL mode, pooler URL, and `PGPOOL_MAX`.
+- Rows appear missing in hosted mode: confirm the request/job has the expected tenant id, the runtime role has grants, and `DATABASE_URL` is the restricted app role rather than the owner/migration role. RLS should hide rows when `app.current_owner_id` is missing or wrong.
 - All clients share a rate limit: check `TRUST_PROXY`.
 - AI calls disabled unexpectedly: check `WORLDARCHITECT_LOCAL_ONLY` and provider settings.

@@ -59,5 +59,45 @@ describe('Postgres migrations', () => {
     await runPostgresMigrations(client!);
     const second = await client!.query<{ count: string }>('SELECT COUNT(*) AS count FROM schema_migrations');
     expect(Number(second.rows[0]?.count)).toBe(POSTGRES_MIGRATIONS.length);
+
+    const rlsTables = [
+      'worlds',
+      'categories',
+      'articles',
+      'article_versions',
+      'article_links',
+      'world_bible_entries',
+      'world_bible_meta',
+      'cost_settings',
+      'provider_settings',
+      'call_log',
+      'coherence_warnings',
+      'world_snapshots',
+      'pending_drafts',
+      'name_bank',
+      'auditor_edge_proposals',
+      'entity_mentions',
+      'article_issues',
+      'publish_history',
+      'world_issues',
+      'runs',
+      'run_events',
+      'article_search_index',
+      'checkpoints',
+      'checkpoint_blobs',
+      'checkpoint_writes',
+    ];
+    const rls = await client!.query<{ relname: string; relrowsecurity: boolean; relforcerowsecurity: boolean }>(
+      `SELECT c.relname, c.relrowsecurity, c.relforcerowsecurity
+       FROM pg_class c
+       JOIN pg_namespace n ON n.oid = c.relnamespace
+       WHERE c.relkind = 'r'
+         AND n.nspname = $2
+         AND c.relname = ANY($1)
+       ORDER BY c.relname`,
+      [rlsTables, schemaName],
+    );
+    expect(rls.rows).toHaveLength(rlsTables.length);
+    expect(rls.rows.every((row) => row.relrowsecurity && row.relforcerowsecurity)).toBe(true);
   });
 });

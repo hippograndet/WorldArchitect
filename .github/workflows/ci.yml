@@ -30,13 +30,17 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm run build
-      - run: npm run test:postgres -w server
+      - name: Run Postgres and RLS integration tests
+        run: npm run test:postgres -w server
+        env:
+          CI: 'true'
+          DRIFT_TEST_DATABASE_URL: postgres://worldarchitect:worldarchitect@localhost:5432/worldarchitect
+      - name: Run server tests
+        run: npm test -w server
         env:
           DRIFT_TEST_DATABASE_URL: postgres://worldarchitect:worldarchitect@localhost:5432/worldarchitect
-      - run: npm test -w server
-        env:
-          DRIFT_TEST_DATABASE_URL: postgres://worldarchitect:worldarchitect@localhost:5432/worldarchitect
-      - run: npm test -w client
+      - name: Run client tests
+        run: npm test -w client
 
   image:
     runs-on: ubuntu-latest

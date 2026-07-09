@@ -49,6 +49,7 @@ describe('search_articles (Postgres tsvector)', () => {
     await client.query(`CREATE SCHEMA "${schemaName}"`);
     await client.query(`SET search_path TO "${schemaName}", public`);
     await runPostgresMigrations(client);
+    await client.query(`SELECT set_config('app.current_owner_id', 'owner1', false)`);
   });
 
   afterAll(async () => {
