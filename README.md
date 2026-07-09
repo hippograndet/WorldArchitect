@@ -107,6 +107,7 @@ Public, reader-friendly docs live in [`docs/`](docs/):
 - [Multi-Agent System Overview](docs/mas-overview.md)
 - [Local-First Data And Privacy](docs/local-first.md)
 - [Security Notes](docs/security.md)
+- [Tech Stack](docs/tech-stack.md)
 - [Hosted Deployment](DEPLOY.md)
 - [Self-Hosted Operations](docs/self-hosted-operations.md)
 

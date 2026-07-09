@@ -78,3 +78,41 @@ WorldArchitect runs as a local web app:
 - The app can run with no provider configured.
 
 That shape keeps the experience simple while still giving the project real persistence, versioning, and transaction-safe local storage.
+
+Hosted mode keeps the same server/database architecture but adds authenticated tenants. Clerk identifies the user, world routes verify ownership, and tenant-owned rows carry an `owner_id`. The server also sets a Postgres request tenant so Row-Level Security policies can enforce the same boundary inside the database. Earlier hosted builds relied on application-level route guards and `owner_id` SQL filters only; the current Postgres-only stack keeps those checks and adds RLS as a database backstop.
+
+## Architecture Stack
+
+The current implementation stack is:
+
+| Layer | Technology | Version | Notes |
+| --- | --- | --- | --- |
+| Application architecture | Two-process web app | 0.5.0 app version | `client/` is the browser app; `server/` owns persistence, exports, provider settings, AI calls, and versioning. |
+| Frontend framework | React | 18.3.1 | Browser UI runtime. |
+| Frontend build tool | Vite | 6.4.2 | Used for local dev, production client builds, and preview. |
+| Frontend language | TypeScript | 5.9.3 installed | Client source is TypeScript/TSX. |
+| Routing | React Router DOM | 6.30.3 | Client-side page routing. |
+| State management | Zustand | 5.0.12 | Main client state store. |
+| Styling | Tailwind CSS | 4.2.4 | Primary styling system, with `@tailwindcss/typography` 0.5.19. |
+| Rich text | TipTap React, TipTap Starter Kit, `tiptap-markdown` | TipTap 2.27.2, Markdown bridge 0.8.10 | Article editing with Markdown serialization. |
+| Icons | `lucide-react` | 1.14.0 | Icon library used in the React UI. |
+| CMS | None | N/A | World content is first-party application data stored in Postgres, not managed by an external CMS. |
+| Backend framework | Express | 4.22.1 | Server API framework. |
+| Backend runtime | Node.js | 22 in Docker image | Runtime image is `node:22-bookworm-slim`. |
+| Backend language | TypeScript | 5.9.3 installed | Server source builds to `dist/` before production start. |
+| Database | Postgres | 16-alpine locally | Local database is the `postgres:16-alpine` Docker Compose service. Hosted mode also uses Postgres. |
+| Database driver | `pg` | 8.22.0 | Server-side Postgres client. |
+| Database isolation | Postgres Row-Level Security | Postgres policy feature | Hosted tenant rows are protected by application ownership checks plus database RLS policies. |
+| Search | Postgres full-text search | Postgres 16 local runtime | Search index is maintained in Postgres. |
+| Authentication | Clerk | `@clerk/react` 6.11.3 | Hosted mode uses Clerk; local mode is unauthenticated with a single implicit user. |
+| Validation | Zod | 3.25.76 | Runtime schema validation for API and agent outputs. |
+| AI orchestration | LangGraph | 1.4.7 | Used for multi-agent graph workflows. |
+| AI providers | Anthropic SDK, OpenAI SDK, Ollama | Anthropic 0.39.0, OpenAI 4.104.0, Ollama external | Hosted provider adapters plus optional local Ollama endpoint. |
+| Security middleware | Helmet, `express-rate-limit`, `jose` | Helmet 8.2.0, rate limit 8.5.2, jose 6.2.3 | HTTP headers, hosted API rate limiting, and hosted JWT/JWKS validation. |
+| Export packaging | JSZip | 3.10.1 | Builds downloadable world ZIP exports. |
+| Testing | Vitest, Supertest | Vitest 4.1.5, Supertest 7.2.2 | Client/server tests and API route tests. |
+| Package manager | npm workspaces | npm lockfile v3 | Root workspace manages `client` and `server`. |
+| Containerization | Docker | Node 22 base image | Production container builds client and server, then serves the built client from the Express service. |
+| Hosting | Render + Neon + Clerk recommended; Railway and Fly.io supported | External services | Self-hosted deployment paths are documented in `DEPLOY.md`. |
+
+For the fuller source-of-truth stack reference, see [Tech Stack](tech-stack.md).

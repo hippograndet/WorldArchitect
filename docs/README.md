@@ -8,6 +8,7 @@ These documents are for people evaluating or using WorldArchitect. They explain 
 - [Multi-Agent System Overview](mas-overview.md) - what the agent system does and how users stay in control.
 - [Local-First Data And Privacy](local-first.md) - what is stored locally, what can call an LLM, and how export works.
 - [Security Notes](security.md) - provider secrets, local-only egress, prompt safety, and observability.
+- [Tech Stack](tech-stack.md) - frameworks, runtimes, storage, hosting, and other implementation layers.
 
 ## Visual Tour
 
