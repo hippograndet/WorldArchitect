@@ -27,6 +27,8 @@ Older parts of the code and screenshots may still use the names Spark and Forge.
 
 The shared MAS contract is location, intent, autonomy mode, review policy, and commit policy. This keeps workflows modular while making it clear when the system should ask the user, create a pending draft, or commit automatically.
 
+Long prose and compact decisions use different output styles. Scribe writes article descriptions as normal assistant prose so long drafts do not have to be serialized inside provider function-call JSON. Compact decisions and extraction tasks still use structured tool calls, including proposal selection, checks, and entity mention extraction.
+
 ## Main Entry Points
 
 ### Expand
@@ -35,7 +37,7 @@ Expand grows the world. It can:
 
 - Improve or derive an introduction through Inception
 - Generate creative proposals
-- Expand a document description
+- Expand a document description through Scribe prose drafting
 - Suggest or create child documents through Branching
 - Continue from one step to the next
 - Recurse into newly created children when configured to do so
@@ -44,17 +46,17 @@ Expand is best when you want to grow a world deliberately while choosing how muc
 
 ![Expand inception flow](assets/Screenshot_Spark_Inception.png)
 
-For a new or empty document, Inception can help establish a usable introduction. For an existing document, Expansion can propose creative directions before drafting fuller description prose.
+For a new or empty document, Inception can help establish a usable introduction. For an existing document, Expansion can propose creative directions before Scribe drafts fuller description prose. After Scribe writes a draft, a compact Mention Extractor can identify new central entities for later linking or stub creation.
 
 ![Expand direction selection](assets/Screenshot_Spark_Expansion_Direction_Selection.png)
 
-Branching can propose child subjects when a document should become a richer hierarchy. This is useful for turning a broad concept into connected people, places, factions, events, or ideas. In recursive runs, created children can be queued and expanded in breadth-first or depth-first order.
+Branching can propose child subjects when a document should become a richer hierarchy. This is useful for turning a broad concept into connected people, places, factions, events, or ideas. `finish_document` runs can continue from an accepted Expansion draft into Branching for the selected document; recursive runs can also queue created children in breadth-first or depth-first order.
 
 ![Expand branching suggestions](assets/Screenshot_Spark_Branching.png)
 
 Expand runs execute on the server as resumable runs with progress logs, pause, resume, stop controls, and persisted review items. When a run reaches a user gate it enters `needs_input`; the selected run view shows the pending decision inside Expand, then resumes the server graph from its checkpoint after the user accepts or rejects the item.
 
-Review gates are modular rather than agent-specific. The current Expand graph can ask for introduction review, proposal selection, idea selection, draft review, or child selection. Selection gates allow the user to edit the proposed text before accepting, so a manual choice can still refine what the following agents receive.
+Review gates are modular rather than agent-specific. The current Expand graph can ask for introduction review, proposal selection, idea selection, draft review, or child selection. Selection gates allow the user to edit the proposed text before accepting, so a manual choice can still refine what the following agents receive. When a Manual or Assisted draft is accepted, the server saves it before any following Branching step runs.
 
 ### Consolidate
 
@@ -79,8 +81,9 @@ WorldArchitect uses specialized agents for different jobs:
 - **Muse** proposes creative directions.
 - **Curator** can select a proposal automatically.
 - **Oracle** suggests thematic ideas.
-- **Researcher** extracts constraints from existing context before drafting.
-- **Scribe** writes article descriptions.
+- **Researcher** extracts constraints before drafting.
+- **Scribe** writes article descriptions as prose instead of long function-call payloads.
+- **Mention Extractor** extracts compact structured entity mentions from generated drafts.
 - **Continuity Editor** checks draft contradictions before acceptance.
 - **Lorekeeper** writes compact World Bible introductions.
 - **Cartographer** proposes child articles.
@@ -104,6 +107,7 @@ WorldArchitect is intentionally explicit about AI use:
   view grouping the agent calls behind a single Expand or Consolidate action together.
 - Daily caps can be configured.
 - Expand review gates can stop a run before important generated content is committed in Manual and Assisted validation modes.
+- Long Scribe drafts are logged as prose responses; compact agent outputs remain structured for validation.
 - Version history makes accepted changes reversible.
 - Snapshots can preserve an entire world before large operations.
 - Repeated calls to the same agent within a world are cheaper than they look — the

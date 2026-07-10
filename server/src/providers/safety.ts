@@ -4,6 +4,7 @@ export class ProviderSafetyError extends Error {
   constructor(
     public readonly code: 'LLM_TIMEOUT' | 'LLM_RETRY_EXHAUSTED' | 'LLM_BUDGET_EXCEEDED' | 'LOCAL_ONLY_EGRESS_BLOCKED',
     message: string,
+    public readonly cause?: unknown,
   ) {
     super(message);
     this.name = 'ProviderSafetyError';
@@ -65,5 +66,5 @@ export async function runProviderRequest<T>(
   }
 
   const message = lastErr instanceof Error ? lastErr.message : 'Provider request failed.';
-  throw new ProviderSafetyError('LLM_RETRY_EXHAUSTED', `LLM provider failed after ${attempts} attempts: ${message}`);
+  throw new ProviderSafetyError('LLM_RETRY_EXHAUSTED', `LLM provider failed after ${attempts} attempts: ${message}`, lastErr);
 }

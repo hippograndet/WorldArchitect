@@ -820,7 +820,7 @@ function routeAfterExpansion(state: ForgeState): 'branching' | 'finishItem' | ty
   if (state.lastStepError?.fatal) return END_KEY;
   if (state.lastStepError) return 'finishItem';
   if (state.forgeContinuationMode === 'one_step') return 'finishItem';
-  if (state.commitPolicy !== 'auto_commit') return 'finishItem';
+  if (state.commitPolicy !== 'auto_commit' && !requiresUserReview(state)) return 'finishItem';
   return 'branching';
 }
 
@@ -859,7 +859,7 @@ export function getForgeGraph() {
 }
 
 /** Exported for forgeGraph.test.ts only — production code should go through startForgeRun/resumeForgeRun. */
-export { dequeueNode, inceptionNode, expansionNode, branchingNode, finishItemNode };
+export { dequeueNode, inceptionNode, expansionNode, branchingNode, finishItemNode, routeAfterExpansion };
 
 /**
  * Hard technical ceiling on graph super-steps, independent of the user-facing

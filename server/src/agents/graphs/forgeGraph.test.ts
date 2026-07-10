@@ -44,7 +44,7 @@ vi.mock('../director.js', async (importOriginal) => {
 });
 
 // Import after the mocks above are registered.
-import { dequeueNode, inceptionNode, expansionNode } from './forgeGraph.js';
+import { dequeueNode, inceptionNode, expansionNode, routeAfterExpansion } from './forgeGraph.js';
 
 const OWNER_ID = 'owner-forge-graph-test';
 
@@ -71,6 +71,15 @@ function toolUseResult(name: string, input: Record<string, unknown>): Completion
     tokensOut: 5,
     stopReason: 'tool_use',
     toolCalls: [{ id: `call-${name}`, name, input }],
+  };
+}
+
+function textResult(content: string): CompletionResult {
+  return {
+    content,
+    tokensIn: 10,
+    tokensOut: 5,
+    stopReason: 'end_turn',
   };
 }
 
@@ -163,9 +172,8 @@ describe('forgeGraph context caching', () => {
           keyFacts: ['Fact one about the article.'],
           suggestedAngles: ['An angle to explore.'],
         }))
-        .mockResolvedValueOnce(toolUseResult('submit_description', {
-          description: 'A freshly generated description for the article, written by Scribe during this test run.',
-        }));
+        .mockResolvedValueOnce(textResult('A freshly generated description for the article, written by Scribe during this test run.'))
+        .mockResolvedValueOnce(toolUseResult('submit_mentions', { mentions: [] }));
 
       const item = { articleId, title: 'Test Article', depth: 0, startStep: 'inception' as const };
 
@@ -206,7 +214,7 @@ describe('forgeGraph context caching', () => {
       // of rebuilding — so the total call count across both nodes stays at 1.
       expect(buildContextPackageCalls).toHaveBeenCalledTimes(1);
       expect(fetchWorldContextCalls).not.toHaveBeenCalled();
-      expect(completeMock).toHaveBeenCalledTimes(5);
+      expect(completeMock).toHaveBeenCalledTimes(6);
     });
   });
 
@@ -233,9 +241,8 @@ describe('forgeGraph context caching', () => {
           keyFacts: ['Fact one about the article.'],
           suggestedAngles: ['An angle to explore.'],
         }))
-        .mockResolvedValueOnce(toolUseResult('submit_description', {
-          description: 'A freshly generated description for the article, written by Scribe during this test run.',
-        }));
+        .mockResolvedValueOnce(textResult('A freshly generated description for the article, written by Scribe during this test run.'))
+        .mockResolvedValueOnce(toolUseResult('submit_mentions', { mentions: [] }));
 
       const item = { articleId, title: 'Test Article', depth: 0, startStep: 'expansion' as const };
       const state = baseForgeState({
@@ -252,7 +259,35 @@ describe('forgeGraph context caching', () => {
       // means only ONE build for expansionNode's 2 sub-pipeline calls, not 2.
       expect(buildContextPackageCalls).toHaveBeenCalledTimes(1);
       expect(fetchWorldContextCalls).not.toHaveBeenCalled();
-      expect(completeMock).toHaveBeenCalledTimes(4);
+      expect(completeMock).toHaveBeenCalledTimes(5);
     });
+  });
+});
+
+describe('forgeGraph expansion routing', () => {
+  it('continues from accepted Manual/Assisted expansion to Branching for finish_document runs', () => {
+    const route = routeAfterExpansion(baseForgeState({
+      forgeContinuationMode: 'finish_document',
+      autonomyMode: 'manual',
+      reviewPolicy: 'user_must_accept',
+      commitPolicy: 'pending_draft',
+      signal: 'continue',
+      currentItemStepsDone: ['expansion'],
+    }));
+
+    expect(route).toBe('branching');
+  });
+
+  it('does not branch from an unreviewed pending draft', () => {
+    const route = routeAfterExpansion(baseForgeState({
+      forgeContinuationMode: 'finish_document',
+      autonomyMode: 'auto_with_post_review',
+      reviewPolicy: 'auto',
+      commitPolicy: 'pending_draft',
+      signal: 'continue',
+      currentItemStepsDone: ['expansion'],
+    }));
+
+    expect(route).toBe('finishItem');
   });
 });

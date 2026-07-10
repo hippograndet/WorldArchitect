@@ -20,7 +20,7 @@ The intended release path is:
 
 - **Own your world locally, by default.** In local mode your encyclopedia is stored in a local Postgres database — no account, cloud sync, or hosted backend required. An opt-in hosted multi-tenant mode is also available for self-deployment (accounts via Clerk and Postgres storage) — see [DEPLOY.md](DEPLOY.md).
 - **Write with structure.** Build a browsable wiki with categories, article hierarchy, cross-links, chronology, and snapshots.
-- **Use AI without surrendering control.** Expand runs use modular review gates for introductions, proposals, ideas, drafts, and child-article plans; Assisted and Autopilot modes decide how much the MAS can continue or commit on its own.
+- **Use AI without surrendering control.** Expand runs use modular review gates for introductions, proposals, ideas, drafts, and child-article plans; Scribe drafts long prose directly while compact MAS decisions stay structured.
 - **Grow worlds deliberately.** Expand can incept, elaborate, branch, and recurse through selected parts of the world; Consolidate and World Tools help audit and clean up the larger graph.
 - **Keep long projects durable.** Version history, crash recovery, World Bible summaries, issue checks, call logs, and ZIP export are built in.
 

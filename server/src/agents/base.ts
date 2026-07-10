@@ -36,9 +36,11 @@ function getToolUseFailedGeneration(err: unknown): string | null {
     ? direct.error as { code?: unknown; failed_generation?: unknown }
     : null;
   const code = direct.code ?? nested?.code;
-  if (code !== 'tool_use_failed') return null;
   const gen = direct.failed_generation ?? nested?.failed_generation;
-  return typeof gen === 'string' ? gen : null;
+  if (code === 'tool_use_failed' && typeof gen === 'string') return gen;
+
+  const cause = (direct as { cause?: unknown }).cause;
+  return cause ? getToolUseFailedGeneration(cause) : null;
 }
 
 function providerErrorMessage(err: unknown): string {
@@ -110,6 +112,14 @@ export abstract class BaseAgent<TInput, TOutput> {
   /** Override to return undefined in agents that may produce free-text responses. */
   protected getToolChoice(): 'required' | undefined { return 'required'; }
 
+  /** Override for long-form prose agents that should finish from assistant text. */
+  protected getOutputMode(): 'tool' | 'text' { return 'tool'; }
+
+  /** Override when getOutputMode() returns 'text'. */
+  protected parseTextOutput(content: string): TOutput {
+    return this.parseOutput({ content });
+  }
+
   async run(
     worldId: string,
     input: TInput,
@@ -117,7 +127,11 @@ export abstract class BaseAgent<TInput, TOutput> {
   ): Promise<AgentResult<TOutput>> {
     const provider = await getProvider();
     const messages: ChatMessage[] = await this.buildMessages(worldId, input);
-    const tools: Tool[] = [...this.getContextTools(), this.buildOutputTool()];
+    const outputMode = this.getOutputMode();
+    const contextTools = this.getContextTools();
+    const tools: Tool[] = outputMode === 'tool'
+      ? [...contextTools, this.buildOutputTool()]
+      : contextTools;
 
     let tokensIn = 0;
     let tokensOut = 0;
@@ -131,7 +145,7 @@ export abstract class BaseAgent<TInput, TOutput> {
     try {
       for (let iter = 0; iter < this.getMaxIterations(); iter++) {
         iterations++;
-        const toolChoice = this.getToolChoice();
+        const toolChoice = outputMode === 'tool' ? this.getToolChoice() : undefined;
         const completionOptions = this.getCompletionOptions();
         const requestOptions = { maxTokens: this.getMaxTokens(), ...completionOptions, ...(toolChoice ? { toolChoice } : {}) };
         let result;
@@ -179,6 +193,18 @@ export abstract class BaseAgent<TInput, TOutput> {
         tokensIn += result.tokensIn;
         tokensOut += result.tokensOut;
 
+        if (outputMode === 'text' && result.stopReason !== 'tool_use') {
+          try {
+            output = this.parseTextOutput(result.content);
+            status = 'success';
+            break;
+          } catch (parseErr) {
+            const msg = parseErr instanceof Error ? parseErr.message : 'Validation failed';
+            lastOutputRejection = msg;
+            break;
+          }
+        }
+
         if (result.stopReason !== 'tool_use' || !result.toolCalls?.length) {
           stoppedWithoutToolUse = result.stopReason ?? 'end_turn';
           break;
@@ -193,7 +219,7 @@ export abstract class BaseAgent<TInput, TOutput> {
 
         // Process each tool call
         for (const call of result.toolCalls) {
-          if (call.name === this.outputToolName) {
+          if (outputMode === 'tool' && call.name === this.outputToolName) {
             try {
               output = this.parseOutput(call.input);
               messages.push({ role: 'tool', content: 'accepted', toolCallId: call.id });
@@ -203,9 +229,11 @@ export abstract class BaseAgent<TInput, TOutput> {
               lastOutputRejection = msg;
               messages.push({ role: 'tool', content: `Tool call rejected: ${msg}. Please revise and call the tool again.`, toolCallId: call.id });
             }
-          } else {
+          } else if (contextTools.some((tool) => tool.name === call.name)) {
             const content = await executeContextTool(worldId, call);
             messages.push({ role: 'tool', content, toolCallId: call.id });
+          } else {
+            messages.push({ role: 'tool', content: `Tool call rejected: ${call.name} is not available.`, toolCallId: call.id });
           }
         }
 
@@ -239,7 +267,9 @@ export abstract class BaseAgent<TInput, TOutput> {
           ? ` Last stop reason: ${stoppedWithoutToolUse}.`
           : '';
       const hasContextTools = this.getContextTools().length > 0;
-      const message = hasContextTools
+      const message = outputMode === 'text'
+        ? `Agent "${this.agentType}" did not produce valid text output after ${attempts}.${detail}`
+        : hasContextTools
         ? `Agent "${this.agentType}" did not produce output within ${this.getMaxIterations()} iterations.${detail}`
         : `Agent "${this.agentType}" did not call ${this.outputToolName} with valid output after ${attempts}.${detail}`;
       throw new Error(message);

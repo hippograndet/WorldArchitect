@@ -8,6 +8,7 @@ import { CuratorAgent } from '../curator.js';
 import { OracleAgent } from '../oracle.js';
 import { ResearcherAgent } from '../researcher.js';
 import { ScribeAgent } from '../scribe.js';
+import { MentionExtractorAgent } from '../mentionExtractor.js';
 import { ContinuityEditorAgent } from '../continuityEditor.js';
 import { GroundingCheckAgent } from '../groundingCheck.js';
 import { LorekeepAgent } from '../lorekeeper.js';
@@ -229,12 +230,28 @@ export async function scribeNode(state: OrchestrationState): Promise<Partial_> {
 
   const description = scribeOutput.mode === 'child' ? scribeOutput.childDescription : scribeOutput.description;
   const parentAppend = scribeOutput.mode === 'child' ? scribeOutput.parentAppend : undefined;
+  let mentions = scribeOutput.mentions;
+
+  if (scribeOutput.mode === 'single' && state.expanderMode !== 'reorganize') {
+    try {
+      const mentionAgent = new MentionExtractorAgent();
+      const mentionResult = await mentionAgent.run(state.worldId, {
+        contextPackage: state.contextPackage!,
+        description,
+      }, callCtx(state));
+      tokensIn += mentionResult.tokensIn;
+      tokensOut += mentionResult.tokensOut;
+      mentions = mentionResult.output.mentions;
+    } catch {
+      mentions = [];
+    }
+  }
 
   return {
     scribeOutput,
     description,
     ...(parentAppend ? { parentUpdate: { appendText: parentAppend } } : {}),
-    mentions: scribeOutput.mentions,
+    mentions,
     ...(continuityCheck ? { continuityCheck } : {}),
     tokensIn,
     tokensOut,

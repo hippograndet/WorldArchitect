@@ -205,6 +205,35 @@ export const OUTPUT_TOOLS: Record<string, Tool> = {
     },
   },
 
+  // MentionExtractor: compact entity mention list from an already-written draft
+  submit_mentions: {
+    name: 'submit_mentions',
+    description: 'Submit significant new entity mentions found in an article draft.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        mentions: {
+          type: 'array',
+          description: 'New significant entities introduced in the draft that do not yet exist as world articles. Only include genuinely novel, central entities.',
+          items: {
+            type: 'object',
+            properties: {
+              title: { type: 'string', description: 'The entity name as it appears in the draft' },
+              templateType: {
+                type: 'string',
+                enum: ['general', 'character', 'location', 'faction', 'historical_event'],
+                description: 'Entity type',
+              },
+              summary: { type: 'string', description: '1-sentence summary of this entity distilled from the draft' },
+            },
+            required: ['title', 'templateType'],
+          },
+        },
+      },
+      required: ['mentions'],
+    },
+  },
+
   // Scribe: child article mode — writes child Description + parent append text
   submit_child_description: {
     name: 'submit_child_description',

@@ -60,6 +60,17 @@ class DirectOutputAgent extends TestAgent {
   }
 }
 
+class TextOutputAgent extends TestAgent {
+  protected getOutputMode(): 'text' {
+    return 'text';
+  }
+
+  protected parseTextOutput(content: string): { value: string } {
+    if (!content.trim()) throw new Error('empty');
+    return { value: content.trim() };
+  }
+}
+
 function toolUseResult(toolName: string, input: Record<string, unknown>): CompletionResult {
   return {
     content: '',
@@ -127,6 +138,27 @@ describe('BaseAgent.run() iteration counting', () => {
     expect(logCallMock).toHaveBeenCalledWith(expect.objectContaining({
       iterations: 1,
       status: 'error',
+    }));
+  });
+
+  it('allows text-output agents to use a context tool before returning prose', async () => {
+    completeMock
+      .mockResolvedValueOnce(toolUseResult('get_thing', {}))
+      .mockResolvedValueOnce({
+        content: ' final prose ',
+        tokensIn: 8,
+        tokensOut: 4,
+        stopReason: 'end_turn',
+      });
+
+    const agent = new TextOutputAgent();
+    const result = await agent.run('world1', {});
+
+    expect(result.output).toEqual({ value: 'final prose' });
+    expect(completeMock).toHaveBeenCalledTimes(2);
+    expect(logCallMock).toHaveBeenCalledWith(expect.objectContaining({
+      iterations: 2,
+      status: 'success',
     }));
   });
 });

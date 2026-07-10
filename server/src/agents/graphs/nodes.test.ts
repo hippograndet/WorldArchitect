@@ -18,7 +18,7 @@ vi.mock('../../services/callLogger.js', () => ({
 // Import after the mocks above are registered, and after the harness sets
 // APP_MODE/DATABASE_URL — nodes.js only touches getDbClient() lazily inside
 // each function call, so a static import here is safe.
-import { wardenNode, fetchWorldContextNode, buildContextPackageNode } from './nodes.js';
+import { wardenNode, fetchWorldContextNode, buildContextPackageNode, scribeNode } from './nodes.js';
 
 const OWNER_ID = 'owner-warden-node-test';
 
@@ -67,6 +67,61 @@ function toolUseResult(input: Record<string, unknown>): CompletionResult {
     stopReason: 'tool_use',
     toolCalls: [{ id: 'call-1', name: 'submit_coherence_check', input }],
   };
+}
+
+function genericToolUseResult(name: string, input: Record<string, unknown>): CompletionResult {
+  return {
+    content: '',
+    tokensIn: 10,
+    tokensOut: 5,
+    stopReason: 'tool_use',
+    toolCalls: [{ id: `call-${name}`, name, input }],
+  };
+}
+
+function textResult(content: string): CompletionResult {
+  return {
+    content,
+    tokensIn: 10,
+    tokensOut: 5,
+    stopReason: 'end_turn',
+  };
+}
+
+function scribeState(overrides: Partial<OrchestrationState> = {}): OrchestrationState {
+  return {
+    worldId: 'scribe-node-world',
+    articleId: 'scribe-node-article',
+    pipelineRunId: 'scribe-node-run',
+    pipelineType: 'expand',
+    contextPackage: {
+      targetId: 'scribe-node-article',
+      targetTitle: 'Scribe Article',
+      targetTemplateType: 'general',
+      targetDescription: '',
+      targetChronology: '',
+      targetIntroduction: '',
+      parents: [],
+      siblings: [],
+      children: [],
+      fixedPoints: [],
+      temporalNeighbors: [],
+      referencedArticles: [],
+      estimatedTokens: 10,
+    },
+    worldContext: {
+      worldId: 'scribe-node-world',
+      name: 'Scribe World',
+      tone: 'narrative',
+      originPoint: null,
+      styleConfig: null,
+    },
+    expanderMode: 'expand_description',
+    selectedProposal: { title: 'Proposal', direction: 'Develop the article.' },
+    runContinuityEditor: false,
+    wordCountPreset: 'medium',
+    ...overrides,
+  } as unknown as OrchestrationState;
 }
 
 describe('wardenNode sparse-world guard (hasSufficientBibleContent)', () => {
@@ -192,5 +247,43 @@ describe('buildContextPackageNode caching guard', () => {
 
       expect(result).toEqual({});
     });
+  });
+});
+
+describe('scribeNode free-text drafting', () => {
+  it('continues with empty mentions when mention extraction fails', async () => {
+    completeMock
+      .mockResolvedValueOnce(textResult('A generated description without structured mentions.'))
+      .mockRejectedValueOnce(new Error('extractor failed'));
+
+    const result = await scribeNode(scribeState());
+
+    expect(result.description).toBe('A generated description without structured mentions.');
+    expect(result.mentions).toEqual([]);
+    expect(completeMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('reruns Scribe in free-text mode for continuity corrections', async () => {
+    completeMock
+      .mockResolvedValueOnce(textResult('A draft with a contradiction.'))
+      .mockResolvedValueOnce(genericToolUseResult('submit_continuity_check', {
+        approved: false,
+        contradictions: [{ excerpt: 'contradiction', issue: 'Wrong fact', correction: 'Correct it' }],
+      }))
+      .mockResolvedValueOnce(textResult('A corrected draft.'))
+      .mockResolvedValueOnce(genericToolUseResult('submit_continuity_check', {
+        approved: true,
+        contradictions: [],
+      }))
+      .mockResolvedValueOnce(genericToolUseResult('submit_mentions', { mentions: [] }));
+
+    const result = await scribeNode(scribeState({
+      runContinuityEditor: true,
+      researchBrief: { keyFacts: ['A fact.'], warnings: [], suggestedAngles: [] },
+    }));
+
+    expect(result.description).toBe('A corrected draft.');
+    expect(result.continuityCheck).toMatchObject({ approved: true });
+    expect(completeMock).toHaveBeenCalledTimes(5);
   });
 });

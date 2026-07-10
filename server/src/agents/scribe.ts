@@ -74,6 +74,10 @@ export class ScribeAgent extends BaseAgent<ScribeInput, ScribeOutput> {
 
   protected getMaxTokens(): number { return 2000; }
 
+  protected getOutputMode(): 'tool' | 'text' {
+    return this._mode === 'create_child' ? 'tool' : 'text';
+  }
+
   /** search_articles + lookup_names (v8) — narrowed from the full context-tool set since Scribe already receives the curated ContextPackage + Researcher's brief; search_articles remains as a narrow double-check capability. */
   protected getContextTools(): Tool[] {
     return [SEARCH_ARTICLES_TOOL, LOOKUP_NAMES_TOOL];
@@ -113,5 +117,15 @@ export class ScribeAgent extends BaseAgent<ScribeInput, ScribeOutput> {
     }
     const parsed = SubmitDescriptionSchema.parse(input);
     return { mode: 'single', description: parsed.description, mentions: parsed.mentions };
+  }
+
+  protected parseTextOutput(content: string): ScribeOutput {
+    if (this._mode === 'create_child') return this.parseOutput({ description: content });
+    const description = content.trim();
+    if (!description) throw new Error('Scribe returned an empty description.');
+    if (/^#{1,6}\s*Description\b/im.test(description)) {
+      throw new Error('Scribe returned a Description heading; expected body prose only.');
+    }
+    return { mode: 'single', description };
   }
 }

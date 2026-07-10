@@ -76,10 +76,10 @@ A typical workflow looks like this:
 Expand is the growth workflow for the encyclopedia. A run starts from a selected document and can begin at Inception, Expansion, or Branching.
 
 - **Inception** creates or improves the document introduction used by the World Bible.
-- **Expansion** writes fuller description prose from creative direction, world context, and optional guidance.
+- **Expansion** writes fuller description prose from creative direction, world context, and optional guidance. Scribe drafts the prose directly, then a small extractor can identify new entity mentions from the finished draft.
 - **Branching** proposes or creates child documents below the selected node.
 
-The user controls how far the MAS continues. A run can stop after one step, finish the selected document, or recurse into newly created children. Recursive runs can use breadth-first or depth-first queue order, child limits, creation-depth limits, and existing-content rules such as improve, replace, skip, or create only if empty.
+The user controls how far the MAS continues. A run can stop after one step, finish the selected document, or recurse into newly created children. Finishing the selected document means continuing through the remaining selected-document steps, including Branching after an accepted Expansion draft. Recursive runs can use breadth-first or depth-first queue order, child limits, creation-depth limits, and existing-content rules such as improve, replace, skip, or create only if empty.
 
 Validation level controls how much autonomy the MAS has:
 
