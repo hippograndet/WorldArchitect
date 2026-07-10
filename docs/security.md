@@ -65,7 +65,7 @@ Local-only mode blocks Anthropic, OpenAI, and Groq provider calls and permits on
 
 ## Prompt And Output Safety
 
-World/article/user content is wrapped as untrusted data in prompts and context-tool responses. Compact structured agent outputs are zod-validated before generated links, warnings, or mentions can mutate the database. Long Scribe drafts are validated as prose first, then reviewed or accepted through the same draft pipeline before becoming article content.
+World/article/user content is wrapped as untrusted data in prompts and context-tool responses. Compact structured agent outputs are zod-validated before generated links, warnings, or Consolidate concept candidates can mutate the database. Long Scribe drafts are validated as prose first, then reviewed or accepted through the same draft pipeline before becoming article content.
 
 ## Observability
 

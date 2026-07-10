@@ -77,6 +77,18 @@ export interface ArticleDetail {
   openWarnings: CoherenceWarning[];
 }
 
+/** Conceptual (infobox) fact — distinct from document metadata like status/word count. */
+export interface ArticleMetadataFact {
+  id: string;
+  articleId: string;
+  subjectType: string | null;
+  key: string;
+  value: unknown;
+  authority: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface PendingDraft {
   id: string;
   articleId: string;

@@ -27,7 +27,7 @@ Older parts of the code and screenshots may still use the names Spark and Forge.
 
 The shared MAS contract is location, intent, autonomy mode, review policy, and commit policy. This keeps workflows modular while making it clear when the system should ask the user, create a pending draft, or commit automatically.
 
-Long prose and compact decisions use different output styles. Scribe writes article descriptions as normal assistant prose so long drafts do not have to be serialized inside provider function-call JSON. Compact decisions and extraction tasks still use structured tool calls, including proposal selection, checks, and entity mention extraction.
+Long prose and compact decisions use different output styles. Scribe writes article descriptions as normal assistant prose so long drafts do not have to be serialized inside provider function-call JSON. Compact decisions still use structured tool calls for proposal selection, checks, and Consolidate concept extraction.
 
 ## Main Entry Points
 
@@ -46,7 +46,7 @@ Expand is best when you want to grow a world deliberately while choosing how muc
 
 ![Expand inception flow](assets/Screenshot_Spark_Inception.png)
 
-For a new or empty document, Inception can help establish a usable introduction. For an existing document, Expansion can propose creative directions before Scribe drafts fuller description prose. After Scribe writes a draft, a compact Mention Extractor can identify new central entities for later linking or stub creation.
+For a new or empty document, Inception can help establish a usable introduction. For an existing document, Expansion can propose creative directions before Scribe drafts fuller description prose. Expand does not create inferred concept documents; later Consolidate scans accepted prose for reviewable concept candidates.
 
 ![Expand direction selection](assets/Screenshot_Spark_Expansion_Direction_Selection.png)
 
@@ -64,10 +64,11 @@ Consolidate is for cleanup and review. It can:
 
 - Reorganize rough article prose
 - Check for coherence issues
+- Scan accepted prose for reviewable concept candidates
 - Preserve facts during cleanup
 - Surface style or consistency warnings
 
-Consolidate is best after an article or world already has useful material but needs structure, consistency, or polish.
+Consolidate is best after an article or world already has useful material but needs structure, consistency, graph cleanup, or polish. Concept scanning is deliberately review-first: the Mention Extractor creates pending candidates, and documents are created or linked only when the user accepts a candidate.
 
 ### World Tools
 
@@ -83,7 +84,7 @@ WorldArchitect uses specialized agents for different jobs:
 - **Oracle** suggests thematic ideas.
 - **Researcher** extracts constraints before drafting.
 - **Scribe** writes article descriptions as prose instead of long function-call payloads.
-- **Mention Extractor** extracts compact structured entity mentions from generated drafts.
+- **Mention Extractor** extracts compact structured concept candidates during Consolidate scans. It does not run during Expand and does not create documents by itself.
 - **Continuity Editor** checks draft contradictions before acceptance.
 - **Lorekeeper** writes compact World Bible introductions.
 - **Cartographer** proposes child articles.

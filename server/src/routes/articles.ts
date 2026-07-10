@@ -23,6 +23,7 @@ import {
 } from '../services/articlesService.js';
 import articleGraphRoutes from './articleGraph.js';
 import articleIssuesRoutes from './articleIssues.js';
+import articleMetadataRoutes from './articleMetadata.js';
 
 const router = Router({ mergeParams: true });
 
@@ -455,5 +456,6 @@ router.post('/batch', asyncHandler(async (req, res) => {
 }));
 
 router.use(articleIssuesRoutes);
+router.use(articleMetadataRoutes);
 
 export default router;

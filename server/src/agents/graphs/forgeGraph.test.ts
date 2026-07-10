@@ -44,7 +44,7 @@ vi.mock('../director.js', async (importOriginal) => {
 });
 
 // Import after the mocks above are registered.
-import { dequeueNode, inceptionNode, expansionNode, routeAfterExpansion } from './forgeGraph.js';
+import { dequeueNode, researchNode, inceptionNode, expansionNode, routeAfterExpansion } from './forgeGraph.js';
 
 const OWNER_ID = 'owner-forge-graph-test';
 
@@ -135,6 +135,7 @@ function baseForgeState(overrides: Partial<ForgeState>): ForgeState {
     currentItem: undefined,
     inceptionIntro: undefined,
     currentItemContextPackage: undefined,
+    currentItemResearchBrief: undefined,
     currentItemStepsDone: [],
     completed: 0,
     total: 0,
@@ -146,7 +147,7 @@ function baseForgeState(overrides: Partial<ForgeState>): ForgeState {
 }
 
 describe('forgeGraph context caching', () => {
-  it('reuses one cached WorldContext + ContextPackage across inceptionNode and expansionNode for one queue item', async ({ skip }) => {
+  it('reuses one cached WorldContext + ContextPackage across researchNode, inceptionNode and expansionNode for one queue item', async ({ skip }) => {
     if (!harness) { skip(); return; }
 
     await runWithUserContext(OWNER_ID, async () => {
@@ -158,6 +159,10 @@ describe('forgeGraph context caching', () => {
       const worldContext = { worldId, name: 'Test World', tone: 'narrative', originPoint: null, styleConfig: null };
 
       completeMock
+        .mockResolvedValueOnce(toolUseResult('submit_research_brief', {
+          keyFacts: ['Fact one about the article.'],
+          suggestedAngles: ['An angle to explore.'],
+        }))
         .mockResolvedValueOnce(toolUseResult('submit_introduction', {
           introduction: 'A long and detailed introduction paragraph with plenty of descriptive words to pass the minimum word count check easily.',
         }))
@@ -168,12 +173,7 @@ describe('forgeGraph context caching', () => {
           selectedIndex: 0,
           rationale: 'Best fit for the article.',
         }))
-        .mockResolvedValueOnce(toolUseResult('submit_research_brief', {
-          keyFacts: ['Fact one about the article.'],
-          suggestedAngles: ['An angle to explore.'],
-        }))
-        .mockResolvedValueOnce(textResult('A freshly generated description for the article, written by Scribe during this test run.'))
-        .mockResolvedValueOnce(toolUseResult('submit_mentions', { mentions: [] }));
+        .mockResolvedValueOnce(textResult('A freshly generated description for the article, written by Scribe during this test run.'));
 
       const item = { articleId, title: 'Test Article', depth: 0, startStep: 'inception' as const };
 
@@ -187,38 +187,58 @@ describe('forgeGraph context caching', () => {
         currentItemStepsDone: dequeueResult.currentItemStepsDone ?? [],
       });
 
-      const inceptionResult = await inceptionNode(stateAfterDequeue);
+      const researchResult = await researchNode(stateAfterDequeue);
+      expect(researchResult.currentItemResearchBrief).toBeDefined();
+      expect(researchResult.currentItemContextPackage).toBeDefined();
+
+      // researchNode built exactly one ContextPackage; worldContext was
+      // already cached in state, so it was never re-fetched.
+      expect(buildContextPackageCalls).toHaveBeenCalledTimes(1);
+      expect(fetchWorldContextCalls).not.toHaveBeenCalled();
+
+      const stateAfterResearch = baseForgeState({
+        worldId, runId, ownerId: OWNER_ID, worldContext,
+        currentItem: stateAfterDequeue.currentItem,
+        queue: stateAfterDequeue.queue,
+        currentItemResearchBrief: researchResult.currentItemResearchBrief,
+        currentItemContextPackage: researchResult.currentItemContextPackage,
+      });
+
+      const inceptionResult = await inceptionNode(stateAfterResearch);
       expect(inceptionResult.currentItemStepsDone).toContain('inception');
       expect(inceptionResult.currentItemContextPackage).toBeDefined();
       expect(inceptionResult.currentItemContextPackage?.targetIntroduction).toContain('long and detailed introduction');
 
-      // Inception built exactly one ContextPackage (inside runSummarizeGraph);
-      // worldContext was already cached in state, so it was never re-fetched.
+      // Inception reuses researchNode's cached package (patched with the
+      // fresh intro) instead of rebuilding — still exactly one build total.
       expect(buildContextPackageCalls).toHaveBeenCalledTimes(1);
       expect(fetchWorldContextCalls).not.toHaveBeenCalled();
 
       const stateAfterInception = baseForgeState({
         worldId, runId, ownerId: OWNER_ID, worldContext,
-        currentItem: stateAfterDequeue.currentItem,
-        queue: stateAfterDequeue.queue,
+        currentItem: stateAfterResearch.currentItem,
+        queue: stateAfterResearch.queue,
         inceptionIntro: inceptionResult.inceptionIntro,
         currentItemContextPackage: inceptionResult.currentItemContextPackage,
+        currentItemResearchBrief: stateAfterResearch.currentItemResearchBrief,
         currentItemStepsDone: inceptionResult.currentItemStepsDone ?? [],
       });
 
       const expansionResult = await expansionNode(stateAfterInception);
       expect(expansionResult.currentItemStepsDone).toContain('expansion');
 
-      // expansionNode reuses Inception's cached package across all of its
-      // internal sub-pipeline calls (Muse/Curator, Researcher/Scribe) instead
-      // of rebuilding — so the total call count across both nodes stays at 1.
+      // expansionNode reuses the same cached package and research brief
+      // across all of its internal sub-pipeline calls (Muse/Curator, Scribe)
+      // instead of rebuilding or re-running Researcher — so the total build
+      // count across all three nodes stays at 1, and Researcher's LLM call
+      // only happened once (in researchNode), not again inside Expansion.
       expect(buildContextPackageCalls).toHaveBeenCalledTimes(1);
       expect(fetchWorldContextCalls).not.toHaveBeenCalled();
-      expect(completeMock).toHaveBeenCalledTimes(6);
+      expect(completeMock).toHaveBeenCalledTimes(5);
     });
   });
 
-  it('builds ContextPackage once in expansionNode (not 3x) when the item starts at expansion, with no Inception cache to reuse', async ({ skip }) => {
+  it('runs researchNode before expansionNode even when the item starts at expansion (Inception genuinely skipped), reusing its cached package and brief', async ({ skip }) => {
     if (!harness) { skip(); return; }
 
     await runWithUserContext(OWNER_ID, async () => {
@@ -230,6 +250,10 @@ describe('forgeGraph context caching', () => {
       const worldContext = { worldId, name: 'Test World', tone: 'narrative', originPoint: null, styleConfig: null };
 
       completeMock
+        .mockResolvedValueOnce(toolUseResult('submit_research_brief', {
+          keyFacts: ['Fact one about the article.'],
+          suggestedAngles: ['An angle to explore.'],
+        }))
         .mockResolvedValueOnce(toolUseResult('submit_proposals', {
           proposals: [{ title: 'A Proposal', direction: 'Explore a bold new direction for this article.' }],
         }))
@@ -237,12 +261,7 @@ describe('forgeGraph context caching', () => {
           selectedIndex: 0,
           rationale: 'Best fit for the article.',
         }))
-        .mockResolvedValueOnce(toolUseResult('submit_research_brief', {
-          keyFacts: ['Fact one about the article.'],
-          suggestedAngles: ['An angle to explore.'],
-        }))
-        .mockResolvedValueOnce(textResult('A freshly generated description for the article, written by Scribe during this test run.'))
-        .mockResolvedValueOnce(toolUseResult('submit_mentions', { mentions: [] }));
+        .mockResolvedValueOnce(textResult('A freshly generated description for the article, written by Scribe during this test run.'));
 
       const item = { articleId, title: 'Test Article', depth: 0, startStep: 'expansion' as const };
       const state = baseForgeState({
@@ -250,16 +269,39 @@ describe('forgeGraph context caching', () => {
         currentItem: item,
         currentItemStepsDone: [],
         currentItemContextPackage: undefined,
+        currentItemResearchBrief: undefined,
       });
 
-      const expansionResult = await expansionNode(state);
-      expect(expansionResult.currentItemStepsDone).toContain('expansion');
-
-      // No cache to reuse (Inception never ran this cascade), but Fix 3 still
-      // means only ONE build for expansionNode's 2 sub-pipeline calls, not 2.
+      const researchResult = await researchNode(state);
+      expect(researchResult.currentItemResearchBrief).toBeDefined();
+      expect(researchResult.currentItemContextPackage).toBeDefined();
       expect(buildContextPackageCalls).toHaveBeenCalledTimes(1);
       expect(fetchWorldContextCalls).not.toHaveBeenCalled();
-      expect(completeMock).toHaveBeenCalledTimes(5);
+
+      const stateAfterResearch = baseForgeState({
+        worldId, runId, ownerId: OWNER_ID, worldContext,
+        currentItem: item,
+        currentItemStepsDone: [],
+        currentItemContextPackage: researchResult.currentItemContextPackage,
+        currentItemResearchBrief: researchResult.currentItemResearchBrief,
+      });
+
+      // Inception is genuinely a no-op for a startStep:'expansion' item —
+      // this is the exact scenario the explicit requirement targets:
+      // Research must still have run before Expansion, even though Inception
+      // never runs at all for this item.
+      const inceptionResult = await inceptionNode(stateAfterResearch);
+      expect(inceptionResult).toEqual({});
+
+      const expansionResult = await expansionNode(stateAfterResearch);
+      expect(expansionResult.currentItemStepsDone).toContain('expansion');
+
+      // No additional build — expansionNode reuses researchNode's cached
+      // package instead of rebuilding, and Researcher's own LLM call never
+      // re-runs inside Expansion since state.researchBrief was already seeded.
+      expect(buildContextPackageCalls).toHaveBeenCalledTimes(1);
+      expect(fetchWorldContextCalls).not.toHaveBeenCalled();
+      expect(completeMock).toHaveBeenCalledTimes(4);
     });
   });
 });

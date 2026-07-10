@@ -16,7 +16,8 @@ export type MasIntent =
   | 'reorganize'
   | 'cohere'
   | 'compress'
-  | 'audit';
+  | 'audit'
+  | 'research';
 
 export type AutonomyMode = 'manual' | 'review_each_step' | 'auto_with_post_review';
 export type ReviewPolicy = 'none' | 'user_must_select' | 'user_must_accept' | 'auto';

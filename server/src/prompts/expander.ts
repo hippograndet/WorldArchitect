@@ -83,9 +83,6 @@ You must NOT add new facts or remove existing ones. Return only the reorganized 
       break;
   }
 
-  const mentionInstruction = mode === 'create_child' ? `
-**Entity mentions**: If your description coins a brand-new entity — a character, location, or faction that you invented and that does not appear anywhere in the world context above — list it in the optional \`mentions\` field. Do NOT include: the article's parent, siblings, ancestors, or any entity already named in the provided world context. Only genuinely novel creations that are central to this article belong here. For each, provide the template type and a one-sentence summary.` : '';
-
   const outputInstruction = mode === 'create_child'
     ? 'You may use context tools to look up specific articles if needed. When you are ready to deliver your output, call the appropriate output tool — place all written content directly in the tool arguments. Do not write prose in the message body.'
     : 'You may use context tools to look up specific articles if needed. When you are ready to deliver your output, write only the final prose in the assistant message body. Do not call an output tool. Do not include the ## Description heading.';
@@ -95,7 +92,6 @@ You must NOT add new facts or remove existing ones. Return only the reorganized 
 ${buildWorldHeader(worldContext)}
 
 ${modeInstructions}
-${mentionInstruction}
 ${outputInstruction}`;
 }
 

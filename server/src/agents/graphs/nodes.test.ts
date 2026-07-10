@@ -18,7 +18,7 @@ vi.mock('../../services/callLogger.js', () => ({
 // Import after the mocks above are registered, and after the harness sets
 // APP_MODE/DATABASE_URL — nodes.js only touches getDbClient() lazily inside
 // each function call, so a static import here is safe.
-import { wardenNode, fetchWorldContextNode, buildContextPackageNode, scribeNode } from './nodes.js';
+import { wardenNode, fetchWorldContextNode, buildContextPackageNode, researcherNode, scribeNode } from './nodes.js';
 
 const OWNER_ID = 'owner-warden-node-test';
 
@@ -250,17 +250,38 @@ describe('buildContextPackageNode caching guard', () => {
   });
 });
 
+describe('researcherNode caching guard', () => {
+  it('runs Researcher and returns a researchBrief when none is cached', async () => {
+    completeMock.mockResolvedValueOnce(genericToolUseResult('submit_research_brief', {
+      keyFacts: ['A fact about the article.'],
+      suggestedAngles: ['An angle to explore.'],
+    }));
+
+    const result = await researcherNode(scribeState({ researchBrief: undefined }));
+
+    expect(completeMock).toHaveBeenCalledTimes(1);
+    expect(result.researchBrief).toMatchObject({ keyFacts: ['A fact about the article.'] });
+  });
+
+  it('skips the LLM call when researchBrief was already supplied externally', async () => {
+    const result = await researcherNode(scribeState({
+      researchBrief: { keyFacts: ['Already known.'], warnings: [], suggestedAngles: ['Already known angle.'] },
+    }));
+
+    expect(completeMock).not.toHaveBeenCalled();
+    expect(result).toEqual({});
+  });
+});
+
 describe('scribeNode free-text drafting', () => {
-  it('continues with empty mentions when mention extraction fails', async () => {
-    completeMock
-      .mockResolvedValueOnce(textResult('A generated description without structured mentions.'))
-      .mockRejectedValueOnce(new Error('extractor failed'));
+  it('does not run mention extraction during expansion drafting', async () => {
+    completeMock.mockResolvedValueOnce(textResult('A generated description without structured mentions.'));
 
     const result = await scribeNode(scribeState());
 
     expect(result.description).toBe('A generated description without structured mentions.');
     expect(result.mentions).toEqual([]);
-    expect(completeMock).toHaveBeenCalledTimes(2);
+    expect(completeMock).toHaveBeenCalledTimes(1);
   });
 
   it('reruns Scribe in free-text mode for continuity corrections', async () => {
@@ -274,8 +295,7 @@ describe('scribeNode free-text drafting', () => {
       .mockResolvedValueOnce(genericToolUseResult('submit_continuity_check', {
         approved: true,
         contradictions: [],
-      }))
-      .mockResolvedValueOnce(genericToolUseResult('submit_mentions', { mentions: [] }));
+      }));
 
     const result = await scribeNode(scribeState({
       runContinuityEditor: true,
@@ -284,6 +304,6 @@ describe('scribeNode free-text drafting', () => {
 
     expect(result.description).toBe('A corrected draft.');
     expect(result.continuityCheck).toMatchObject({ approved: true });
-    expect(completeMock).toHaveBeenCalledTimes(5);
+    expect(completeMock).toHaveBeenCalledTimes(4);
   });
 });

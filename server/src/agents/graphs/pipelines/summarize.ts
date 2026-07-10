@@ -35,6 +35,7 @@ export async function runSummarizeGraph(params: {
   runGroundingCheck?: boolean;
   pipelineRunId?: string;
   worldContext?: WorldContext;
+  contextPackage?: ContextPackage;
 }): Promise<SummarizeGraphOutput> {
   const result = await graph.invoke({
     worldId: params.worldId,
@@ -51,6 +52,7 @@ export async function runSummarizeGraph(params: {
     contextDepth: params.contextDepth ?? 'mid',
     runGroundingCheck: params.runGroundingCheck ?? false,
     ...(params.worldContext ? { worldContext: params.worldContext } : {}),
+    ...(params.contextPackage ? { contextPackage: params.contextPackage } : {}),
   });
   return {
     introduction: result.introduction!,

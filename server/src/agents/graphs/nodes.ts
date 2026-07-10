@@ -8,7 +8,6 @@ import { CuratorAgent } from '../curator.js';
 import { OracleAgent } from '../oracle.js';
 import { ResearcherAgent } from '../researcher.js';
 import { ScribeAgent } from '../scribe.js';
-import { MentionExtractorAgent } from '../mentionExtractor.js';
 import { ContinuityEditorAgent } from '../continuityEditor.js';
 import { GroundingCheckAgent } from '../groundingCheck.js';
 import { LorekeepAgent } from '../lorekeeper.js';
@@ -63,7 +62,12 @@ export async function fetchWorldContextNode(state: OrchestrationState): Promise<
  * otherwise use, since ContextPackage carries no record of which mode built
  * it. Today only expansionNode (mode 'default') seeds this; do not thread a
  * cached package into proposeChildren.ts ('propose_children' mode) or a
- * 'reorganize'-mode call without adding a mode check first.
+ * 'reorganize'-mode call without adding a mode check first. Since
+ * researchNode (graphs/pipelines/research.ts) now runs before Inception for
+ * every Forge queue item, it is the primary producer for the whole
+ * Research→Inception→Expansion cascade — expansionNode reuses its cached
+ * package (see forgeGraph.ts's resolveItemContextPackage) instead of this
+ * node rebuilding it a second time.
  */
 export async function buildContextPackageNode(state: OrchestrationState): Promise<Partial_> {
   if (state.contextPackage) return {};
@@ -99,6 +103,7 @@ export async function museProposeNode(state: OrchestrationState): Promise<Partia
     worldContext: state.worldContext!,
     mode: state.proposalMode!,
     userSpec: state.userSpec,
+    researchBrief: state.researchBrief,
   }, callCtx(state));
   return { proposals: result.output.proposals, tokensIn: result.tokensIn, tokensOut: result.tokensOut };
 }
@@ -147,6 +152,7 @@ export async function oracleNode(state: OrchestrationState): Promise<Partial_> {
     introduction: state.introduction!,
     selectedProposal: state.selectedProposal!,
     userSpec: state.userSpec,
+    researchBrief: state.researchBrief,
   }, callCtx(state));
 
   return { ideas: result.output.ideas, tokensIn: result.tokensIn, tokensOut: result.tokensOut };
@@ -157,7 +163,9 @@ export async function oracleNode(state: OrchestrationState): Promise<Partial_> {
 // to 2 passes] -> optional Lorekeeper -> optional StyleWarden
 // ---------------------------------------------------------------------------
 
+/** No-op when researchBrief was already supplied externally (e.g. by researchNode running ahead of this pipeline in forgeGraph.ts) — mirrors fetchWorldContextNode/buildContextPackageNode's caching guards. */
 export async function researcherNode(state: OrchestrationState): Promise<Partial_> {
+  if (state.researchBrief) return {};
   const agent = new ResearcherAgent();
   const result = await agent.run(state.worldId, {
     contextPackage: state.contextPackage!,
@@ -230,28 +238,12 @@ export async function scribeNode(state: OrchestrationState): Promise<Partial_> {
 
   const description = scribeOutput.mode === 'child' ? scribeOutput.childDescription : scribeOutput.description;
   const parentAppend = scribeOutput.mode === 'child' ? scribeOutput.parentAppend : undefined;
-  let mentions = scribeOutput.mentions;
-
-  if (scribeOutput.mode === 'single' && state.expanderMode !== 'reorganize') {
-    try {
-      const mentionAgent = new MentionExtractorAgent();
-      const mentionResult = await mentionAgent.run(state.worldId, {
-        contextPackage: state.contextPackage!,
-        description,
-      }, callCtx(state));
-      tokensIn += mentionResult.tokensIn;
-      tokensOut += mentionResult.tokensOut;
-      mentions = mentionResult.output.mentions;
-    } catch {
-      mentions = [];
-    }
-  }
 
   return {
     scribeOutput,
     description,
     ...(parentAppend ? { parentUpdate: { appendText: parentAppend } } : {}),
-    mentions,
+    mentions: [],
     ...(continuityCheck ? { continuityCheck } : {}),
     tokensIn,
     tokensOut,
@@ -391,6 +383,7 @@ export async function cartographerNode(state: OrchestrationState): Promise<Parti
     contextPackage: state.contextPackage!,
     worldContext: state.worldContext!,
     userSpec: state.userSpec,
+    researchBrief: state.researchBrief,
   }, callCtx(state));
   let tokensIn = result.tokensIn;
   let tokensOut = result.tokensOut;

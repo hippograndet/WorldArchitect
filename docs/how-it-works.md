@@ -15,6 +15,7 @@ The app gives each world its own local encyclopedia. You create articles, group 
 - **Expand** - configure MAS generation runs that incept, expand, branch, and optionally recurse through part of the world.
 - **Graph** - inspect the world as connected articles, with hierarchy rings and reference links.
 - **Toolbox** - generate and manage reusable worldbuilding material such as names.
+- **Consolidate** - review article/world issues, reorganize prose, check coherence, and scan accepted prose for concept candidates.
 - **Snapshots** - create and restore named checkpoints of an entire world.
 - **Usage and settings** - manage provider settings, call logs, and cost controls.
 
@@ -76,7 +77,7 @@ A typical workflow looks like this:
 Expand is the growth workflow for the encyclopedia. A run starts from a selected document and can begin at Inception, Expansion, or Branching.
 
 - **Inception** creates or improves the document introduction used by the World Bible.
-- **Expansion** writes fuller description prose from creative direction, world context, and optional guidance. Scribe drafts the prose directly, then a small extractor can identify new entity mentions from the finished draft.
+- **Expansion** writes fuller description prose from creative direction, world context, and optional guidance. Scribe drafts the prose directly; inferred concepts are left for Consolidate so accepting an expansion draft does not create surprise documents.
 - **Branching** proposes or creates child documents below the selected node.
 
 The user controls how far the MAS continues. A run can stop after one step, finish the selected document, or recurse into newly created children. Finishing the selected document means continuing through the remaining selected-document steps, including Branching after an accepted Expansion draft. Recursive runs can use breadth-first or depth-first queue order, child limits, creation-depth limits, and existing-content rules such as improve, replace, skip, or create only if empty.
@@ -88,6 +89,12 @@ Validation level controls how much autonomy the MAS has:
 - **Autopilot** can auto-select, continue, and commit during the run.
 
 When a run needs the user, it enters a `needs_input` state and the selected run view shows an action panel inside Expand. The same panel renders different gate types, so the user can select, edit, accept, or reject the pending MAS output without leaving the run view.
+
+## Consolidate And Concept Candidates
+
+Consolidate is the maintenance workflow for material that already exists in the encyclopedia. It can reorganize rough prose, run coherence checks, surface issue queues, and scan accepted article descriptions for significant concepts that may deserve their own article.
+
+Concept scanning is review-first. The Mention Extractor reads accepted prose and records pending concept candidates, but it does not create documents immediately. The user can then create or link a candidate from Consolidate, which creates a same-depth stub when needed and adds a reference edge from the source article. Ignored candidates are kept out of the active review queue.
 
 ## Local App Shape
 

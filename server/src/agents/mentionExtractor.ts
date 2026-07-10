@@ -20,6 +20,7 @@ const SubmitMentionsSchema = z.object({
 export interface MentionExtractorInput {
   contextPackage: ContextPackage;
   description: string;
+  knownTitles?: string[];
 }
 
 export interface MentionExtractorOutput {
@@ -46,6 +47,7 @@ export class MentionExtractorAgent extends BaseAgent<MentionExtractorInput, Ment
       ...input.contextPackage.siblings.map((item) => item.title),
       ...input.contextPackage.children.map((item) => item.title),
       ...input.contextPackage.referencedArticles.map((item) => item.title),
+      ...(input.knownTitles ?? []),
     ].filter(Boolean);
 
     return [

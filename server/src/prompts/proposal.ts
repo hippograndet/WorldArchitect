@@ -1,5 +1,6 @@
 import type { WorldContext } from '../agents/director.js';
 import type { ContextPackage } from '../services/archivist.js';
+import type { ResearchBrief } from '../agents/scribe.js';
 import { buildWorldHeader, dataBlock } from './shared.js';
 
 export type ProposalMode = 'expand_description' | 'create_root' | 'create_child';
@@ -55,6 +56,7 @@ When you have read the world context and are ready, call submit_proposals with e
 export function buildProposalUserMessage(
   pkg: ContextPackage,
   userSpec?: string,
+  researchBrief?: ResearchBrief,
 ): string {
   const parts: string[] = [
     `## Article: ${pkg.targetTitle}`,
@@ -63,6 +65,20 @@ export function buildProposalUserMessage(
 
   if (pkg.targetIntroduction) {
     parts.push(`Current Introduction:\n${dataBlock('target.introduction', pkg.targetIntroduction)}`);
+  }
+
+  if (researchBrief) {
+    const briefParts: string[] = [];
+    if (researchBrief.keyFacts.length > 0) {
+      briefParts.push(`**Established facts to respect:**\n${researchBrief.keyFacts.map(f => `- ${f}`).join('\n')}`);
+    }
+    if (researchBrief.warnings.length > 0) {
+      briefParts.push(`**Watch out for:**\n${researchBrief.warnings.map(w => `- ${w}`).join('\n')}`);
+    }
+    if (researchBrief.suggestedAngles.length > 0) {
+      briefParts.push(`**Angles worth developing:**\n${researchBrief.suggestedAngles.map(a => `- ${a}`).join('\n')}`);
+    }
+    if (briefParts.length > 0) parts.push(`## Research Brief\n${briefParts.join('\n\n')}`);
   }
 
   const context = renderContextPackage(pkg);

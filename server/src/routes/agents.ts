@@ -142,8 +142,8 @@ router.post('/expand', requireLLM, checkCap, asyncHandler(async (req, res) => {
   // Persist draft so POST /accept can commit it
   const exec = getDbClient();
   const draftContent = pipelineType === 'create_child'
-    ? { childDescription: result.description, introduction: result.introduction, mentions: result.mentions }
-    : { description: result.description, mentions: result.mentions };
+    ? { childDescription: result.description, introduction: result.introduction }
+    : { description: result.description };
 
   const parentUpdateJson = result.parentUpdate
     ? JSON.stringify({ articleId, appendText: result.parentUpdate.appendText })

@@ -10,6 +10,7 @@ import { getCheckpointer } from '../checkpointer.js';
 import { runWithUserContext } from '../../requestContext.js';
 import { fetchWorldContext } from '../director.js';
 import { buildContextPackage } from '../../services/archivist.js';
+import { runResearchGraph } from './pipelines/research.js';
 import { runSummarizeGraph } from './pipelines/summarize.js';
 import { runProposeGraph } from './pipelines/propose.js';
 import { runProposeIdeasGraph } from './pipelines/proposeIdeas.js';
@@ -79,9 +80,13 @@ async function getChildCount(ownerId: string, articleId: string): Promise<number
  * commits an introduction. When `prebuilt` is given (Inception just called
  * runSummarizeGraph in this same invocation), its targetIntroduction is stale
  * — built before Lorekeeper wrote the intro — and must be patched with the
- * one that was just saved. Otherwise (skip-existing / resumed-review paths,
- * where no sub-pipeline ran in this invocation) build fresh: the live DB read
- * already reflects the just-saved introduction, so no patch is needed.
+ * one that was just saved. Otherwise, fall back to researchNode's package
+ * (state.currentItemContextPackage, built once before Inception ran) patched
+ * the same way — this is the common skip-existing/resumed-review case, and
+ * reusing it here is what keeps the whole Research→Inception→Expansion
+ * cascade down to exactly one buildContextPackage call. Only when neither is
+ * available (e.g. a pre-Research checkpoint being resumed) does this build
+ * fresh from the DB.
  */
 async function resolveItemContextPackage(
   state: ForgeState,
@@ -89,7 +94,8 @@ async function resolveItemContextPackage(
   introduction: string,
   prebuilt?: ContextPackage,
 ): Promise<ContextPackage> {
-  if (prebuilt) return { ...prebuilt, targetIntroduction: introduction };
+  const base = prebuilt ?? state.currentItemContextPackage;
+  if (base) return { ...base, targetIntroduction: introduction };
   return buildContextPackage(state.worldId, articleId, { mode: 'default', contextDepth: state.contextDepth });
 }
 
@@ -216,10 +222,9 @@ async function persistExpandDraft(params: {
   articleId: string;
   ownerId: string;
   description: string;
-  mentions?: unknown;
 }): Promise<void> {
   const exec = getDbClient();
-  const draftContent = { description: params.description, mentions: params.mentions };
+  const draftContent = { description: params.description };
   const now = Date.now();
   const existing = await exec.get<{ id: string }>(
     'SELECT id FROM pending_drafts WHERE article_id = ? AND owner_id = ? AND pipeline_type = ?',
@@ -270,7 +275,51 @@ async function dequeueNode(state: ForgeState): Promise<Partial<ForgeState>> {
     inceptionIntro: undefined,
     currentItemStepsDone: [],
     currentItemContextPackage: undefined,
+    currentItemResearchBrief: undefined,
   };
+}
+
+/**
+ * Unconditional prefix step run once per queue item, before Inception,
+ * Expansion, or Branching do any of their own conditional work — even when
+ * startStep skips straight to 'expansion'/'branching' and Inception never
+ * runs for this item. Researcher's output ({keyFacts, warnings,
+ * suggestedAngles}) only depends on {contextPackage, worldContext}, not on
+ * any proposal/direction chosen downstream, so it can run first and be
+ * shared by every consumer (Muse, Cartographer, Oracle, Scribe) instead of
+ * being re-derived inside Expansion alone.
+ *
+ * Deliberately does NOT set lastStepError on a non-fatal failure (unlike
+ * inceptionNode/expansionNode/branchingNode, which do): downstream steps
+ * already tolerate a missing currentItemResearchBrief/currentItemContextPackage
+ * by building their own, so a Research hiccup shouldn't count as a failed
+ * step for an otherwise fully-successful item.
+ */
+async function researchNode(state: ForgeState): Promise<Partial<ForgeState>> {
+  const item = state.currentItem!;
+  if (state.currentItemResearchBrief) return {};
+
+  try {
+    const result = await runResearchGraph({
+      worldId: state.worldId,
+      articleId: item.articleId,
+      contextDepth: state.contextDepth,
+      pipelineRunId: state.runId,
+      worldContext: state.worldContext,
+    });
+    await bumpRunBudget(state.worldId, state.ownerId, state.runId, result.tokensIn + result.tokensOut);
+    await logEvent(state, 'Research', item.title, true, 'Research brief ready.');
+    return {
+      currentItemContextPackage: result.contextPackage,
+      currentItemResearchBrief: result.researchBrief,
+    };
+  } catch (err) {
+    const fatal = isFatal(err);
+    await logEvent(state, 'Research', item.title, false, errorMessage(err));
+    return fatal
+      ? { signal: 'error' as const, lastStepError: { step: 'Research', fatal: true, message: errorMessage(err) } }
+      : {};
+  }
 }
 
 async function inceptionNode(state: ForgeState): Promise<Partial<ForgeState>> {
@@ -322,6 +371,7 @@ async function inceptionNode(state: ForgeState): Promise<Partial<ForgeState>> {
       pipelineRunId: state.runId,
       runGroundingCheck: state.forgeUseGroundingCheck,
       worldContext: state.worldContext,
+      contextPackage: state.currentItemContextPackage,
     });
     await bumpRunBudget(state.worldId, state.ownerId, state.runId, result.tokensIn + result.tokensOut);
 
@@ -433,7 +483,6 @@ async function expansionNode(state: ForgeState): Promise<Partial<ForgeState>> {
         articleId: item.articleId,
         ownerId: state.ownerId,
         description: acceptedDescription,
-        mentions: existingDecision.payload.mentions,
       });
       await acceptDraft({ worldId: state.worldId, articleId: item.articleId, ownerId: state.ownerId, activeRunId: state.runId });
       await logEvent(state, 'Expansion', item.title, true, 'Draft accepted and saved.');
@@ -473,6 +522,7 @@ async function expansionNode(state: ForgeState): Promise<Partial<ForgeState>> {
         pipelineRunId: state.runId,
         worldContext: state.worldContext,
         contextPackage,
+        researchBrief: state.currentItemResearchBrief,
       });
       await bumpRunBudget(state.worldId, state.ownerId, state.runId, proposeResult.tokensIn + proposeResult.tokensOut);
       const selectedIndex = proposeResult.autoSelectedIndex ?? 0;
@@ -522,6 +572,7 @@ async function expansionNode(state: ForgeState): Promise<Partial<ForgeState>> {
             pipelineRunId: state.runId,
             worldContext: state.worldContext,
             contextPackage,
+            researchBrief: state.currentItemResearchBrief,
           });
           await bumpRunBudget(state.worldId, state.ownerId, state.runId, ideasResult.tokensIn + ideasResult.tokensOut);
 
@@ -560,6 +611,7 @@ async function expansionNode(state: ForgeState): Promise<Partial<ForgeState>> {
       pipelineRunId: state.runId,
       worldContext: state.worldContext,
       contextPackage,
+      researchBrief: state.currentItemResearchBrief,
     });
     await bumpRunBudget(state.worldId, state.ownerId, state.runId, expandResult.tokensIn + expandResult.tokensOut);
 
@@ -582,7 +634,6 @@ async function expansionNode(state: ForgeState): Promise<Partial<ForgeState>> {
           payload: {
             title: item.title,
             description: expandResult.description,
-            mentions: expandResult.mentions ?? [],
             proposal: selectedProposal,
             ideas: selectedIdeas ?? [],
           },
@@ -599,7 +650,6 @@ async function expansionNode(state: ForgeState): Promise<Partial<ForgeState>> {
         articleId: item.articleId,
         ownerId: state.ownerId,
         description: acceptedDescription,
-        mentions: expandResult.mentions,
       });
       await acceptDraft({ worldId: state.worldId, articleId: item.articleId, ownerId: state.ownerId, activeRunId: state.runId });
       await logEvent(state, 'Expansion', item.title, true, 'Draft accepted and saved.');
@@ -610,7 +660,6 @@ async function expansionNode(state: ForgeState): Promise<Partial<ForgeState>> {
       articleId: item.articleId,
       ownerId: state.ownerId,
       description: expandResult.description,
-      mentions: expandResult.mentions,
     });
 
     if (state.commitPolicy === 'auto_commit') {
@@ -691,6 +740,9 @@ async function branchingNode(state: ForgeState): Promise<Partial<ForgeState>> {
       pipelineRunId: state.runId,
       runDedupCheck: state.forgeUseDedupCheck,
       worldContext: state.worldContext,
+      // No contextPackage here — Branching always rebuilds its own under
+      // 'propose_children' mode (see runProposeChildrenGraph's comment).
+      researchBrief: state.currentItemResearchBrief,
     });
     await bumpRunBudget(state.worldId, state.ownerId, state.runId, childResult.tokensIn + childResult.tokensOut);
 
@@ -803,8 +855,12 @@ async function finishItemNode(state: ForgeState): Promise<Partial<ForgeState>> {
 
 const END_KEY = '__end__';
 
-function routeAfterDequeue(state: ForgeState): 'inception' | typeof END_KEY {
-  return state.signal === 'continue' ? 'inception' : END_KEY;
+function routeAfterDequeue(state: ForgeState): 'research' | typeof END_KEY {
+  return state.signal === 'continue' ? 'research' : END_KEY;
+}
+
+function routeAfterResearch(state: ForgeState): 'inception' | typeof END_KEY {
+  return state.lastStepError?.fatal ? END_KEY : 'inception';
 }
 
 function routeAfterInception(state: ForgeState): 'expansion' | 'finishItem' | typeof END_KEY {
@@ -839,12 +895,14 @@ async function buildGraph() {
   const checkpointer = await getCheckpointer();
   return new StateGraph(ForgeAnnotation)
     .addNode('dequeue', dequeueNode)
+    .addNode('research', researchNode)
     .addNode('inception', inceptionNode)
     .addNode('expansion', expansionNode)
     .addNode('branching', branchingNode)
     .addNode('finishItem', finishItemNode)
     .addEdge('__start__', 'dequeue')
-    .addConditionalEdges('dequeue', routeAfterDequeue, { inception: 'inception', [END_KEY]: '__end__' })
+    .addConditionalEdges('dequeue', routeAfterDequeue, { research: 'research', [END_KEY]: '__end__' })
+    .addConditionalEdges('research', routeAfterResearch, { inception: 'inception', [END_KEY]: '__end__' })
     .addConditionalEdges('inception', routeAfterInception, { expansion: 'expansion', finishItem: 'finishItem', [END_KEY]: '__end__' })
     .addConditionalEdges('expansion', routeAfterExpansion, { branching: 'branching', finishItem: 'finishItem', [END_KEY]: '__end__' })
     .addConditionalEdges('branching', routeAfterBranching, { finishItem: 'finishItem', [END_KEY]: '__end__' })
@@ -859,13 +917,14 @@ export function getForgeGraph() {
 }
 
 /** Exported for forgeGraph.test.ts only — production code should go through startForgeRun/resumeForgeRun. */
-export { dequeueNode, inceptionNode, expansionNode, branchingNode, finishItemNode, routeAfterExpansion };
+export { dequeueNode, researchNode, inceptionNode, expansionNode, branchingNode, finishItemNode, routeAfterExpansion };
 
 /**
  * Hard technical ceiling on graph super-steps, independent of the user-facing
  * forgeMaxDepth/forgeMaxChildren soft limits — same PoC-verified pattern used
- * elsewhere this session. 5 super-steps per queue item (dequeue/inception/
- * expansion/branching/finishItem); Cartographer caps children at 5 per branch.
+ * elsewhere this session. 6 super-steps per queue item (dequeue/research/
+ * inception/expansion/branching/finishItem); Cartographer caps children at 5
+ * per branch.
  */
 function computeRecursionLimit(forgeMaxDepth: number, forgeMaxChildren: number): number {
   const branchFactor = forgeMaxChildren > 0 ? forgeMaxChildren : 5;
@@ -875,7 +934,7 @@ function computeRecursionLimit(forgeMaxDepth: number, forgeMaxChildren: number):
     totalItems += levelCount;
     levelCount *= branchFactor;
   }
-  return Math.min(20_000, totalItems * 5 + 20);
+  return Math.min(20_000, totalItems * 6 + 20);
 }
 
 async function finalizeRun(runId: string, worldId: string, ownerId: string, result: ForgeState): Promise<void> {

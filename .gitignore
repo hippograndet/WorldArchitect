@@ -27,3 +27,6 @@ server/data/
 
 # Build output
 client/dist/
+
+# Playwright CLI session artifacts (screenshots, snapshots, logs)
+.playwright-cli/

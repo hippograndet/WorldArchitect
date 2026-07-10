@@ -31,7 +31,7 @@ export interface EntityMention {
   title: string;
   templateType: string;
   summary: string | null;
-  status: 'created' | 'ignored';
+  status: 'pending' | 'created' | 'ignored';
   createdAt: number;
 }
 

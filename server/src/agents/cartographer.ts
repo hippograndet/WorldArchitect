@@ -4,6 +4,7 @@ import { OUTPUT_TOOLS } from '../tools/output.js';
 import { buildChildProposerSystemPrompt, buildChildProposerUserMessage } from '../prompts/childProposer.js';
 import type { WorldContext } from './director.js';
 import type { ContextPackage } from '../services/archivist.js';
+import type { ResearchBrief } from './scribe.js';
 import { LOOKUP_NAMES_TOOL, SEARCH_ARTICLES_TOOL } from '../tools/context.js';
 import type { ChatMessage } from '../providers/types.js';
 import type { Tool } from '../tools/types.js';
@@ -31,6 +32,7 @@ export interface CartographerInput {
   contextPackage: ContextPackage;
   worldContext: WorldContext;
   userSpec?: string;
+  researchBrief?: ResearchBrief;
 }
 
 // ---------------------------------------------------------------------------
@@ -50,7 +52,7 @@ export class CartographerAgent extends BaseAgent<CartographerInput, Cartographer
       },
       {
         role: 'user',
-        content: buildChildProposerUserMessage(input.contextPackage, input.userSpec),
+        content: buildChildProposerUserMessage(input.contextPackage, input.userSpec, input.researchBrief),
       },
     ];
   }

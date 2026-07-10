@@ -7,12 +7,15 @@ import IssueQueueSidebar from '../components/consolidate/IssueQueueSidebar.tsx';
 import IssueDetailView from '../components/consolidate/IssueDetailView.tsx';
 import AuditLauncherPanel from '../components/consolidate/AuditLauncherPanel.tsx';
 import type { ConsolidationIssue } from '../lib/consolidation.ts';
+import type { EntityMention } from '../types/world.ts';
+import { useStore } from '../stores/index.ts';
 
 export default function ConsolidatePage() {
   const { wid } = useParams<{ wid: string }>();
   const [searchParams] = useSearchParams();
 
   const [issues, setIssues] = useState<ConsolidationIssue[]>([]);
+  const [mentions, setMentions] = useState<EntityMention[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(true);
   const deepLinkedIssueId = searchParams.get('issue');
@@ -23,8 +26,22 @@ export default function ConsolidatePage() {
     const list = await api.consolidation.list(wid);
     setIssues(list);
   }, [wid]);
+  const loadTree = useStore((state) => state.loadTree);
+
+  const loadMentions = useCallback(async () => {
+    if (!wid) return;
+    const list = await api.entityMentions.list(wid);
+    setMentions(list);
+  }, [wid]);
 
   useEffect(() => { loadIssues().catch(console.error); }, [loadIssues]);
+  useEffect(() => { loadMentions().catch(console.error); }, [loadMentions]);
+
+  const refreshConsolidate = useCallback(() => {
+    loadIssues().catch(console.error);
+    loadMentions().catch(console.error);
+    if (wid) loadTree(wid).catch(console.error);
+  }, [loadIssues, loadMentions, loadTree, wid]);
 
   useEffect(() => {
     if (deepLinkedIssueId) setSelectedId(deepLinkedIssueId);
@@ -51,7 +68,7 @@ export default function ConsolidatePage() {
               </button>
             </div>
           )}
-          <IssueDetailView wid={wid} issue={selectedIssue} onChanged={() => loadIssues().catch(console.error)} />
+          <IssueDetailView wid={wid} issue={selectedIssue} onChanged={refreshConsolidate} />
         </>
       }
       right={
@@ -59,6 +76,8 @@ export default function ConsolidatePage() {
           wid={wid}
           onHide={() => setSettingsOpen(false)}
           preselectedArticleId={preselectedArticleId}
+          mentions={mentions}
+          onChanged={refreshConsolidate}
         />
       }
     />

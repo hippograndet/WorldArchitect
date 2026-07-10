@@ -14,7 +14,7 @@ import type { ContextDepth, ArchivistMode, ContextPackage } from '../../../servi
 import type { ExpanderMode } from '../../../prompts/expander.js';
 import type { ProposalItem } from '../../muse.js';
 import type { IdeaItem } from '../../oracle.js';
-import type { MentionItem } from '../../scribe.js';
+import type { ResearchBrief } from '../../scribe.js';
 import type { StyleWardenOutput } from '../../styleWarden.js';
 import type { ContinuityEditorOutput } from '../../continuityEditor.js';
 import type { WorldContext } from '../../director.js';
@@ -41,7 +41,6 @@ export interface ExpandGraphOutput {
   parentUpdate?: { appendText: string };
   styleCheck?: StyleWardenOutput;
   continuityCheck?: ContinuityEditorOutput;
-  mentions?: MentionItem[];
   tokensIn: number;
   tokensOut: number;
 }
@@ -66,6 +65,7 @@ export async function runExpandGraph(params: {
    * guard comment in nodes.ts for the underlying invariant.
    */
   contextPackage?: ContextPackage;
+  researchBrief?: ResearchBrief;
 }): Promise<ExpandGraphOutput> {
   const contextMode: ArchivistMode = params.pipelineType === 'reorganize' ? 'reorganize' : 'default';
   const cachedContextPackage = contextMode === 'default' ? params.contextPackage : undefined;
@@ -92,6 +92,7 @@ export async function runExpandGraph(params: {
     wordCountPreset: params.wordCountPreset ?? 'medium',
     ...(params.worldContext ? { worldContext: params.worldContext } : {}),
     ...(cachedContextPackage ? { contextPackage: cachedContextPackage } : {}),
+    ...(params.researchBrief ? { researchBrief: params.researchBrief } : {}),
   });
 
   return {
@@ -100,7 +101,6 @@ export async function runExpandGraph(params: {
     ...(result.parentUpdate ? { parentUpdate: result.parentUpdate } : {}),
     ...(result.styleCheck ? { styleCheck: result.styleCheck } : {}),
     ...(result.continuityCheck ? { continuityCheck: result.continuityCheck } : {}),
-    ...(result.mentions?.length ? { mentions: result.mentions } : {}),
     tokensIn: result.tokensIn,
     tokensOut: result.tokensOut,
   };

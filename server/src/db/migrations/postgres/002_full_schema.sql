@@ -85,7 +85,7 @@ CREATE TABLE IF NOT EXISTS entity_mentions (
   title TEXT NOT NULL,
   template_type TEXT NOT NULL DEFAULT 'general',
   summary TEXT,
-  status TEXT NOT NULL DEFAULT 'created',
+  status TEXT NOT NULL DEFAULT 'pending',
   created_at BIGINT NOT NULL
 );
 

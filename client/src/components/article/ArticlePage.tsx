@@ -55,7 +55,7 @@ export default function ArticlePage() {
   const navigate = useNavigate();
   const {
     selectArticle, currentArticleDetail, currentArticleId,
-    manualEdit, loadTree, addToast, checkDraft,
+    manualEdit, loadTree, addToast, checkDraft, loadMetadataFacts,
   } = useStore();
 
   const [editingSection, setEditingSection] = useState<EditingSection>(null);
@@ -70,7 +70,8 @@ export default function ArticlePage() {
     setShowHistory(false);
     selectArticle(wid, aid).catch(console.error);
     checkDraft(wid, aid).catch(console.error);
-  }, [wid, aid, selectArticle, checkDraft]);
+    loadMetadataFacts(wid, aid).catch(console.error);
+  }, [wid, aid, selectArticle, checkDraft, loadMetadataFacts]);
 
   if (!currentArticleDetail || currentArticleId !== aid) {
     return <div className="p-8 text-sm text-gray-400">Loading…</div>;

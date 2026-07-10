@@ -7,6 +7,7 @@ import type { ContextDepth, ContextPackage } from '../../../services/archivist.j
 import type { ProposalMode } from '../../../prompts/proposal.js';
 import type { ProposalItem } from '../../muse.js';
 import type { WorldContext } from '../../director.js';
+import type { ResearchBrief } from '../../scribe.js';
 
 const graph = new StateGraph(OrchestrationAnnotation)
   .addNode('fetchWorldContext', fetchWorldContextNode)
@@ -38,6 +39,7 @@ export async function runProposeGraph(params: {
   pipelineRunId?: string;
   worldContext?: WorldContext;
   contextPackage?: ContextPackage;
+  researchBrief?: ResearchBrief;
 }): Promise<ProposeGraphOutput> {
   const result = await graph.invoke({
     worldId: params.worldId,
@@ -56,6 +58,7 @@ export async function runProposeGraph(params: {
     contextDepth: params.contextDepth ?? 'mid',
     ...(params.worldContext ? { worldContext: params.worldContext } : {}),
     ...(params.contextPackage ? { contextPackage: params.contextPackage } : {}),
+    ...(params.researchBrief ? { researchBrief: params.researchBrief } : {}),
   });
 
   return {

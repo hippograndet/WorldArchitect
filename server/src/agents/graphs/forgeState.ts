@@ -2,6 +2,7 @@ import { Annotation } from '@langchain/langgraph';
 import type { ContextDepth, ContextPackage } from '../../services/archivist.js';
 import type { AutonomyMode, CommitPolicy, MasContract, MasIntent, MasLocation, ReviewPolicy } from './masContract.js';
 import type { WorldContext } from '../director.js';
+import type { ResearchBrief } from '../scribe.js';
 
 const replace = <T>(_a: T, b: T): T => b;
 
@@ -72,6 +73,14 @@ export const ForgeAnnotation = Annotation.Root({
    * the whole run (unlike worldContext above).
    */
   currentItemContextPackage: Annotation<ContextPackage | undefined>({ reducer: replace, default: () => undefined }),
+  /**
+   * Research brief produced once per queue item by researchNode — the
+   * unconditional prefix step that runs before Inception/Expansion/Branching
+   * so a shared brief is available even when startStep skips Inception.
+   * Reset alongside currentItemContextPackage each time dequeueNode pops a
+   * new item.
+   */
+  currentItemResearchBrief: Annotation<ResearchBrief | undefined>({ reducer: replace, default: () => undefined }),
   /**
    * Steps already completed for currentItem — lets a resume after a crash
    * mid-cascade (server killed between, say, Inception and Expansion) skip

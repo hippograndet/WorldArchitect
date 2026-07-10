@@ -8,6 +8,7 @@ import {
 } from '../prompts/proposal.js';
 import type { WorldContext } from './director.js';
 import type { ContextPackage } from '../services/archivist.js';
+import type { ResearchBrief } from './scribe.js';
 import { LOOKUP_NAMES_TOOL } from '../tools/context.js';
 import type { ChatMessage } from '../providers/types.js';
 import type { Tool } from '../tools/types.js';
@@ -33,6 +34,7 @@ export interface MuseInput {
   worldContext: WorldContext;
   mode: ProposalMode;
   userSpec?: string;
+  researchBrief?: ResearchBrief;
 }
 
 // ---------------------------------------------------------------------------
@@ -52,7 +54,7 @@ export class MuseAgent extends BaseAgent<MuseInput, MuseOutput> {
       },
       {
         role: 'user',
-        content: buildProposalUserMessage(input.contextPackage, input.userSpec),
+        content: buildProposalUserMessage(input.contextPackage, input.userSpec, input.researchBrief),
       },
     ];
   }

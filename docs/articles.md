@@ -16,6 +16,8 @@ A **pending draft** is a temporary generated draft waiting for user review. Pend
 
 A **World Bible entry** is a concise summary used for context and continuity. It is updated when article introductions or summaries change.
 
+An **entity mention** is a Consolidate concept candidate found in accepted article prose. Pending mentions do not change the article graph. When the user accepts one, the app creates or reuses a same-depth article stub and adds a reference edge from the source article.
+
 ## Current Lifecycle
 
 ```text
@@ -38,7 +40,7 @@ Accepting a pending draft is a controlled write:
 - A new article version is created for normal article expansion.
 - For `create_child`, a child article and child version are created.
 - Optional parent append text creates a new parent version.
-- Suggested links, warnings, mentions, and World Bible updates are written.
+- Suggested links, warnings, and World Bible updates are written. Inferred concept mentions are handled later through Consolidate scans.
 - The pending draft is deleted after a successful accept.
 - Sync rules run after the commit.
 
@@ -59,6 +61,16 @@ Child creation accept returns:
 ```json
 { "article": "...", "childArticle": "...", "childVersion": "..." }
 ```
+
+## Concept Candidate Acceptance
+
+Concept candidates are handled outside draft acceptance. Consolidate can scan accepted descriptions and store pending entity mentions. Accepting a mention:
+
+- Reuses an exact-title article when one already exists.
+- Otherwise creates a `stub` article at the source article's depth.
+- Uses the mention summary as the new article introduction.
+- Adds a `references` edge from the source article to the concept article.
+- Marks the mention as `created`; ignored candidates are marked `ignored`.
 
 ## Versioning Rules
 

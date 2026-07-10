@@ -398,14 +398,12 @@ export async function acceptDraft(input: AcceptDraftInput) {
   const coherenceWarnings = draftContent.coherenceWarnings ?? [];
   const suggestedLinks = draftContent.suggestedLinks ?? [];
   const temporalAnchor = draftContent.temporalAnchor ?? null;
-  const mentions = draftContent.mentions ?? [];
 
   const now = Date.now();
   const versionId = nanoid();
   const versionNumber = await getNextVersionNumber(exec, articleId);
   // Every article whose title/description changes in this call — the main
-  // article, a create_child's new child, and any new entity-mention stubs —
-  // reindexed once, after the transaction commits.
+  // article and a create_child's new child — is reindexed once after commit.
   const touchedArticleIds = new Set<string>([articleId]);
 
   const currentVersion = article.current_version_id
@@ -540,57 +538,6 @@ export async function acceptDraft(input: AcceptDraftInput) {
         VALUES (?, ?, ?, 'references')
         ON CONFLICT (source_article_id, target_article_id) DO NOTHING
       `, [articleId, link.targetArticleId, ownerId]);
-    }
-
-    const sourceDepth = (article.depth as number) ?? 1;
-    const acceptedArticleId = pipelineType === 'create_child' ? childArticleId ?? articleId : articleId;
-    for (const mention of mentions) {
-      const existing = await tx.get<{ id: string; depth: number }>(
-        `SELECT id, depth FROM articles WHERE world_id = ? AND owner_id = ? AND title = ? LIMIT 1`,
-        [worldId, ownerId, mention.title],
-      );
-
-      if (existing && existing.depth < sourceDepth) continue;
-
-      let targetId = existing?.id;
-
-      if (!existing) {
-        targetId = nanoid();
-        const stubVersionId = nanoid();
-
-        await tx.run(`
-          INSERT INTO articles (id, world_id, owner_id, title, template_type, status, depth, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, 'stub', ?, ?, ?)
-        `, [targetId, worldId, ownerId, mention.title, mention.templateType ?? 'general', sourceDepth, now, now]);
-
-        await writeArticleVersion(tx, {
-          articleId: targetId,
-          ownerId,
-          versionId: stubVersionId,
-          versionNumber: 1,
-          introduction: mention.summary ?? '',
-          description: '',
-          chronology: '',
-          now,
-        });
-        await pointArticleAtVersion(tx, targetId, stubVersionId, now);
-
-        if (mention.summary) {
-          await upsertEntry(tx, worldId, targetId, mention.summary);
-        }
-        touchedArticleIds.add(targetId);
-      }
-
-      await tx.run(`
-        INSERT INTO article_links (source_article_id, target_article_id, owner_id, link_type)
-        VALUES (?, ?, ?, 'references')
-        ON CONFLICT (source_article_id, target_article_id) DO NOTHING
-      `, [acceptedArticleId, targetId, ownerId]);
-
-      await tx.run(`
-        INSERT INTO entity_mentions (id, world_id, owner_id, source_article_id, article_id, title, template_type, summary, status, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'created', ?)
-      `, [nanoid(), worldId, ownerId, acceptedArticleId, targetId ?? null, mention.title, mention.templateType ?? 'general', mention.summary ?? null, now]);
     }
 
     await tx.run('DELETE FROM pending_drafts WHERE article_id = ? AND owner_id = ?', [articleId, ownerId]);

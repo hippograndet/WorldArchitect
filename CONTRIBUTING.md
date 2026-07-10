@@ -23,6 +23,17 @@ npm run dev:client        # client only
 
 The app runs in local mode (`APP_MODE=local`, no login, local Postgres) by default — this is the setup almost all contributions should be developed and tested against. See [DEPLOY.md](DEPLOY.md) only if your change specifically touches hosted mode (`APP_MODE=hosted`, Clerk auth).
 
+### Verifying UI changes
+
+`npm install` also installs [`@playwright/cli`](https://github.com/microsoft/playwright-cli) (`npx playwright-cli`), a headless-Chromium command driver for manually exercising a running dev server — navigate, click, fill, screenshot — without writing a throwaway script or a permanent test. This is separate from the `vitest` suite (`npm test`): use it to actually look at a page after a frontend change, the same way you'd click through it by hand. Session artifacts (screenshots, page snapshots, logs) land in `.playwright-cli/` and are gitignored.
+
+```bash
+npx playwright-cli open
+npx playwright-cli goto http://localhost:5173/worlds/<wid>/articles/<aid>
+npx playwright-cli screenshot
+npx playwright-cli close
+```
+
 ## Before opening a pull request
 
 - Run `npm run typecheck` and `npm test` — both must pass.

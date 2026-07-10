@@ -309,6 +309,10 @@ export const api = {
       const qs = status ? `?status=${status}` : '';
       return get<import('../types/world.js').EntityMention[]>(`/worlds/${wid}/entity-mentions${qs}`);
     },
+    scan: (wid: string, input?: { articleId?: string }) =>
+      post<{ scannedArticles: number; created: number; mentions: import('../types/world.js').EntityMention[] }>(`/worlds/${wid}/entity-mentions/scan`, input ?? {}),
+    accept: (wid: string, mid: string) =>
+      post<import('../types/world.js').EntityMention>(`/worlds/${wid}/entity-mentions/${mid}/accept`),
     ignore: (wid: string, mid: string) =>
       patch<import('../types/world.js').EntityMention>(`/worlds/${wid}/entity-mentions/${mid}`, { status: 'ignored' }),
   },
@@ -328,6 +332,13 @@ export const api = {
       post<{ rewrittenPassage: string }>(`/worlds/${wid}/articles/${aid}/issues/${iid}/fix`),
     applyFix: (wid: string, aid: string, iid: string, rewrittenPassage: string, excerpt: string) =>
       post<{ article: Record<string, unknown>; version: Record<string, unknown> }>(`/worlds/${wid}/articles/${aid}/issues/${iid}/apply-fix`, { rewrittenPassage, excerpt }),
+  },
+
+  metadata: {
+    list: (wid: string, aid: string) =>
+      get<{ facts: import('../types/article.js').ArticleMetadataFact[]; suggestedFields: string[] }>(`/worlds/${wid}/articles/${aid}/metadata`),
+    save: (wid: string, aid: string, facts: { key: string; value: unknown }[]) =>
+      patch<{ facts: import('../types/article.js').ArticleMetadataFact[] }>(`/worlds/${wid}/articles/${aid}/metadata`, { facts }),
   },
 
   worldIssues: {

@@ -2,53 +2,55 @@ import { StateGraph } from '@langchain/langgraph';
 import { nanoid } from 'nanoid';
 import { OrchestrationAnnotation } from '../state.js';
 import { articleContract, contractState } from '../masContract.js';
-import { fetchWorldContextNode, buildContextPackageNode, oracleNode } from '../nodes.js';
+import { fetchWorldContextNode, buildContextPackageNode, researcherNode } from '../nodes.js';
 import type { ContextDepth, ContextPackage } from '../../../services/archivist.js';
-import type { ProposalItem } from '../../muse.js';
-import type { IdeaItem } from '../../oracle.js';
 import type { WorldContext } from '../../director.js';
 import type { ResearchBrief } from '../../scribe.js';
 
 const graph = new StateGraph(OrchestrationAnnotation)
   .addNode('fetchWorldContext', fetchWorldContextNode)
   .addNode('buildContextPackage', buildContextPackageNode)
-  .addNode('oracle', oracleNode)
+  .addNode('researcher', researcherNode)
   .addEdge('__start__', 'fetchWorldContext')
   .addEdge('fetchWorldContext', 'buildContextPackage')
-  .addEdge('buildContextPackage', 'oracle')
-  .addEdge('oracle', '__end__')
+  .addEdge('buildContextPackage', 'researcher')
+  .addEdge('researcher', '__end__')
   .compile();
 
-export async function runProposeIdeasGraph(params: {
+export interface ResearchGraphOutput {
+  researchBrief: ResearchBrief;
+  contextPackage: ContextPackage;
+  worldContext: WorldContext;
+  tokensIn: number;
+  tokensOut: number;
+}
+
+export async function runResearchGraph(params: {
   worldId: string;
   articleId: string;
-  introduction: string;
-  selectedProposal: ProposalItem;
-  userSpec?: string;
   contextDepth?: ContextDepth;
   pipelineRunId?: string;
   worldContext?: WorldContext;
-  contextPackage?: ContextPackage;
-  researchBrief?: ResearchBrief;
-}): Promise<{ ideas: IdeaItem[]; tokensIn: number; tokensOut: number }> {
+}): Promise<ResearchGraphOutput> {
   const result = await graph.invoke({
     worldId: params.worldId,
     articleId: params.articleId,
     pipelineRunId: params.pipelineRunId ?? nanoid(),
-    pipelineType: 'propose_ideas',
+    pipelineType: 'research',
     ...contractState(articleContract({
       articleId: params.articleId,
-      intent: 'ideate',
-      reviewPolicy: 'user_must_select',
+      intent: 'research',
+      reviewPolicy: 'auto',
       commitPolicy: 'no_commit',
     })),
-    introduction: params.introduction,
-    selectedProposal: params.selectedProposal,
-    userSpec: params.userSpec,
     contextDepth: params.contextDepth ?? 'mid',
     ...(params.worldContext ? { worldContext: params.worldContext } : {}),
-    ...(params.contextPackage ? { contextPackage: params.contextPackage } : {}),
-    ...(params.researchBrief ? { researchBrief: params.researchBrief } : {}),
   });
-  return { ideas: result.ideas, tokensIn: result.tokensIn, tokensOut: result.tokensOut };
+  return {
+    researchBrief: result.researchBrief!,
+    contextPackage: result.contextPackage!,
+    worldContext: result.worldContext!,
+    tokensIn: result.tokensIn,
+    tokensOut: result.tokensOut,
+  };
 }

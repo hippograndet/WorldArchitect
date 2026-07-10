@@ -1,5 +1,6 @@
 import type { WorldContext } from '../agents/director.js';
 import type { ContextPackage } from '../services/archivist.js';
+import type { ResearchBrief } from '../agents/scribe.js';
 import { buildWorldHeader } from './shared.js';
 
 export function buildChildProposerSystemPrompt(worldContext: WorldContext): string {
@@ -27,6 +28,7 @@ Call submit_child_proposals when ready.`;
 export function buildChildProposerUserMessage(
   pkg: ContextPackage,
   userSpec?: string,
+  researchBrief?: ResearchBrief,
 ): string {
   const parts: string[] = [
     `## Parent Article: ${pkg.targetTitle}`,
@@ -39,6 +41,20 @@ export function buildChildProposerUserMessage(
 
   if (pkg.targetDescription) {
     parts.push(`## Description\n${pkg.targetDescription}`);
+  }
+
+  if (researchBrief) {
+    const briefParts: string[] = [];
+    if (researchBrief.keyFacts.length > 0) {
+      briefParts.push(`**Established facts to respect:**\n${researchBrief.keyFacts.map(f => `- ${f}`).join('\n')}`);
+    }
+    if (researchBrief.warnings.length > 0) {
+      briefParts.push(`**Watch out for:**\n${researchBrief.warnings.map(w => `- ${w}`).join('\n')}`);
+    }
+    if (researchBrief.suggestedAngles.length > 0) {
+      briefParts.push(`**Angles worth developing:**\n${researchBrief.suggestedAngles.map(a => `- ${a}`).join('\n')}`);
+    }
+    if (briefParts.length > 0) parts.push(`## Research Brief\n${briefParts.join('\n\n')}`);
   }
 
   if (pkg.children.length > 0) {

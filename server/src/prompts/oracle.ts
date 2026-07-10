@@ -1,6 +1,7 @@
 import type { WorldContext } from '../agents/director.js';
 import type { ContextPackage } from '../services/archivist.js';
 import type { ProposalItem } from '../agents/muse.js';
+import type { ResearchBrief } from '../agents/scribe.js';
 import { buildWorldHeader } from './shared.js';
 
 export function buildOracleSystemPrompt(worldContext: WorldContext): string {
@@ -23,12 +24,27 @@ export function buildOracleUserMessage(
   introduction: string,
   selectedProposal: ProposalItem,
   userSpec?: string,
+  researchBrief?: ResearchBrief,
 ): string {
   const parts: string[] = [
     `## Article: ${articleTitle}`,
     `## Introduction\n${introduction}`,
     `## Selected Creative Direction\n**${selectedProposal.title}**\n${selectedProposal.direction}`,
   ];
+
+  if (researchBrief) {
+    const briefParts: string[] = [];
+    if (researchBrief.keyFacts.length > 0) {
+      briefParts.push(`**Established facts to respect:**\n${researchBrief.keyFacts.map(f => `- ${f}`).join('\n')}`);
+    }
+    if (researchBrief.warnings.length > 0) {
+      briefParts.push(`**Watch out for:**\n${researchBrief.warnings.map(w => `- ${w}`).join('\n')}`);
+    }
+    if (researchBrief.suggestedAngles.length > 0) {
+      briefParts.push(`**Angles worth developing:**\n${researchBrief.suggestedAngles.map(a => `- ${a}`).join('\n')}`);
+    }
+    if (briefParts.length > 0) parts.push(`## Research Brief\n${briefParts.join('\n\n')}`);
+  }
 
   if (userSpec) {
     parts.push(`## User Focus\n${userSpec}`);

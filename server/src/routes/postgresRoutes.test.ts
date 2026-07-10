@@ -546,6 +546,12 @@ describe('core routes on Postgres', () => {
       userId: 'user-b',
       body: { status: 'ignored' },
     });
+
+    await expectCrossTenantMutationBlocked(request!, {
+      method: 'post',
+      path: `/api/worlds/${worldB.id}/entity-mentions/${mentionId}/accept`,
+      userId: 'user-b',
+    });
   });
 });
 

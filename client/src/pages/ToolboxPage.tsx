@@ -292,7 +292,7 @@ export default function ToolboxPage() {
   const currentProfile     = profiles.find((p) => p.id === profileId);
   const profileExamples    = savedNames.filter((n) => n.profileId === profileId).slice(0, 6);
   const filteredNames      = filterType ? savedNames.filter((n) => n.entityType === filterType) : savedNames;
-  const activeMentions     = mentions.filter((m) => m.status !== 'ignored');
+  const activeMentions     = mentions.filter((m) => m.status === 'created');
   const ignoredMentions    = mentions.filter((m) => m.status === 'ignored');
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -655,14 +655,14 @@ export default function ToolboxPage() {
             {showEntities && (
               <>
                 <p className="text-xs text-gray-400 mb-4">
-                  Entities auto-detected during writing. Associate names here with a cultural profile.
+                  Concepts created from Consolidate scans. Associate names here with a cultural profile.
                 </p>
 
                 {loadingMentions && <p className="text-xs text-gray-400 py-4 text-center">Loading…</p>}
 
                 {!loadingMentions && mentions.length === 0 && (
                   <p className="text-xs text-gray-400 py-6 text-center border border-dashed border-gray-200 rounded-xl">
-                    No entity mentions yet. They appear after Forge expansion runs.
+                    No created concept mentions yet. Run a concept scan from Consolidate.
                   </p>
                 )}
 

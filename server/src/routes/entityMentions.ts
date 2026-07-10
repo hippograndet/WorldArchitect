@@ -3,24 +3,24 @@ import { z } from 'zod';
 import { getDbClient } from '../db/client.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
 import { requireTenantContext } from '../tenant.js';
+import { requireLLM } from '../providers/index.js';
+import { checkDailyCap } from '../services/callLogger.js';
+import { acceptEntityMention, EntityMentionServiceError, parseEntityMention, scanEntityMentions } from '../services/entityMentionService.js';
+import type { Request, Response, NextFunction } from 'express';
 
 const router = Router({ mergeParams: true });
 
 type DbRow = Record<string, unknown>;
 
-function parseMention(row: DbRow) {
-  return {
-    id: row.id as string,
-    worldId: row.world_id as string,
-    sourceArticleId: row.source_article_id as string,
-    articleId: (row.article_id as string | null) ?? null,
-    title: row.title as string,
-    templateType: row.template_type as string,
-    summary: (row.summary as string | null) ?? null,
-    status: row.status as string,
-    createdAt: row.created_at as number,
-  };
-}
+const checkCap = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+  const { worldId, ownerId } = requireTenantContext(req);
+  const { allowed, current, cap } = await checkDailyCap(worldId, ownerId);
+  if (!allowed) {
+    res.status(429).json({ error: `Daily call cap reached (${current}/${cap}).`, code: 'DAILY_CAP' });
+    return;
+  }
+  next();
+});
 
 // ---------------------------------------------------------------------------
 // GET /api/worlds/:wid/entity-mentions
@@ -41,7 +41,55 @@ router.get('/', asyncHandler(async (req, res) => {
         [worldId, ownerId],
       );
 
-  res.json(rows.map(parseMention));
+  res.json(rows.map(parseEntityMention));
+}));
+
+// ---------------------------------------------------------------------------
+// POST /api/worlds/:wid/entity-mentions/scan
+// ---------------------------------------------------------------------------
+
+const ScanSchema = z.object({
+  articleId: z.string().min(1).optional(),
+});
+
+router.post('/scan', requireLLM, checkCap, asyncHandler(async (req, res) => {
+  const parse = ScanSchema.safeParse(req.body ?? {});
+  if (!parse.success) {
+    res.status(400).json({ error: parse.error.flatten().fieldErrors });
+    return;
+  }
+
+  const { worldId, ownerId } = requireTenantContext(req);
+  try {
+    res.json(await scanEntityMentions({ worldId, ownerId, articleId: parse.data.articleId }));
+  } catch (err) {
+    if (err instanceof EntityMentionServiceError) {
+      res.status(err.status).json({ error: err.message, code: err.code });
+      return;
+    }
+    throw err;
+  }
+}));
+
+// ---------------------------------------------------------------------------
+// POST /api/worlds/:wid/entity-mentions/:mid/accept
+// ---------------------------------------------------------------------------
+
+router.post('/:mid/accept', asyncHandler(async (req, res) => {
+  const { worldId, ownerId } = requireTenantContext(req);
+  try {
+    res.json(await acceptEntityMention({
+      worldId,
+      ownerId,
+      mentionId: (req.params as Record<string, string>).mid,
+    }));
+  } catch (err) {
+    if (err instanceof EntityMentionServiceError) {
+      res.status(err.status).json({ error: err.message, code: err.code });
+      return;
+    }
+    throw err;
+  }
 }));
 
 // ---------------------------------------------------------------------------
@@ -49,7 +97,7 @@ router.get('/', asyncHandler(async (req, res) => {
 // ---------------------------------------------------------------------------
 
 const PatchSchema = z.object({
-  status: z.enum(['created', 'ignored']),
+  status: z.enum(['ignored']),
 });
 
 router.patch('/:mid', asyncHandler(async (req, res) => {
@@ -76,7 +124,7 @@ router.patch('/:mid', asyncHandler(async (req, res) => {
   await db.run(`UPDATE entity_mentions SET status = ? WHERE id = ? AND owner_id = ?`, [parse.data.status, mid, ownerId]);
 
   const updated = await db.get<DbRow>(`SELECT * FROM entity_mentions WHERE id = ? AND owner_id = ?`, [mid, ownerId]);
-  res.json(parseMention(updated!));
+  res.json(parseEntityMention(updated!));
 }));
 
 export default router;

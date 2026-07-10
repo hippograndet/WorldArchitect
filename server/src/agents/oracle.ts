@@ -6,6 +6,7 @@ import { buildOracleSystemPrompt, buildOracleUserMessage } from '../prompts/orac
 import type { WorldContext } from './director.js';
 import type { ContextPackage } from '../services/archivist.js';
 import type { ProposalItem } from './muse.js';
+import type { ResearchBrief } from './scribe.js';
 import { LOOKUP_NAMES_TOOL } from '../tools/context.js';
 import type { ChatMessage } from '../providers/types.js';
 import type { Tool } from '../tools/types.js';
@@ -38,6 +39,7 @@ export interface OracleInput {
   introduction: string;
   selectedProposal: ProposalItem;
   userSpec?: string;
+  researchBrief?: ResearchBrief;
 }
 
 // ---------------------------------------------------------------------------
@@ -63,6 +65,7 @@ export class OracleAgent extends BaseAgent<OracleInput, OracleOutput> {
           input.introduction,
           input.selectedProposal,
           input.userSpec,
+          input.researchBrief,
         ),
       },
     ];
