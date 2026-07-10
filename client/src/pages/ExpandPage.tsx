@@ -11,6 +11,8 @@ import LabelBadge from '../components/shared/LabelBadge.tsx';
 import WorkspaceLayout from '../components/shared/WorkspaceLayout.tsx';
 
 type PipelineStartStep = 'inception' | 'expansion' | 'branching';
+/** Adds 'research' — the unconditional pre-Inception step every Forge queue item runs through, distinct from PipelineStartStep (which only covers the user-selectable startStep). */
+type AgentStageStep = PipelineStartStep | 'research';
 type ContinuationMode = 'one_step' | 'finish_document' | 'recursive';
 type ValidationLevel = 'manual' | 'assisted' | 'autopilot';
 type ExistingContentMode = 'create' | 'improve' | 'replace' | 'skip_existing';
@@ -21,7 +23,7 @@ const DEV_LLM_TRACE_VIEWER = import.meta.env.DEV && import.meta.env.VITE_WORLDAR
 
 interface AgentStage {
   key: string;
-  step: PipelineStartStep;
+  step: AgentStageStep;
   group: string;
   agentType: string;
   label: string;
@@ -525,17 +527,20 @@ function runStartStep(run: RunWithEvents): PipelineStartStep {
   return 'inception';
 }
 
-function runPipelineSteps(run: RunWithEvents): PipelineStartStep[] {
+function runPipelineSteps(run: RunWithEvents): AgentStageStep[] {
   const order: PipelineStartStep[] = ['inception', 'expansion', 'branching'];
   const start = runStartStep(run);
   const continuation = run.config.forgeContinuationMode ?? 'finish_document';
-  if (continuation === 'one_step') return [start];
-  return order.slice(order.indexOf(start));
+  const rest = continuation === 'one_step' ? [start] : order.slice(order.indexOf(start));
+  // 'research' always runs first, unconditionally, for every queue item —
+  // even when startStep/continuation mode skip straight past Inception —
+  // so it's prepended here regardless of `start`/`continuation`.
+  return ['research', ...rest];
 }
 
 function agentStageDefinitions(run: RunWithEvents): Array<Omit<AgentStage, 'status' | 'call' | 'detail'>> {
   const stages: Array<Omit<AgentStage, 'status' | 'call' | 'detail'>> = [];
-  const add = (step: PipelineStartStep, group: string, agentType: string) => {
+  const add = (step: AgentStageStep, group: string, agentType: string) => {
     stages.push({
       key: `${step}:${group}:${agentType}:${stages.length}`,
       step,
@@ -546,21 +551,29 @@ function agentStageDefinitions(run: RunWithEvents): Array<Omit<AgentStage, 'stat
   };
 
   for (const step of runPipelineSteps(run)) {
-    if (step === 'inception') {
+    if (step === 'research') {
+      // Researcher now runs once per queue item, before Inception/Expansion/
+      // Branching — and builds the ContextPackage the rest of the cascade
+      // reuses, so the "Context Assembly" pseudo-stage lives here instead of
+      // being repeated under Inception/Expansion.
       add(step, 'Context', 'context_assembly');
+      add(step, 'Research', 'researcher');
+    }
+    if (step === 'inception') {
       add(step, 'Introduction', 'lorekeeper');
       if (run.config.forgeUseGroundingCheck) add(step, 'Grounding', 'grounding_check');
     }
     if (step === 'expansion') {
-      add(step, 'Context', 'context_assembly');
       add(step, 'Direction', 'muse');
       add(step, 'Direction', 'curator');
       if (run.config.forgeUseOracle) add(step, 'Ideation', 'oracle');
-      add(step, 'Drafting', 'researcher');
       add(step, 'Drafting', 'scribe');
       if (run.config.forgeUseContinuityEditor) add(step, 'Continuity', 'continuity_editor');
     }
     if (step === 'branching') {
+      // Branching intentionally always rebuilds its own ContextPackage under
+      // 'propose_children' mode rather than reusing Research's — see
+      // runProposeChildrenGraph's comment in pipelines/proposeChildren.ts.
       add(step, 'Context', 'context_assembly');
       add(step, 'Children', 'cartographer');
       if (run.config.forgeUseDedupCheck) add(step, 'Children', 'dedup_check');
@@ -570,7 +583,8 @@ function agentStageDefinitions(run: RunWithEvents): Array<Omit<AgentStage, 'stat
   return stages;
 }
 
-function pipelineStepForCall(call: RunAgentCall): PipelineStartStep | null {
+function pipelineStepForCall(call: RunAgentCall): AgentStageStep | null {
+  if (call.pipelineType === 'research') return 'research';
   if (call.pipelineType === 'summarize') return 'inception';
   if (call.pipelineType === 'propose' || call.pipelineType === 'expand' || call.pipelineType === 'propose_ideas') return 'expansion';
   if (call.pipelineType === 'propose_children') return 'branching';
@@ -668,7 +682,7 @@ function buildAgentStages(run: RunWithEvents, articleId: string | null): AgentSt
   });
 
   let hasFailure = stages.some((stage) => stage.status === 'failed');
-  const failedStep = run.events.find((event) => !event.ok)?.step.toLowerCase() as PipelineStartStep | undefined;
+  const failedStep = run.events.find((event) => !event.ok)?.step.toLowerCase() as AgentStageStep | undefined;
   if (!hasFailure && failedStep) {
     const failedStage = stages.find((stage) => stage.step === failedStep && stage.status === 'pending');
     if (failedStage) {
@@ -1448,8 +1462,8 @@ export default function ExpandPage() {
                     {selectedRunAgentStages.length === 0 ? (
                       <p className="text-xs text-gray-400">No pipeline plan is available for this article.</p>
                     ) : (
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                        {(['inception', 'expansion', 'branching'] as PipelineStartStep[]).map((step) => {
+                      <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                        {(['research', 'inception', 'expansion', 'branching'] as AgentStageStep[]).map((step) => {
                           const stages = selectedRunAgentStages.filter((stage) => stage.step === step);
                           if (stages.length === 0) return null;
                           return (
