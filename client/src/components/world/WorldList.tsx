@@ -126,7 +126,7 @@ export default function WorldList() {
             </div>
             <h1 className="text-3xl font-bold text-gray-950">WorldArchitect</h1>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-gray-600">
-              Choose a world to continue shaping its articles, graph, timeline, and publishing workflow.
+              Choose a world to continue shaping its articles, graph, snapshots, and publishing workflow.
             </p>
           </div>
           <Link

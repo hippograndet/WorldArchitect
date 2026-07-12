@@ -88,7 +88,7 @@ export class CartographerAgent extends BaseAgent<CartographerInput, Cartographer
    * search_articles as a self-check, but that duplicated Dedup Check's own
    * search_articles access on the same duplicate-detection question; that
    * capability now lives exclusively on Dedup Check. Note: when
-   * forgeUseDedupCheck/runDedupCheck is off, Branching has no duplicate
+   * coherenceCheckLevel is 0, Branching has no duplicate
    * protection beyond Sync Rules' literal-title match — an accepted
    * trade-off for a clean generator/checker split, not an oversight.
    * lookup_names is kept since it's a Name Bank utility, not world-context

@@ -81,10 +81,8 @@ export interface RunEstimateRequest {
   maxDepth?: number;
   maxChildren?: number;
   contextDepth?: ContextDepth;
-  runOracle?: boolean;
-  runContinuityEditor?: boolean;
-  runGroundingCheck?: boolean;
-  runDedupCheck?: boolean;
+  coherenceCheckLevel?: number;
+  safetyNet?: boolean;
   runStyleWarden?: boolean;
 }
 
@@ -150,8 +148,6 @@ export const api = {
       return get<Article[]>(`/worlds/${wid}/articles${query}`);
     },
     get:    (wid: string, aid: string)    => get<ArticleDetail>(`/worlds/${wid}/articles/${aid}`),
-    create: (wid: string, input: { title: string; templateType?: string; introduction?: string; description?: string; chronology?: string }) =>
-      post<{ article: Article; version: ArticleVersion }>(`/worlds/${wid}/articles`, input),
     update: (wid: string, aid: string, input: { introduction?: string; description?: string; chronology?: string; status?: string; title?: string }) =>
       patch<{ article: Article; version: ArticleVersion }>(`/worlds/${wid}/articles/${aid}`, input),
     delete: (wid: string, aid: string)    => del(`/worlds/${wid}/articles/${aid}`),
@@ -213,17 +209,17 @@ export const api = {
       articleId: string; pipelineType: string; userSpec?: string;
       autoSelect?: boolean; contextDepth?: ContextDepth;
     }) => post<{
-      proposals: import('../types/agent.ts').Proposal[];
-      autoSelectedIndex?: number;
+      ideas: IdeaItem[];
+      autoSelectedIndices?: number[];
       autoSelectRationale?: string;
     }>(`/worlds/${wid}/agents/propose`, input),
     expand: (wid: string, input: {
       articleId: string; pipelineType: string;
-      selectedProposalIndex: number; proposals: import('../types/agent.ts').Proposal[];
       selectedIdeas?: IdeaItem[];
       userSpec?: string; contextDepth?: ContextDepth;
       runStyleWarden?: boolean;
-      runContinuityEditor?: boolean;
+      coherenceCheckLevel?: number;
+      safetyNet?: boolean;
       wordCountPreset?: 'short' | 'medium' | 'long';
     }) => post<{
       description: string;
@@ -231,7 +227,10 @@ export const api = {
       parentUpdate?: { appendText: string };
       styleCheck?: StyleWardenResult;
     }>(`/worlds/${wid}/agents/expand`, input),
-    proposeChildren: (wid: string, input: { articleId: string; contextDepth?: ContextDepth; userSpec?: string }) =>
+    proposeChildren: (wid: string, input: {
+      articleId: string; contextDepth?: ContextDepth; userSpec?: string;
+      coherenceCheckLevel?: number; safetyNet?: boolean;
+    }) =>
       post<{ proposals: import('../types/agent.ts').ChildProposal[] }>(`/worlds/${wid}/agents/propose-children`, input),
     summarize: (wid: string, input: { articleId: string; mode?: import('../types/agent.ts').SummarizerMode }) =>
       post<{ introduction: string }>(`/worlds/${wid}/agents/summarize`, input),
@@ -249,13 +248,6 @@ export const api = {
       post<{ entries: { articleId: string; compressedSummary: string; tokensBefore: number; tokensAfter: number }[] }>(
         `/worlds/${wid}/agents/compress`,
       ),
-    proposeIdeas: (wid: string, input: {
-      articleId: string;
-      introduction: string;
-      selectedProposal: import('../types/agent.ts').Proposal;
-      userSpec?: string;
-      contextDepth?: ContextDepth;
-    }) => post<{ ideas: IdeaItem[] }>(`/worlds/${wid}/agents/propose-ideas`, input),
     audit: (wid: string, input?: { sampleSize?: number; focus?: 'all' | 'recent' }) =>
       post<{ edgeProposals: EdgeProposal[]; globalWarnings: GlobalWarning[] }>(
         `/worlds/${wid}/agents/audit`, input ?? {},

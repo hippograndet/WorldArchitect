@@ -61,16 +61,16 @@ describe('MAS cost model', () => {
       continuationMode: 'one_step',
       validationLevel: 'assisted',
       contextDepth: 'mid',
-      runOracle: true,
-      runContinuityEditor: true,
+      coherenceCheckLevel: 1,
+      safetyNet: false,
       runStyleWarden: true,
     }));
 
     expect(estimate.documents).toBe(1);
-    expect(estimate.calls).toEqual({ min: 7, max: 9 });
+    expect(estimate.calls).toEqual({ min: 6, max: 8 });
     expect(estimate.byAgent).toContainEqual({ agentType: 'researcher', min: 1, max: 1 });
     expect(estimate.byAgent).toContainEqual({ agentType: 'curator', min: 1, max: 1 });
-    expect(estimate.byAgent).toContainEqual({ agentType: 'oracle', min: 1, max: 1 });
+    expect(estimate.byAgent).toContainEqual({ agentType: 'muse', min: 1, max: 1 });
     expect(estimate.byAgent).toContainEqual({ agentType: 'scribe', min: 1, max: 2 });
     expect(estimate.byAgent).toContainEqual({ agentType: 'continuity_editor', min: 1, max: 2 });
     expect(estimate.byAgent).toContainEqual({ agentType: 'style_warden', min: 1, max: 1 });
@@ -84,17 +84,15 @@ describe('MAS cost model', () => {
       maxChildren: 2,
       maxDepth: 2,
       contextDepth: 'deep',
-      runOracle: true,
-      runContinuityEditor: true,
-      runGroundingCheck: true,
-      runDedupCheck: true,
+      coherenceCheckLevel: 1,
+      safetyNet: false,
     }));
 
     expect(estimate.documents).toBe(7);
     expect(estimate.queueItems).toBe(7);
     expect(estimate.byAgent).toContainEqual({ agentType: 'lorekeeper', min: 7, max: 14 });
     expect(estimate.byAgent).toContainEqual({ agentType: 'grounding_check', min: 7, max: 14 });
-    expect(estimate.byAgent).toContainEqual({ agentType: 'dedup_check', min: 7, max: 7 });
+    expect(estimate.byAgent).toContainEqual({ agentType: 'dedup_check', min: 7, max: 14 });
     expect(estimate.calls.min).toBeGreaterThan(0);
     expect(estimate.calls.max).toBeGreaterThan(estimate.calls.min);
   });

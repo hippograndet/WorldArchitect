@@ -115,10 +115,8 @@ function baseForgeState(overrides: Partial<ForgeState>): ForgeState {
     forgeMode: 'breadth',
     forgeMaxDepth: 2,
     forgeMaxChildren: 0,
-    forgeUseOracle: false,
-    forgeUseContinuityEditor: false,
-    forgeUseGroundingCheck: false,
-    forgeUseDedupCheck: false,
+    coherenceCheckLevel: 0,
+    safetyNet: false,
     forgeContinuationMode: 'recursive',
     forgeInceptionExistingMode: 'improve',
     forgeExpansionExistingMode: 'improve',
@@ -165,11 +163,17 @@ describe('forgeGraph context caching', () => {
         .mockResolvedValueOnce(toolUseResult('submit_introduction', {
           introduction: 'A long and detailed introduction paragraph with plenty of descriptive words to pass the minimum word count check easily.',
         }))
-        .mockResolvedValueOnce(toolUseResult('submit_proposals', {
-          proposals: [{ title: 'A Proposal', direction: 'Explore a bold new direction for this article.' }],
+        .mockResolvedValueOnce(toolUseResult('submit_ideas', {
+          ideas: [
+            { theme: 'A theme', detail: 'Explore a bold new direction for this article.' },
+            { theme: 'Another theme', detail: 'A second angle to consider for this article.' },
+            { theme: 'A third theme', detail: 'A third angle to consider for this article.' },
+            { theme: 'A fourth theme', detail: 'A fourth angle to consider for this article.' },
+            { theme: 'A fifth theme', detail: 'A fifth angle to consider for this article.' },
+          ],
         }))
         .mockResolvedValueOnce(toolUseResult('submit_taste_selection', {
-          selectedIndex: 0,
+          selectedIndices: [0],
           rationale: 'Best fit for the article.',
         }))
         .mockResolvedValueOnce(textResult('A freshly generated description for the article, written by Scribe during this test run.'));
@@ -252,11 +256,17 @@ describe('forgeGraph context caching', () => {
         .mockResolvedValueOnce(toolUseResult('submit_research_brief', {
           brief: 'Fact one about the article, established firmly in the surrounding world context and setting. An angle worth exploring further in future drafts.',
         }))
-        .mockResolvedValueOnce(toolUseResult('submit_proposals', {
-          proposals: [{ title: 'A Proposal', direction: 'Explore a bold new direction for this article.' }],
+        .mockResolvedValueOnce(toolUseResult('submit_ideas', {
+          ideas: [
+            { theme: 'A theme', detail: 'Explore a bold new direction for this article.' },
+            { theme: 'Another theme', detail: 'A second angle to consider for this article.' },
+            { theme: 'A third theme', detail: 'A third angle to consider for this article.' },
+            { theme: 'A fourth theme', detail: 'A fourth angle to consider for this article.' },
+            { theme: 'A fifth theme', detail: 'A fifth angle to consider for this article.' },
+          ],
         }))
         .mockResolvedValueOnce(toolUseResult('submit_taste_selection', {
-          selectedIndex: 0,
+          selectedIndices: [0],
           rationale: 'Best fit for the article.',
         }))
         .mockResolvedValueOnce(textResult('A freshly generated description for the article, written by Scribe during this test run.'));

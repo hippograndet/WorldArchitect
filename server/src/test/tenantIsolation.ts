@@ -2,19 +2,18 @@ import { expect } from 'vitest';
 import type { SuperTest, Test } from 'supertest';
 import { getDbClient } from '../db/client.js';
 import { runWithUserContext } from '../requestContext.js';
+import { createArticle } from '../services/articlesService.js';
 
 type TestRequest = Pick<SuperTest<Test>, 'get' | 'post' | 'patch' | 'put' | 'delete'>;
 type RouteMethod = keyof TestRequest;
 
 export interface TenantFixture {
   world: { id: string; name: string };
+  rootArticleId: string;
   categories: Array<{ id: string; name: string }>;
 }
 
-export interface ArticleFixture {
-  article: { id: string; title: string };
-  version: { description: string };
-}
+export type ArticleFixture = Awaited<ReturnType<typeof createArticle>>;
 
 export function asUser(userId: string): Record<string, string> {
   return { 'x-worldarchitect-user-id': userId };
@@ -33,28 +32,28 @@ export async function createTenantFixture(
       description: `A long enough description for ${name}.`,
     })
     .expect(201);
-  return { world: res.body.world, categories: res.body.categories };
+  return { world: res.body.world, rootArticleId: res.body.rootArticleId, categories: res.body.categories };
 }
 
 export async function createArticleFixture(
-  request: TestRequest,
+  _request: TestRequest,
   userId: string,
   worldId: string,
   categoryId: string,
   title = 'Fixture Article',
 ): Promise<ArticleFixture> {
-  const res = await request
-    .post(`/api/worlds/${worldId}/articles`)
-    .set(asUser(userId))
-    .send({
+  return runWithUserContext(userId, () =>
+    createArticle({
+      worldId,
+      ownerId: userId,
       categoryId,
       title,
       introduction: 'A short archive note.',
       description: 'The old gate records the first treaty.',
       chronology: 'Year 1: the treaty is signed.',
-    })
-    .expect(201);
-  return res.body;
+      templateType: 'general',
+      isFixedPoint: false,
+    }));
 }
 
 export async function expectTenantHidden(

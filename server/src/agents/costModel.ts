@@ -2,7 +2,6 @@ import { z } from 'zod';
 import { ArchitectAgent } from './architect.js';
 import { MuseAgent } from './muse.js';
 import { CuratorAgent } from './curator.js';
-import { OracleAgent } from './oracle.js';
 import { ResearcherAgent } from './researcher.js';
 import { ScribeAgent } from './scribe.js';
 import { ContinuityEditorAgent } from './continuityEditor.js';
@@ -56,10 +55,9 @@ export interface RunEstimateRequest {
   maxDepth?: number;
   maxChildren?: number;
   contextDepth?: 'shallow' | 'mid' | 'deep';
-  runOracle?: boolean;
-  runContinuityEditor?: boolean;
-  runGroundingCheck?: boolean;
-  runDedupCheck?: boolean;
+  /** One global dial covering Continuity Editor, Grounding Check, and Dedup Check. */
+  coherenceCheckLevel?: number;
+  safetyNet?: boolean;
   runStyleWarden?: boolean;
 }
 
@@ -80,10 +78,8 @@ export const RunEstimateRequestSchema = z.object({
   maxDepth: z.number().int().min(0).max(8).optional(),
   maxChildren: z.number().int().min(0).max(50).optional(),
   contextDepth: z.enum(['shallow', 'mid', 'deep']).default('mid'),
-  runOracle: z.boolean().optional(),
-  runContinuityEditor: z.boolean().optional(),
-  runGroundingCheck: z.boolean().optional(),
-  runDedupCheck: z.boolean().optional(),
+  coherenceCheckLevel: z.number().int().min(0).max(3).optional(),
+  safetyNet: z.boolean().optional(),
   runStyleWarden: z.boolean().optional(),
 });
 
@@ -92,7 +88,6 @@ function allAgentInstances(): AnyAgent[] {
     new ArchitectAgent(),
     new MuseAgent(),
     new CuratorAgent(),
-    new OracleAgent(),
     new ResearcherAgent(),
     new ScribeAgent(),
     new ContinuityEditorAgent(),
@@ -182,12 +177,18 @@ function selectedSteps(startStep: RunEstimateRequest['startStep'], continuationM
   return continuationMode === 'one_step' ? [startStep] : order.slice(order.indexOf(startStep));
 }
 
+/** Max checker calls for a level-N, at-most-one-safety-net-pass loop: N checks + N revisions + (safetyNet ? 1 : 0) final check. */
+function maxCheckerCalls(level: number, safetyNet?: boolean): number {
+  return level * 2 + (safetyNet ? 1 : 0);
+}
+
 function estimateInception(input: RunEstimateRequest): Map<string, { agentType: string; min: number; max: number }> {
   const out = new Map<string, { agentType: string; min: number; max: number }>();
   addAgent(out, 'lorekeeper');
-  if (input.runGroundingCheck) {
-    addAgent(out, 'grounding_check', 1, 2);
-    addAgent(out, 'lorekeeper', 0, 1);
+  const level = input.coherenceCheckLevel ?? 0;
+  if (level > 0) {
+    addAgent(out, 'grounding_check', 1, maxCheckerCalls(level, input.safetyNet));
+    addAgent(out, 'lorekeeper', 0, level);
   }
   return out;
 }
@@ -197,11 +198,11 @@ function estimateExpansion(input: RunEstimateRequest): Map<string, { agentType: 
   addAgent(out, 'researcher');
   addAgent(out, 'muse');
   if (input.validationLevel !== 'manual') addAgent(out, 'curator');
-  if (input.runOracle) addAgent(out, 'oracle');
   addAgent(out, 'scribe');
-  if (input.runContinuityEditor) {
-    addAgent(out, 'continuity_editor', 1, 2);
-    addAgent(out, 'scribe', 0, 1);
+  const level = input.coherenceCheckLevel ?? 0;
+  if (level > 0) {
+    addAgent(out, 'continuity_editor', 1, maxCheckerCalls(level, input.safetyNet));
+    addAgent(out, 'scribe', 0, level);
   }
   if (input.runStyleWarden) addAgent(out, 'style_warden');
   return out;
@@ -210,7 +211,11 @@ function estimateExpansion(input: RunEstimateRequest): Map<string, { agentType: 
 function estimateBranching(input: RunEstimateRequest): Map<string, { agentType: string; min: number; max: number }> {
   const out = new Map<string, { agentType: string; min: number; max: number }>();
   addAgent(out, 'cartographer');
-  if (input.runDedupCheck) addAgent(out, 'dedup_check');
+  const level = input.coherenceCheckLevel ?? 0;
+  if (level > 0) {
+    addAgent(out, 'dedup_check', 1, maxCheckerCalls(level, input.safetyNet));
+    addAgent(out, 'cartographer', 0, level);
+  }
   return out;
 }
 
@@ -254,7 +259,7 @@ export function estimateRun(input: RunEstimateRequest): RunEstimateResponse {
     'Structural estimate only; no LLM calls, graph execution, context tools, drafts, or run rows are created.',
     'Call ranges count agent.run invocations, not provider billing or cached-token effects.',
   ];
-  if (input.runContinuityEditor || input.runGroundingCheck) notes.push('Self-correction checks can add a second checker pass and one writer revision.');
+  if ((input.coherenceCheckLevel ?? 0) > 0) notes.push('Coherence checks can add up to coherenceCheckLevel check→revise cycles, plus one final safety-net check.');
   if (input.continuationMode === 'recursive') notes.push('Recursive document count assumes every generated child slot is filled.');
   return {
     documents: docs,
@@ -268,9 +273,9 @@ export function estimateRun(input: RunEstimateRequest): RunEstimateResponse {
 
 export function getPipelineTemplates(): PipelineTemplate[] {
   return [
-    { pipeline: 'inception', steps: [{ agentType: 'lorekeeper', min: 1, max: 2 }, { agentType: 'grounding_check', min: 0, max: 2, optional: true }], notes: ['Grounding Check is optional and can trigger one Lorekeeper revision.'] },
-    { pipeline: 'expansion', steps: [{ agentType: 'researcher', min: 1, max: 1 }, { agentType: 'muse', min: 1, max: 1 }, { agentType: 'curator', min: 0, max: 1, optional: true }, { agentType: 'oracle', min: 0, max: 1, optional: true }, { agentType: 'scribe', min: 1, max: 2 }, { agentType: 'continuity_editor', min: 0, max: 2, optional: true }, { agentType: 'style_warden', min: 0, max: 1, optional: true }], notes: ['Continuity Editor can trigger one Scribe revision.'] },
-    { pipeline: 'branching', steps: [{ agentType: 'cartographer', min: 1, max: 1 }, { agentType: 'dedup_check', min: 0, max: 1, optional: true }], notes: ['Dedup Check is optional.'] },
+    { pipeline: 'inception', steps: [{ agentType: 'lorekeeper', min: 1, max: 2 }, { agentType: 'grounding_check', min: 0, max: 3, optional: true }], notes: ['Grounding Check runs up to coherenceCheckLevel check→revise cycles.'] },
+    { pipeline: 'expansion', steps: [{ agentType: 'researcher', min: 1, max: 1 }, { agentType: 'muse', min: 1, max: 1 }, { agentType: 'curator', min: 0, max: 1, optional: true }, { agentType: 'scribe', min: 1, max: 2 }, { agentType: 'continuity_editor', min: 0, max: 3, optional: true }, { agentType: 'style_warden', min: 0, max: 1, optional: true }], notes: ['Muse now produces the idea list directly (no separate direction-then-ideas stage); Continuity Editor runs up to coherenceCheckLevel check→revise cycles.'] },
+    { pipeline: 'branching', steps: [{ agentType: 'cartographer', min: 1, max: 1 }, { agentType: 'dedup_check', min: 0, max: 3, optional: true }], notes: ['Dedup Check runs up to coherenceCheckLevel check→revise cycles.'] },
     { pipeline: 'reorganize', steps: [...estimateStandalone('reorganize').values()], notes: [] },
     { pipeline: 'cohere', steps: [...estimateStandalone('cohere').values()], notes: ['Sparse worlds can skip the Warden call at runtime.'] },
     { pipeline: 'audit', steps: [...estimateStandalone('audit').values()], notes: [] },

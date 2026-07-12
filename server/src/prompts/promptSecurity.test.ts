@@ -36,7 +36,6 @@ describe('prompt data boundaries', () => {
       pkg.targetIntroduction,
       pkg.targetDescription,
       pkg.targetChronology,
-      undefined,
       malicious,
     );
 

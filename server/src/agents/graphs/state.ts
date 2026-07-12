@@ -5,8 +5,7 @@ import type { ProposalMode } from '../../prompts/proposal.js';
 import type { ExpanderMode } from '../../prompts/expander.js';
 import type { AuditorArticleSummary } from '../../prompts/auditor.js';
 import type { Stub } from '../architect.js';
-import type { ProposalItem } from '../muse.js';
-import type { IdeaItem } from '../oracle.js';
+import type { IdeaItem } from '../muse.js';
 import type { ChildProposalItem } from '../cartographer.js';
 import type { CoherenceWarning, SuggestedLink } from '../warden.js';
 import type { RetentionIssue } from '../sentinel.js';
@@ -61,26 +60,33 @@ export const OrchestrationAnnotation = Annotation.Root({
   categories: Annotation<Array<{ id: string; name: string }>>({ reducer: replace, default: () => [] }),
   stubs: Annotation<Stub[]>({ reducer: replace, default: () => [] }),
 
-  // --- propose (Muse + optional Curator auto-select) ---
+  // --- Coherence checking — one global dial shared by Continuity Editor,
+  // Grounding Check, and Dedup Check. 0 = no checkers at all. N = up to N
+  // check-revise cycles, stopping early on approval. safetyNet adds one
+  // final check-only pass after the N cycles; a failure there is flagged
+  // (recordArticleIssues) but never blocks. See nodes.ts's runCheckReviseLoop.
+  coherenceCheckLevel: Annotation<number>({ reducer: replace, default: () => 0 }),
+  safetyNet: Annotation<boolean>({ reducer: replace, default: () => false }),
+
+  // --- propose (Muse + optional Curator auto-select) — Muse produces the
+  // idea list directly (no separate macro-direction stage); Curator is the
+  // one place userSpec enters, selecting a subset when autoSelect is on. ---
   proposalMode: Annotation<ProposalMode | undefined>({ reducer: replace, default: () => undefined }),
   autoSelect: Annotation<boolean>({ reducer: replace, default: () => false }),
-  proposals: Annotation<ProposalItem[]>({ reducer: replace, default: () => [] }),
-  autoSelectedIndex: Annotation<number | undefined>({ reducer: replace, default: () => undefined }),
+  ideas: Annotation<IdeaItem[]>({ reducer: replace, default: () => [] }),
+  autoSelectedIndices: Annotation<number[] | undefined>({ reducer: replace, default: () => undefined }),
   autoSelectRationale: Annotation<string | undefined>({ reducer: replace, default: () => undefined }),
 
-  // --- proposeIdeas (Oracle) — introduction here is an *input*
-  // (the article's current/produced intro); expand/summarize write the
-  // same field as *output* below — same meaning either way (the
-  // article's introduction text), just produced by different pipelines. ---
+  // introduction here is an *input* to reorganize/summarize flows (the
+  // article's current/produced intro); expand/summarize write the same
+  // field as *output* below — same meaning either way, just produced by
+  // different pipelines.
   introduction: Annotation<string | undefined>({ reducer: replace, default: () => undefined }),
-  selectedProposal: Annotation<ProposalItem | undefined>({ reducer: replace, default: () => undefined }),
-  ideas: Annotation<IdeaItem[]>({ reducer: replace, default: () => [] }),
 
   // --- expand (Researcher -> Scribe [-> ContinuityEditor loop] [-> Lorekeeper] [-> StyleWarden]) ---
   expanderMode: Annotation<ExpanderMode | undefined>({ reducer: replace, default: () => undefined }),
   selectedIdeas: Annotation<IdeaItem[] | undefined>({ reducer: replace, default: () => undefined }),
   runStyleWarden: Annotation<boolean>({ reducer: replace, default: () => false }),
-  runContinuityEditor: Annotation<boolean>({ reducer: replace, default: () => false }),
   wordCountPreset: Annotation<'short' | 'medium' | 'long'>({ reducer: replace, default: () => 'medium' }),
   researchBrief: Annotation<ResearchBrief | undefined>({ reducer: replace, default: () => undefined }),
   scribeOutput: Annotation<ScribeOutput | undefined>({ reducer: replace, default: () => undefined }),
@@ -93,12 +99,10 @@ export const OrchestrationAnnotation = Annotation.Root({
   // --- summarize (Lorekeeper [+ optional Grounding Check]) ---
   lorekeeperMode: Annotation<LorekeepMode>({ reducer: replace, default: () => 'full' }),
   existingIntro: Annotation<string | undefined>({ reducer: replace, default: () => undefined }),
-  runGroundingCheck: Annotation<boolean>({ reducer: replace, default: () => false }),
   groundingCheck: Annotation<GroundingCheckOutput | undefined>({ reducer: replace, default: () => undefined }),
 
   // --- proposeChildren (Cartographer [+ optional Dedup Check]) ---
   childProposals: Annotation<ChildProposalItem[]>({ reducer: replace, default: () => [] }),
-  runDedupCheck: Annotation<boolean>({ reducer: replace, default: () => false }),
   dedupCheck: Annotation<DedupCheckOutput | undefined>({ reducer: replace, default: () => undefined }),
 
   // --- reorganize (Scribe[reorganize] -> Sentinel -> Lorekeeper) ---
@@ -122,5 +126,5 @@ export const OrchestrationAnnotation = Annotation.Root({
 
 export type OrchestrationState = typeof OrchestrationAnnotation.State;
 
-/** Passed once at archivistMode call sites — 'default'/'reorganize'/'propose_children'/'expand_chronology'. */
+/** Passed once at archivistMode call sites — 'default'/'reorganize'/'propose_children'. */
 export type { ArchivistMode };

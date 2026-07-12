@@ -1,8 +1,7 @@
 import { useState, useMemo } from 'react';
-import { ChevronDown, ChevronRight, X, Plus } from 'lucide-react';
-import { Link, useParams, useNavigate } from 'react-router-dom';
+import { ChevronDown, ChevronRight } from 'lucide-react';
+import { Link, useParams } from 'react-router-dom';
 import { useStore } from '../../stores/index.ts';
-import { api } from '../../lib/api.ts';
 import type { TreeNode } from '../../lib/tree.ts';
 import type { ArticleStatus } from '../../types/article.ts';
 
@@ -90,12 +89,8 @@ type ViewMode = 'tree' | 'flat';
 
 export default function Sidebar() {
   const { wid, aid } = useParams<{ wid: string; aid: string }>();
-  const navigate = useNavigate();
-  const { treeNodes, searchQuery, setSearchQuery, loadTree, addToast } = useStore();
+  const { treeNodes, searchQuery, setSearchQuery } = useStore();
 
-  const [showNewForm, setShowNewForm] = useState(false);
-  const [newTitle, setNewTitle]       = useState('');
-  const [creating, setCreating]       = useState(false);
   const [viewMode, setViewMode]       = useState<ViewMode>('tree');
 
   // Flat list for search + flat view
@@ -118,23 +113,6 @@ export default function Sidebar() {
     if (!q) return null;
     return new Set(flat.filter((a) => a.title.toLowerCase().includes(q)).map((a) => a.id));
   }, [flat, searchQuery]);
-
-  const handleCreateArticle = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!wid || !newTitle.trim() || creating) return;
-    setCreating(true);
-    try {
-      const result = await api.articles.create(wid, { title: newTitle.trim() });
-      await loadTree(wid);
-      setNewTitle('');
-      setShowNewForm(false);
-      navigate(`/worlds/${wid}/articles/${result.article.id}`);
-    } catch (err) {
-      addToast({ message: (err as Error).message, type: 'error' });
-    } finally {
-      setCreating(false);
-    }
-  };
 
   return (
     <aside className="w-56 flex flex-col border-r border-gray-200 bg-surface-2 shrink-0 overflow-hidden">
@@ -182,46 +160,6 @@ export default function Sidebar() {
             ))
         )}
       </nav>
-
-      {/* New article */}
-      <div className="border-t border-gray-200 px-2 py-2">
-        {showNewForm ? (
-          <form onSubmit={handleCreateArticle} className="flex flex-col gap-1.5">
-            <input
-              autoFocus
-              type="text"
-              value={newTitle}
-              onChange={(e) => setNewTitle(e.target.value)}
-              placeholder="Article title…"
-              className="w-full px-2 py-1 text-xs border border-gray-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-            />
-            <div className="flex gap-1">
-              <button
-                type="submit"
-                disabled={!newTitle.trim() || creating}
-                className="flex-1 py-1 text-xs font-medium bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-40"
-              >
-                {creating ? '…' : 'Create'}
-              </button>
-              <button
-                type="button"
-                onClick={() => { setShowNewForm(false); setNewTitle(''); }}
-                className="px-2 py-1 text-xs text-gray-400 hover:text-gray-600"
-              >
-                <X size={14} />
-              </button>
-            </div>
-          </form>
-        ) : (
-          <button
-            onClick={() => setShowNewForm(true)}
-            className="w-full flex items-center gap-1.5 px-2 py-1 text-xs text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors"
-          >
-            <Plus size={14} />
-            New Article
-          </button>
-        )}
-      </div>
 
       {/* Status legend */}
       <div className="flex items-center gap-3 px-3 py-2 border-t border-gray-200 text-xs text-gray-400">

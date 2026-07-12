@@ -284,7 +284,7 @@ export default function ArticlePage() {
             ))}
           </ul>
         ) : (
-          <p className="text-sm text-gray-400 italic">No subsections yet. Click + to add one.</p>
+          <p className="text-sm text-gray-400 italic">No child subjects yet. Click + to add one.</p>
         )}
       </section>
 
@@ -316,7 +316,7 @@ export default function ArticlePage() {
       {/* Panels */}
       {showHistory && <VersionHistoryPanel onClose={() => setShowHistory(false)} />}
 
-      {/* Add subsection dialog */}
+      {/* Add subject dialog */}
       {showAddSubsection && wid && aid && (
         <AddSubsectionDialog
           worldId={wid}

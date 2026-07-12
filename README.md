@@ -1,6 +1,6 @@
 # WorldArchitect
 
-WorldArchitect is a local-first fiction worldbuilding app for writers, game masters, and narrative designers. It helps you grow a fictional world into a structured encyclopedia: articles, categories, timelines, version history, snapshots, exportable Markdown, and optional AI-assisted expansion.
+WorldArchitect is a local-first fiction worldbuilding app for writers, game masters, and narrative designers. It helps you grow a fictional world into a structured encyclopedia: articles, categories, version history, snapshots, exportable Markdown, and optional AI-assisted expansion.
 
 The app is fully usable without an LLM. When you do connect a provider, WorldArchitect adds a multi-agent creative system that can incept, expand, branch, consolidate, and check world documents while keeping you in control of how much gets reviewed or committed automatically.
 
@@ -19,7 +19,7 @@ The intended release path is:
 ## Why WorldArchitect?
 
 - **Own your world locally, by default.** In local mode your encyclopedia is stored in a local Postgres database — no account, cloud sync, or hosted backend required. An opt-in hosted multi-tenant mode is also available for self-deployment (accounts via Clerk and Postgres storage) — see [DEPLOY.md](DEPLOY.md).
-- **Write with structure.** Build a browsable wiki with categories, article hierarchy, cross-links, chronology, and snapshots.
+- **Write with structure.** Build a browsable wiki with categories, article hierarchy, cross-links, and snapshots.
 - **Use AI without surrendering control.** Expand runs use modular review gates for introductions, proposals, ideas, drafts, and child-article plans; Scribe drafts long prose directly while compact MAS decisions stay structured.
 - **Grow worlds deliberately.** Expand can incept, elaborate, branch, and recurse through selected parts of the world; Consolidate can audit, clean up, and scan accepted prose for reviewable concept candidates.
 - **Keep long projects durable.** Version history, crash recovery, World Bible summaries, issue checks, call logs, and ZIP export are built in.
@@ -29,7 +29,7 @@ The intended release path is:
 - Local world database powered by Postgres
 - World creation wizard with configurable categories and style settings
 - Wikipedia-style article browser with sidebar search
-- Article layers for introduction, description, subjects, and chronology
+- Article layers for introduction, description, and subjects
 - Graph view for navigating article hierarchy and references
 - Manual editing with TipTap and Markdown-oriented article content
 - Version history, non-destructive reverts, and named world snapshots

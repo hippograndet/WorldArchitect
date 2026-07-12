@@ -12,8 +12,7 @@ import {
 import { articleContract, contractState, expanderIntent } from '../masContract.js';
 import type { ContextDepth, ArchivistMode, ContextPackage } from '../../../services/archivist.js';
 import type { ExpanderMode } from '../../../prompts/expander.js';
-import type { ProposalItem } from '../../muse.js';
-import type { IdeaItem } from '../../oracle.js';
+import type { IdeaItem } from '../../muse.js';
 import type { ResearchBrief } from '../../scribe.js';
 import type { StyleWardenOutput } from '../../styleWarden.js';
 import type { ContinuityEditorOutput } from '../../continuityEditor.js';
@@ -50,12 +49,12 @@ export async function runExpandGraph(params: {
   ownerId?: string;
   articleId: string;
   pipelineType: ExpanderMode;
-  selectedProposal: ProposalItem;
   userSpec?: string;
   contextDepth?: ContextDepth;
   selectedIdeas?: IdeaItem[];
   runStyleWarden?: boolean;
-  runContinuityEditor?: boolean;
+  coherenceCheckLevel?: number;
+  safetyNet?: boolean;
   wordCountPreset?: 'short' | 'medium' | 'long';
   pipelineRunId?: string;
   worldContext?: WorldContext;
@@ -84,13 +83,13 @@ export async function runExpandGraph(params: {
       commitPolicy: 'pending_draft',
     })),
     expanderMode: params.pipelineType,
-    selectedProposal: params.selectedProposal,
     userSpec: params.userSpec,
     contextDepth: params.contextDepth ?? 'mid',
     contextMode,
     selectedIdeas: params.selectedIdeas,
     runStyleWarden: params.runStyleWarden ?? false,
-    runContinuityEditor: params.runContinuityEditor ?? false,
+    coherenceCheckLevel: params.coherenceCheckLevel ?? 0,
+    safetyNet: params.safetyNet ?? false,
     wordCountPreset: params.wordCountPreset ?? 'medium',
     ...(params.worldContext ? { worldContext: params.worldContext } : {}),
     ...(cachedContextPackage ? { contextPackage: cachedContextPackage } : {}),

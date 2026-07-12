@@ -53,7 +53,7 @@ export default function AddSubsectionDialog({ worldId, parentArticleId, onClose 
       <div className="bg-white rounded-2xl shadow-2xl w-96 p-6 flex flex-col gap-5">
         <div>
           <h2 className="text-base font-bold text-gray-900">Add Subject</h2>
-          <p className="text-xs text-gray-400 mt-0.5">Create a child article under this entry.</p>
+          <p className="text-xs text-gray-400 mt-0.5">Create a child subject under this article.</p>
         </div>
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">

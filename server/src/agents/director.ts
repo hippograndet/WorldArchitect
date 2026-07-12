@@ -6,14 +6,13 @@ import { reindexArticle } from '../services/searchIndex.js';
 import { type ContextDepth } from '../services/archivist.js';
 import { writeArticleVersion } from '../services/articleVersions.js';
 import type { Stub } from './architect.js';
-import type { ProposalItem } from './muse.js';
 import type { MentionItem } from './scribe.js';
 import type { ChildProposalItem } from './cartographer.js';
 import type { CoherenceWarning, SuggestedLink, WardenOutput } from './warden.js';
 import type { RetentionIssue, SentinelOutput } from './sentinel.js';
 import type { AgentSideChannel } from './base.js';
 import type { CompressionEntry } from './condenser.js';
-import type { IdeaItem } from './oracle.js';
+import type { IdeaItem } from './muse.js';
 import type { StyleWardenOutput } from './styleWarden.js';
 import type { ContinuityEditorOutput } from './continuityEditor.js';
 import type { EdgeProposal, GlobalWarning } from './auditor.js';
@@ -22,7 +21,6 @@ import type { ExpanderMode } from '../prompts/expander.js';
 import type { WorldStyleConfig } from '../services/worldStylePresets.js';
 import { runCreateWorldGraph } from './graphs/pipelines/createWorld.js';
 import { runProposeGraph } from './graphs/pipelines/propose.js';
-import { runProposeIdeasGraph } from './graphs/pipelines/proposeIdeas.js';
 import { runExpandGraph } from './graphs/pipelines/expand.js';
 import { runSummarizeGraph } from './graphs/pipelines/summarize.js';
 import { runProposeChildrenGraph } from './graphs/pipelines/proposeChildren.js';
@@ -124,15 +122,9 @@ export function sideChannelFromSentinel(output: SentinelOutput): AgentSideChanne
 // ---------------------------------------------------------------------------
 
 export interface ProposeOutput {
-  proposals: ProposalItem[];
-  autoSelectedIndex?: number;
-  autoSelectRationale?: string;
-  tokensIn: number;
-  tokensOut: number;
-}
-
-export interface ProposeIdeasOutput {
   ideas: IdeaItem[];
+  autoSelectedIndices?: number[];
+  autoSelectRationale?: string;
   tokensIn: number;
   tokensOut: number;
 }
@@ -277,22 +269,6 @@ export class PipelineCoordinator {
   }
 
   // ---------------------------------------------------------------------------
-  // Step B: proposeIdeas — Oracle
-  // ---------------------------------------------------------------------------
-
-  async proposeIdeas(
-    worldId: string,
-    articleId: string,
-    introduction: string,
-    selectedProposal: ProposalItem,
-    userSpec?: string,
-    contextDepth: ContextDepth = 'mid',
-  ): Promise<ProposeIdeasOutput> {
-    const ownerId = await ownerIdForWorld(getDbClient(), worldId);
-    return runProposeIdeasGraph({ worldId, ownerId, articleId, introduction, selectedProposal, userSpec, contextDepth });
-  }
-
-  // ---------------------------------------------------------------------------
   // Phase 2: expand — Scribe → Lorekeeper → (optional StyleWarden)
   // ---------------------------------------------------------------------------
 
@@ -300,18 +276,18 @@ export class PipelineCoordinator {
     worldId: string,
     articleId: string,
     pipelineType: ExpanderMode,
-    selectedProposal: ProposalItem,
     userSpec?: string,
     contextDepth: ContextDepth = 'mid',
     selectedIdeas?: IdeaItem[],
     runStyleWarden = false,
-    runContinuityEditor = false,
+    coherenceCheckLevel = 0,
+    safetyNet = false,
     wordCountPreset: 'short' | 'medium' | 'long' = 'medium',
   ): Promise<ExpandOutput> {
     const ownerId = await ownerIdForWorld(getDbClient(), worldId);
     return runExpandGraph({
-      worldId, ownerId, articleId, pipelineType, selectedProposal, userSpec, contextDepth,
-      selectedIdeas, runStyleWarden, runContinuityEditor, wordCountPreset,
+      worldId, ownerId, articleId, pipelineType, userSpec, contextDepth,
+      selectedIdeas, runStyleWarden, coherenceCheckLevel, safetyNet, wordCountPreset,
     });
   }
 
@@ -337,9 +313,11 @@ export class PipelineCoordinator {
     articleId: string,
     userSpec?: string,
     contextDepth: ContextDepth = 'mid',
+    coherenceCheckLevel = 0,
+    safetyNet = false,
   ): Promise<ProposeChildrenOutput> {
     const ownerId = await ownerIdForWorld(getDbClient(), worldId);
-    return runProposeChildrenGraph({ worldId, ownerId, articleId, userSpec, contextDepth });
+    return runProposeChildrenGraph({ worldId, ownerId, articleId, userSpec, contextDepth, coherenceCheckLevel, safetyNet });
   }
 
   // ---------------------------------------------------------------------------

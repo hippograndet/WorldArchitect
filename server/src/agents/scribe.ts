@@ -7,8 +7,7 @@ import {
   type ExpanderMode,
 } from '../prompts/expander.js';
 import type { WorldContext } from './director.js';
-import type { ProposalItem } from './muse.js';
-import type { IdeaItem } from './oracle.js';
+import type { IdeaItem } from './muse.js';
 import { LOOKUP_NAMES_TOOL } from '../tools/context.js';
 import type { ChatMessage } from '../providers/types.js';
 import type { Tool } from '../tools/types.js';
@@ -55,7 +54,6 @@ export interface ScribeInput {
   currentIntroduction?: string;
   currentDescription?: string;
   currentChronology?: string;
-  selectedProposal?: ProposalItem;
   selectedIdeas?: IdeaItem[];
   userSpec?: string;
   researchBrief?: ResearchBrief;
@@ -106,7 +104,6 @@ export class ScribeAgent extends BaseAgent<ScribeInput, ScribeOutput> {
       input.currentIntroduction,
       input.currentDescription,
       input.currentChronology,
-      input.selectedProposal,
       input.userSpec,
       input.selectedIdeas,
       input.researchBrief,

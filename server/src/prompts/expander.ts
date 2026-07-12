@@ -1,6 +1,5 @@
 import type { WorldContext } from '../agents/director.js';
-import type { ProposalItem } from '../agents/muse.js';
-import type { IdeaItem } from '../agents/oracle.js';
+import type { IdeaItem } from '../agents/muse.js';
 import type { ResearchBrief } from '../agents/scribe.js';
 import { buildWorldHeader, dataBlock } from './shared.js';
 
@@ -71,7 +70,6 @@ export function buildExpanderUserMessage(
   currentIntroduction?: string,
   currentDescription?: string,
   currentChronology?: string,
-  selectedProposal?: ProposalItem,
   userSpec?: string,
   selectedIdeas?: IdeaItem[],
   researchBrief?: ResearchBrief,
@@ -88,10 +86,6 @@ export function buildExpanderUserMessage(
   if (mode === 'reorganize') {
     if (currentDescription) parts.push(`## Current Description (read-only constraint)\n${dataBlock('target.description', currentDescription)}`);
     if (currentChronology)  parts.push(`## Current Chronology (read-only constraint)\n${dataBlock('target.chronology', currentChronology)}`);
-  }
-
-  if (selectedProposal) {
-    parts.push(`## Selected Creative Direction\n${dataBlock('selectedProposal', selectedProposal)}`);
   }
 
   if (selectedIdeas && selectedIdeas.length > 0) {

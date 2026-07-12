@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { nanoid } from 'nanoid';
 import { BaseAgent } from './base.js';
 import { OUTPUT_TOOLS } from '../tools/output.js';
 import {
@@ -16,26 +17,30 @@ import type { Tool } from '../tools/types.js';
 // I/O types
 // ---------------------------------------------------------------------------
 
-const ProposalItemSchema = z.object({
-  title: z.string(),
-  direction: z.string(),
+const IdeaItemRawSchema = z.object({
+  theme: z.string(),
+  detail: z.string(),
 });
 
-const SubmitProposalsSchema = z.object({
-  proposals: z.array(ProposalItemSchema).min(1).max(5),
+const SubmitIdeasSchema = z.object({
+  ideas: z.array(IdeaItemRawSchema).min(5).max(10),
 });
 
-export type ProposalItem = z.infer<typeof ProposalItemSchema>;
-export type MuseOutput = { proposals: ProposalItem[] };
+export interface IdeaItem {
+  id: string;
+  theme: string;
+  detail: string;
+}
 
-/** No contextPackage — Muse writes from the article's own identity + Researcher's brief, not the raw neighborhood tiers. */
+export type MuseOutput = { ideas: IdeaItem[] };
+
+/** No contextPackage, no userSpec — Muse writes from the article's own identity + world context + Researcher's brief only. User preference enters downstream, via Curator. */
 export interface MuseInput {
   worldContext: WorldContext;
   mode: ProposalMode;
   articleTitle: string;
   templateType: string;
   currentIntroduction?: string;
-  userSpec?: string;
   researchBrief?: ResearchBrief;
 }
 
@@ -46,7 +51,7 @@ export interface MuseInput {
 export class MuseAgent extends BaseAgent<MuseInput, MuseOutput> {
   readonly agentType = 'muse';
   readonly mode = 'write';
-  readonly outputToolName = 'submit_proposals';
+  readonly outputToolName = 'submit_ideas';
 
   protected buildMessages(_worldId: string, input: MuseInput): ChatMessage[] {
     return [
@@ -56,13 +61,13 @@ export class MuseAgent extends BaseAgent<MuseInput, MuseOutput> {
       },
       {
         role: 'user',
-        content: buildProposalUserMessage(input.articleTitle, input.templateType, input.currentIntroduction, input.userSpec, input.researchBrief),
+        content: buildProposalUserMessage(input.articleTitle, input.templateType, input.currentIntroduction, input.researchBrief),
       },
     ];
   }
 
   protected buildOutputTool(): Tool {
-    return OUTPUT_TOOLS.submit_proposals;
+    return OUTPUT_TOOLS.submit_ideas;
   }
 
   protected getContextTools(): Tool[] {
@@ -70,7 +75,7 @@ export class MuseAgent extends BaseAgent<MuseInput, MuseOutput> {
   }
 
   protected parseOutput(input: Record<string, unknown>): MuseOutput {
-    const parsed = SubmitProposalsSchema.parse(input);
-    return { proposals: parsed.proposals };
+    const parsed = SubmitIdeasSchema.parse(input);
+    return { ideas: parsed.ideas.map((idea) => ({ ...idea, id: nanoid() })) };
   }
 }

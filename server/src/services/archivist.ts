@@ -49,7 +49,6 @@ export interface ContextPackage {
 
 export type ArchivistMode =
   | 'default'
-  | 'expand_chronology'   // timeline + children tiers first
   | 'propose_children'    // children tier added (see what already exists)
   | 'reorganize';         // full body counts against budget
 
@@ -135,7 +134,6 @@ function toDependency(
  *   5. Referenced articles (titles only)
  *
  * Mode overrides:
- *   expand_chronology — temporal + children first, then parents
  *   propose_children  — children tier added after siblings
  *   reorganize        — full body counts against budget first
  */
@@ -344,15 +342,8 @@ export async function buildContextPackage(
     }
   };
 
-  // Tier ordering by mode
-  if (mode === 'expand_chronology') {
-    await fillTemporalNeighbors();
-    await fillChildren();
-    await fillParents();
-  } else {
-    await fillParents();
-    if (targetAnchor) await fillTemporalNeighbors();
-  }
+  await fillParents();
+  if (targetAnchor) await fillTemporalNeighbors();
 
   // Siblings — other children of the same parents (skip in shallow mode)
   if (parents.length > 0 && contextDepth !== 'shallow') {
@@ -378,7 +369,7 @@ export async function buildContextPackage(
     }
   }
 
-  // Children tier for propose_children (also added for expand_chronology above)
+  // Children tier for propose_children.
   if (mode === 'propose_children') {
     await fillChildren();
   }

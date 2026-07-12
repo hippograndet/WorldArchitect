@@ -2,7 +2,7 @@
 
 WorldArchitect is built around one core idea: a fictional world should become a durable, browsable body of knowledge, not a pile of disconnected notes.
 
-The app gives each world its own local encyclopedia. You create articles, group them by category, connect them through parent-child relationships and references, and track chronology when events have a place in time.
+The app gives each world its own local encyclopedia. Worlds start with a root article, then grow through child subjects, Expand runs, and reviewed concept candidates connected by parent-child relationships and references.
 
 ![WorldArchitect worlds menu](assets/Screenshot_Worlds_Menu.png)
 
@@ -29,7 +29,6 @@ Each article is more than a text file. It can carry:
 - A publication status
 - A short introduction used by the World Bible
 - A longer description
-- Optional chronology
 - Parent-child structure
 - Cross-article references
 - Version history
@@ -63,9 +62,9 @@ This avoids sending every full article to an LLM while still giving AI tools a b
 
 A typical workflow looks like this:
 
-1. Create a world and initial categories.
-2. Add article stubs manually or with the world creation tools.
-3. Write articles yourself, or use Expand to incept, elaborate, branch, or recurse through selected parts of the world.
+1. Create a world and root article.
+2. Add child subjects from an existing article, or use Expand to branch and recurse through selected parts of the world.
+3. Write article prose yourself, or use Expand to incept and elaborate selected documents.
 4. Choose the validation level for each run: Manual, Assisted, or Autopilot.
 5. Review, edit, and accept generated introductions, proposals, ideas, drafts, or child plans when the selected validation level asks for user input.
 6. Use Consolidate, Issues, and Publish tools to clean up contradictions or rough prose.

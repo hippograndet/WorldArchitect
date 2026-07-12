@@ -2,7 +2,7 @@ import type { StateCreator } from 'zustand';
 import type { StoreState } from './index.ts';
 import type { VisualTheme } from '../types/world.ts';
 
-export type ActiveView = 'encyclopedia' | 'timeline' | 'bible' | 'usage';
+export type ActiveView = 'encyclopedia' | 'bible' | 'usage';
 
 export interface Toast {
   id: string;

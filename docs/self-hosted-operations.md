@@ -80,10 +80,8 @@ It includes:
 - Category
 - Status
 - Template type
-- Temporal anchor
 - Introduction
 - Description
-- Chronology
 - Summary fallback from the World Bible entry
 
 It does not include the full database. Do not rely on ZIP export as your only backup.

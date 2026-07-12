@@ -3,7 +3,7 @@ import { BaseAgent } from './base.js';
 import { OUTPUT_TOOLS } from '../tools/output.js';
 import { buildTasteSystemPrompt, buildTasteUserMessage } from '../prompts/taste.js';
 import type { WorldContext } from './director.js';
-import type { ProposalItem } from './muse.js';
+import type { IdeaItem } from './muse.js';
 import type { ChatMessage } from '../providers/types.js';
 import type { Tool } from '../tools/types.js';
 
@@ -12,18 +12,20 @@ import type { Tool } from '../tools/types.js';
 // ---------------------------------------------------------------------------
 
 const SubmitCuratorSchema = z.object({
-  selectedIndex: z.number().int().min(0),
+  selectedIndices: z.array(z.number().int().min(0)).min(1),
   rationale: z.string().min(1),
 });
 
-export type CuratorOutput = { selectedIndex: number; rationale: string };
+export type CuratorOutput = { selectedIndices: number[]; rationale: string };
 
+/** The one place user preference enters the Expand pipeline — Muse itself is grounding-only, no userSpec. */
 export interface CuratorInput {
-  proposals: ProposalItem[];
+  ideas: IdeaItem[];
   articleTitle: string;
   articleTemplateType: string;
   currentSummary?: string;
   worldContext: WorldContext;
+  userSpec?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -35,10 +37,10 @@ export class CuratorAgent extends BaseAgent<CuratorInput, CuratorOutput> {
   readonly mode = 'check';
   readonly outputToolName = 'submit_taste_selection';
 
-  private _proposalCount: number | null = null;
+  private _ideaCount: number | null = null;
 
   protected buildMessages(_worldId: string, input: CuratorInput): ChatMessage[] {
-    this._proposalCount = input.proposals.length;
+    this._ideaCount = input.ideas.length;
     return [
       {
         role: 'system',
@@ -49,8 +51,9 @@ export class CuratorAgent extends BaseAgent<CuratorInput, CuratorOutput> {
         content: buildTasteUserMessage(
           input.articleTitle,
           input.articleTemplateType,
-          input.proposals,
+          input.ideas,
           input.currentSummary,
+          input.userSpec,
         ),
       },
     ];
@@ -66,10 +69,11 @@ export class CuratorAgent extends BaseAgent<CuratorInput, CuratorOutput> {
 
   protected parseOutput(input: Record<string, unknown>): CuratorOutput {
     const parsed = SubmitCuratorSchema.parse(input);
-    const count = this._proposalCount ?? 0;
-    if (parsed.selectedIndex >= count) {
-      throw new Error(`selectedIndex ${parsed.selectedIndex} is out of range — there are only ${count} proposals (valid range: 0-${count - 1}).`);
+    const count = this._ideaCount ?? 0;
+    const outOfRange = parsed.selectedIndices.find((i) => i >= count);
+    if (outOfRange !== undefined) {
+      throw new Error(`selectedIndices contains ${outOfRange}, which is out of range — there are only ${count} ideas (valid range: 0-${count - 1}).`);
     }
-    return { selectedIndex: parsed.selectedIndex, rationale: parsed.rationale };
+    return { selectedIndices: parsed.selectedIndices, rationale: parsed.rationale };
   }
 }

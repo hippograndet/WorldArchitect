@@ -36,13 +36,13 @@ describe('agent cost estimate routes', () => {
         continuationMode: 'one_step',
         validationLevel: 'assisted',
         contextDepth: 'mid',
-        runOracle: true,
+        coherenceCheckLevel: 1,
       })
       .expect(200);
 
     expect(ok.body.documents).toBe(1);
     expect(ok.body.calls.min).toBeGreaterThan(0);
-    expect(ok.body.byAgent.some((row: { agentType: string }) => row.agentType === 'oracle')).toBe(true);
+    expect(ok.body.byAgent.some((row: { agentType: string }) => row.agentType === 'muse')).toBe(true);
 
     await supertest(testApp())
       .post('/api/worlds/world-ok/agents/estimate-run')

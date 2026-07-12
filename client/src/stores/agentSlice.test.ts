@@ -9,7 +9,6 @@ const mockApi = vi.hoisted(() => ({
     audit: vi.fn(),
     propose: vi.fn(),
     proposeChildren: vi.fn(),
-    proposeIdeas: vi.fn(),
     summarize: vi.fn(),
     cohere: vi.fn(),
     expand: vi.fn(),

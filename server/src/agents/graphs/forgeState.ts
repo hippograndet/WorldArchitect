@@ -46,10 +46,9 @@ export const ForgeAnnotation = Annotation.Root({
   forgeMode: Annotation<'breadth' | 'depth'>({ reducer: replace, default: () => 'breadth' }),
   forgeMaxDepth: Annotation<number>({ reducer: replace, default: () => 2 }),
   forgeMaxChildren: Annotation<number>({ reducer: replace, default: () => 0 }),
-  forgeUseOracle: Annotation<boolean>({ reducer: replace, default: () => false }),
-  forgeUseContinuityEditor: Annotation<boolean>({ reducer: replace, default: () => false }),
-  forgeUseGroundingCheck: Annotation<boolean>({ reducer: replace, default: () => false }),
-  forgeUseDedupCheck: Annotation<boolean>({ reducer: replace, default: () => false }),
+  /** One global dial covering Continuity Editor, Grounding Check, and Dedup Check — see state.ts's coherenceCheckLevel/safetyNet and nodes.ts's runCheckReviseLoop. */
+  coherenceCheckLevel: Annotation<number>({ reducer: replace, default: () => 0 }),
+  safetyNet: Annotation<boolean>({ reducer: replace, default: () => false }),
   forgeContinuationMode: Annotation<ForgeContinuationMode>({ reducer: replace, default: () => 'recursive' }),
   forgeInceptionExistingMode: Annotation<ForgeExistingContentMode>({ reducer: replace, default: () => 'improve' }),
   forgeExpansionExistingMode: Annotation<ForgeExistingContentMode>({ reducer: replace, default: () => 'improve' }),

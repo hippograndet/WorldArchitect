@@ -6,9 +6,9 @@ This document describes the current article lifecycle and versioning behavior.
 
 ## Core Objects
 
-An **article** is the stable identity of a world entry. It owns the title, category, template type, status, hierarchy depth, temporal anchors, fixed-point flag, and `current_version_id`.
+An **article** is the stable identity of a world entry. It owns the title, category, template type, status, hierarchy depth, and `current_version_id`.
 
-An **article version** is a saved content revision for one article. Versions store introduction, description, chronology, word count, created time, and optional metadata such as whether the version was created by a revert.
+An **article version** is a saved content revision for one article. Versions store introduction, description, word count, created time, and optional metadata such as whether the version was created by a revert.
 
 A **current version** is the version pointed to by `articles.current_version_id`. Normal reads and agent context use the current version today.
 
@@ -80,7 +80,6 @@ This means version history is useful for undo/review. It is separate from canon 
 
 Current version creation paths include:
 
-- manual article creation
 - manual article edit
 - draft acceptance
 - child article creation

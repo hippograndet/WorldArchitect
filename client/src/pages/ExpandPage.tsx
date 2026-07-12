@@ -130,7 +130,6 @@ const AGENT_LABELS: Record<string, string> = {
   grounding_check: 'Grounding Check',
   muse: 'Muse',
   curator: 'Curator',
-  oracle: 'Oracle',
   researcher: 'Researcher',
   scribe: 'Scribe',
   continuity_editor: 'Continuity Editor',
@@ -144,7 +143,6 @@ const AGENT_TASKS: Record<string, string> = {
   grounding_check: 'Grounding',
   muse: 'Direction',
   curator: 'Select',
-  oracle: 'Ideas',
   researcher: 'Research',
   scribe: 'Draft',
   continuity_editor: 'Continuity',
@@ -233,18 +231,6 @@ function payloadChildren(payload: Record<string, unknown>): Array<{ title: strin
     .filter((child) => child.title.trim().length > 0);
 }
 
-function payloadProposals(payload: Record<string, unknown>): Array<{ title: string; direction: string }> {
-  const value = payload.proposals;
-  if (!Array.isArray(value)) return [];
-  return value
-    .filter((proposal): proposal is Record<string, unknown> => Boolean(proposal) && typeof proposal === 'object' && !Array.isArray(proposal))
-    .map((proposal) => ({
-      title: typeof proposal.title === 'string' ? proposal.title : '',
-      direction: typeof proposal.direction === 'string' ? proposal.direction : '',
-    }))
-    .filter((proposal) => proposal.title.trim().length > 0 || proposal.direction.trim().length > 0);
-}
-
 function payloadIdeas(payload: Record<string, unknown>): Array<{ id: string; theme: string; detail: string }> {
   const value = payload.ideas;
   if (!Array.isArray(value)) return [];
@@ -262,7 +248,6 @@ function reviewTitle(review: RunReviewItem): string {
   if (review.kind === 'intro_review') return 'Review Introduction';
   if (review.kind === 'draft_review') return 'Review Draft';
   if (review.kind === 'child_selection') return 'Select Children';
-  if (review.kind === 'proposal_selection') return 'Choose Direction';
   if (review.kind === 'idea_selection') return 'Choose Themes';
   return 'Review Required';
 }
@@ -282,13 +267,16 @@ function ReviewActionPanel({
   const [description, setDescription] = useState(payloadString(review.payload, 'description'));
   const children = payloadChildren(review.payload);
   const [selectedChildTitles, setSelectedChildTitles] = useState(() => new Set(children.map((child) => child.title)));
-  const proposals = payloadProposals(review.payload);
-  const suggestedIndex = typeof review.payload.suggestedIndex === 'number' ? review.payload.suggestedIndex : 0;
-  const [selectedProposalIndex, setSelectedProposalIndex] = useState(Math.min(Math.max(suggestedIndex, 0), Math.max(0, proposals.length - 1)));
   const ideas = payloadIdeas(review.payload);
-  const [editableProposals, setEditableProposals] = useState(proposals);
+  const suggestedIndices = Array.isArray(review.payload.suggestedIndices)
+    ? review.payload.suggestedIndices.filter((i): i is number => typeof i === 'number')
+    : [];
   const [editableIdeas, setEditableIdeas] = useState(ideas);
-  const [selectedIdeaIds, setSelectedIdeaIds] = useState(() => new Set(ideas.map((idea) => idea.id)));
+  const [selectedIdeaIds, setSelectedIdeaIds] = useState(() => new Set(
+    suggestedIndices.length > 0
+      ? suggestedIndices.map((i) => ideas[i]?.id).filter((id): id is string => Boolean(id))
+      : ideas.map((idea) => idea.id),
+  ));
 
   const acceptDecision = () => {
     if (review.kind === 'intro_review') {
@@ -301,10 +289,6 @@ function ReviewActionPanel({
     }
     if (review.kind === 'child_selection') {
       onAccept({ children: children.filter((child) => selectedChildTitles.has(child.title)) });
-      return;
-    }
-    if (review.kind === 'proposal_selection') {
-      onAccept({ selectedIndex: selectedProposalIndex, proposal: editableProposals[selectedProposalIndex] });
       return;
     }
     if (review.kind === 'idea_selection') {
@@ -377,49 +361,6 @@ function ReviewActionPanel({
           ))}
           {children.length === 0 && (
             <p className="rounded-md border border-amber-200 bg-white p-3 text-xs text-gray-500">No child proposals were recorded.</p>
-          )}
-        </div>
-      )}
-
-      {review.kind === 'proposal_selection' && (
-        <div className="mt-4 space-y-2">
-          <p className="text-[10px] uppercase tracking-wide text-amber-600">Expansion Directions</p>
-          {editableProposals.map((proposal, index) => (
-            <label key={`${proposal.title}-${index}`} className="block rounded-md border border-amber-200 bg-white p-3">
-              <div className="flex items-start gap-2">
-                <input
-                  type="radio"
-                  name={`proposal-${review.id}`}
-                  checked={selectedProposalIndex === index}
-                  onChange={() => setSelectedProposalIndex(index)}
-                  className="mt-0.5"
-                />
-                <div className="min-w-0 flex-1">
-                  <input
-                    value={proposal.title}
-                    onChange={(event) => {
-                      const next = [...editableProposals];
-                      next[index] = { ...next[index], title: event.target.value };
-                      setEditableProposals(next);
-                    }}
-                    className="w-full rounded border border-gray-200 px-2 py-1 text-sm font-semibold text-gray-900 focus:outline-none focus:ring-2 focus:ring-amber-300"
-                    placeholder={`Direction ${index + 1}`}
-                  />
-                  <textarea
-                    value={proposal.direction}
-                    onChange={(event) => {
-                      const next = [...editableProposals];
-                      next[index] = { ...next[index], direction: event.target.value };
-                      setEditableProposals(next);
-                    }}
-                    className="mt-2 min-h-20 w-full resize-y rounded border border-gray-200 px-2 py-1 text-xs leading-relaxed text-gray-700 focus:outline-none focus:ring-2 focus:ring-amber-300"
-                  />
-                </div>
-              </div>
-            </label>
-          ))}
-          {proposals.length === 0 && (
-            <p className="rounded-md border border-amber-200 bg-white p-3 text-xs text-gray-500">No expansion directions were recorded.</p>
           )}
         </div>
       )}
@@ -551,16 +492,16 @@ function agentStageDefinitions(run: RunWithEvents): Array<Omit<AgentStage, 'stat
       add(step, 'Context', 'context_assembly');
       add(step, 'Research', 'researcher');
     }
+    const coherenceCheckOn = (run.config.coherenceCheckLevel ?? 0) > 0;
     if (step === 'inception') {
       add(step, 'Introduction', 'lorekeeper');
-      if (run.config.forgeUseGroundingCheck) add(step, 'Grounding', 'grounding_check');
+      if (coherenceCheckOn) add(step, 'Grounding', 'grounding_check');
     }
     if (step === 'expansion') {
       add(step, 'Direction', 'muse');
       add(step, 'Direction', 'curator');
-      if (run.config.forgeUseOracle) add(step, 'Ideation', 'oracle');
       add(step, 'Drafting', 'scribe');
-      if (run.config.forgeUseContinuityEditor) add(step, 'Continuity', 'continuity_editor');
+      if (coherenceCheckOn) add(step, 'Continuity', 'continuity_editor');
     }
     if (step === 'branching') {
       // Branching intentionally always rebuilds its own ContextPackage under
@@ -568,7 +509,7 @@ function agentStageDefinitions(run: RunWithEvents): Array<Omit<AgentStage, 'stat
       // runProposeChildrenGraph's comment in pipelines/proposeChildren.ts.
       add(step, 'Context', 'context_assembly');
       add(step, 'Children', 'cartographer');
-      if (run.config.forgeUseDedupCheck) add(step, 'Children', 'dedup_check');
+      if (coherenceCheckOn) add(step, 'Children', 'dedup_check');
     }
   }
 
@@ -578,7 +519,7 @@ function agentStageDefinitions(run: RunWithEvents): Array<Omit<AgentStage, 'stat
 function pipelineStepForCall(call: RunAgentCall): AgentStageStep | null {
   if (call.pipelineType === 'research') return 'research';
   if (call.pipelineType === 'summarize') return 'inception';
-  if (call.pipelineType === 'propose' || call.pipelineType === 'expand' || call.pipelineType === 'propose_ideas') return 'expansion';
+  if (call.pipelineType === 'propose' || call.pipelineType === 'expand') return 'expansion';
   if (call.pipelineType === 'propose_children') return 'branching';
   return null;
 }
@@ -634,23 +575,6 @@ function buildAgentStages(run: RunWithEvents, articleId: string | null): AgentSt
       };
     }
     if (stage.agentType === 'curator') {
-      const review = latestReviewByKind.get('proposal_selection');
-      if (review?.status === 'accepted') {
-        return {
-          ...stage,
-          status: 'completed',
-          detail: 'Direction selected by user.',
-        };
-      }
-      if (review?.status === 'rejected') {
-        return {
-          ...stage,
-          status: 'failed',
-          detail: 'Direction rejected by user.',
-        };
-      }
-    }
-    if (stage.agentType === 'oracle') {
       const review = latestReviewByKind.get('idea_selection');
       if (review?.status === 'accepted') {
         return {
@@ -662,8 +586,8 @@ function buildAgentStages(run: RunWithEvents, articleId: string | null): AgentSt
       if (review?.status === 'rejected') {
         return {
           ...stage,
-          status: 'skipped',
-          detail: 'Themes skipped by user.',
+          status: 'failed',
+          detail: 'Themes rejected by user.',
         };
       }
     }
@@ -786,6 +710,12 @@ export default function ExpandPage() {
   const [startStep, setStartStep] = useState<PipelineStartStep>('inception');
   const [continuationMode, setContinuationMode] = useState<ContinuationMode>('finish_document');
   const [validationLevel, setValidationLevel] = useState<ValidationLevel>('manual');
+  // One global dial covering Continuity Editor (Scribe), Grounding Check
+  // (Lorekeeper), and Dedup Check (Cartographer): 0 = off, N = up to N
+  // check→revise cycles. safetyNet adds one final check-only pass after
+  // those cycles — flags but never blocks.
+  const [coherenceCheckLevel, setCoherenceCheckLevel] = useState(1);
+  const [safetyNet, setSafetyNet] = useState(false);
   const [inceptionExistingMode, setInceptionExistingMode] = useState<ExistingContentMode>('improve');
   const [expansionExistingMode, setExpansionExistingMode] = useState<ExistingContentMode>('improve');
   const [branchingExistingMode, setBranchingExistingMode] = useState<BranchingExistingMode>('append_deduped');
@@ -918,7 +848,6 @@ export default function ExpandPage() {
     : pipelineOrder.slice(pipelineOrder.indexOf(startStep));
 
   const activeRun = runs.find((run) => run.status === 'running' || run.status === 'pending' || run.status === 'needs_input' || run.status === 'paused') ?? null;
-  const oracleEnabled = isForgeRun && validationLevel !== 'manual';
   const runDepth = isRecursive ? agentParams.forgeMaxDepth : 1;
   const estimatedDocuments = runEstimate?.documents ?? 1;
   const estimatedQueueItems = runEstimate?.queueItems ?? 1;
@@ -945,10 +874,8 @@ export default function ExpandPage() {
       maxDepth: runDepth,
       maxChildren: agentParams.forgeMaxChildren,
       contextDepth: agentParams.contextDepth,
-      runOracle: oracleEnabled,
-      runContinuityEditor: isForgeRun,
-      runGroundingCheck: isForgeRun,
-      runDedupCheck: isForgeRun,
+      coherenceCheckLevel,
+      safetyNet,
       runStyleWarden: false,
     })
       .then((estimate) => {
@@ -968,8 +895,8 @@ export default function ExpandPage() {
     runDepth,
     agentParams.forgeMaxChildren,
     agentParams.contextDepth,
-    oracleEnabled,
-    isForgeRun,
+    coherenceCheckLevel,
+    safetyNet,
   ]);
 
   const handleStart = async () => {
@@ -988,10 +915,8 @@ export default function ExpandPage() {
       branchingMode: agentParams.branchingMode,
       contextDepth: agentParams.contextDepth,
       includeCurrentContent: startStep === 'inception' || agentParams.includeCurrentContent,
-      forgeUseOracle: oracleEnabled,
-      forgeUseContinuityEditor: isForgeRun,
-      forgeUseGroundingCheck: isForgeRun,
-      forgeUseDedupCheck: isForgeRun,
+      coherenceCheckLevel,
+      safetyNet,
       forgeContinuationMode: continuationMode,
       runValidationLevel: validationLevel,
       forgeInceptionExistingMode: inceptionExistingMode,
@@ -1158,9 +1083,14 @@ export default function ExpandPage() {
       config.commitPolicy === 'auto_commit' ? 'autopilot' : 'manual'
     );
 
+    const reusedCoherenceCheckLevel = config.coherenceCheckLevel ?? agentParams.coherenceCheckLevel;
+    const reusedSafetyNet = config.safetyNet ?? agentParams.safetyNet;
+
     setStartStep(reusedStartStep);
     setContinuationMode(reusedContinuation);
     setValidationLevel(reusedValidation);
+    setCoherenceCheckLevel(reusedCoherenceCheckLevel);
+    setSafetyNet(reusedSafetyNet);
     setInceptionExistingMode(config.forgeInceptionExistingMode ?? 'improve');
     setExpansionExistingMode(config.forgeExpansionExistingMode ?? 'improve');
     setBranchingExistingMode(config.forgeBranchingExistingMode ?? 'append_deduped');
@@ -1171,10 +1101,8 @@ export default function ExpandPage() {
       forgeMode: config.forgeMode ?? agentParams.forgeMode,
       forgeMaxDepth: config.forgeMaxDepth ?? agentParams.forgeMaxDepth,
       forgeMaxChildren: config.forgeMaxChildren ?? agentParams.forgeMaxChildren,
-      forgeUseOracle: config.forgeUseOracle ?? agentParams.forgeUseOracle,
-      forgeUseContinuityEditor: config.forgeUseContinuityEditor ?? agentParams.forgeUseContinuityEditor,
-      forgeUseGroundingCheck: config.forgeUseGroundingCheck ?? agentParams.forgeUseGroundingCheck,
-      forgeUseDedupCheck: config.forgeUseDedupCheck ?? agentParams.forgeUseDedupCheck,
+      coherenceCheckLevel: reusedCoherenceCheckLevel,
+      safetyNet: reusedSafetyNet,
       forgeContinuationMode: reusedContinuation,
       runValidationLevel: reusedValidation,
       forgeInceptionExistingMode: config.forgeInceptionExistingMode ?? 'improve',
@@ -1897,6 +1825,40 @@ export default function ExpandPage() {
                     </button>
                   );
                 })}
+              </div>
+            </SettingGroup>
+
+            <SettingGroup title="Coherence Checking">
+              <div className="space-y-3">
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">
+                    Check→revise cycles for Continuity Editor, Grounding Check, and Dedup Check. 0 disables all three.
+                  </p>
+                  <div className="grid grid-cols-4 gap-1.5">
+                    {([0, 1, 2, 3] as const).map((level) => (
+                      <button
+                        key={level}
+                        onClick={() => { markCustom(); setCoherenceCheckLevel(level); }}
+                        className={`py-1.5 text-xs rounded-md border ${
+                          coherenceCheckLevel === level
+                            ? 'border-purple-400 bg-purple-50 text-purple-700'
+                            : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+                        }`}
+                      >
+                        {level}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <label className="flex items-start gap-2 text-xs text-gray-600">
+                  <input
+                    type="checkbox"
+                    checked={safetyNet}
+                    onChange={(event) => { markCustom(); setSafetyNet(event.target.checked); }}
+                    className="mt-0.5"
+                  />
+                  <span>Safety net: one final check-only pass after the cycles above. Flags remaining issues instead of blocking.</span>
+                </label>
               </div>
             </SettingGroup>
 

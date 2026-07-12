@@ -13,7 +13,6 @@ import ArticlePage from './components/article/ArticlePage.tsx';
 
 // Lazy-loaded: secondary pages loaded on first navigation
 const WorldOverviewPage = lazy(() => import('./pages/WorldOverviewPage.tsx'));
-const TimelinePage      = lazy(() => import('./pages/TimelinePage.tsx'));
 const GraphPage         = lazy(() => import('./pages/GraphPage.tsx'));
 const SnapshotsPage     = lazy(() => import('./pages/SnapshotsPage.tsx'));
 const UsagePage         = lazy(() => import('./pages/UsagePage.tsx'));
@@ -45,7 +44,6 @@ export const router = createBrowserRouter([
         children: [
           { index: true,           element: withSuspense(<WorldOverviewPage />) },
           { path: 'articles/:aid', element: <ArticlePage /> },
-          { path: 'timeline',      element: withSuspense(<TimelinePage />) },
           { path: 'graph',         element: withSuspense(<GraphPage />) },
           { path: 'snapshots',     element: withSuspense(<SnapshotsPage />) },
           { path: 'usage',         element: withSuspense(<UsagePage />) },

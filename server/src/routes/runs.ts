@@ -92,10 +92,12 @@ const CreateRunSchema = z.object({
   forgeMode: z.enum(['breadth', 'depth']).optional().default('breadth'),
   forgeMaxDepth: z.number().int().min(0).max(10).optional().default(2),
   forgeMaxChildren: z.number().int().min(0).max(20).optional().default(5),
-  forgeUseOracle: z.boolean().optional().default(false),
-  forgeUseContinuityEditor: z.boolean().optional().default(false),
-  forgeUseGroundingCheck: z.boolean().optional().default(false),
-  forgeUseDedupCheck: z.boolean().optional().default(false),
+  // One global dial covering Continuity Editor, Grounding Check, and Dedup
+  // Check. Defaults to 1 (single check-revise cycle, no re-check) — matching
+  // Forge's previous always-on single-pass behavior before this was
+  // user-configurable.
+  coherenceCheckLevel: z.number().int().min(0).max(3).optional().default(1),
+  safetyNet: z.boolean().optional().default(false),
   forgeContinuationMode: z.enum(['one_step', 'finish_document', 'recursive']).optional().default('recursive'),
   forgeInceptionExistingMode: z.enum(['create', 'improve', 'replace', 'skip_existing']).optional().default('improve'),
   forgeExpansionExistingMode: z.enum(['create', 'improve', 'replace', 'skip_existing']).optional().default('improve'),
@@ -225,10 +227,8 @@ router.post('/', asyncHandler(async (req, res) => {
     forgeMode: parse.data.forgeMode,
     forgeMaxDepth: parse.data.forgeMaxDepth,
     forgeMaxChildren: parse.data.forgeMaxChildren,
-    forgeUseOracle: parse.data.forgeUseOracle,
-    forgeUseContinuityEditor: parse.data.forgeUseContinuityEditor,
-    forgeUseGroundingCheck: parse.data.forgeUseGroundingCheck,
-    forgeUseDedupCheck: parse.data.forgeUseDedupCheck,
+    coherenceCheckLevel: parse.data.coherenceCheckLevel,
+    safetyNet: parse.data.safetyNet,
     forgeContinuationMode: parse.data.forgeContinuationMode,
     forgeInceptionExistingMode: parse.data.forgeInceptionExistingMode,
     forgeExpansionExistingMode: parse.data.forgeExpansionExistingMode,

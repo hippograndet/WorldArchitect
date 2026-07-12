@@ -25,7 +25,8 @@ export async function runProposeChildrenGraph(params: {
   articleId: string;
   userSpec?: string;
   contextDepth?: ContextDepth;
-  runDedupCheck?: boolean;
+  coherenceCheckLevel?: number;
+  safetyNet?: boolean;
   pipelineRunId?: string;
   worldContext?: WorldContext;
   researchBrief?: ResearchBrief;
@@ -50,7 +51,8 @@ export async function runProposeChildrenGraph(params: {
     userSpec: params.userSpec,
     contextDepth: params.contextDepth ?? 'mid',
     contextMode: 'propose_children',
-    runDedupCheck: params.runDedupCheck ?? false,
+    coherenceCheckLevel: params.coherenceCheckLevel ?? 0,
+    safetyNet: params.safetyNet ?? false,
     ...(params.worldContext ? { worldContext: params.worldContext } : {}),
     ...(params.researchBrief ? { researchBrief: params.researchBrief } : {}),
   });

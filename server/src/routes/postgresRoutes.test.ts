@@ -108,57 +108,47 @@ describe('core routes on Postgres', () => {
     expect(userB.body.anthropic.keySet).toBe(false);
   });
 
-  it('creates and reads articles under the world tenant guard', async ({ skip }) => {
+  it('reads and updates articles under the world tenant guard', async ({ skip }) => {
     if (skipIfUnavailable(skip)) return;
 
     const { world, categories } = await createTenantFixture(request!, 'user-a', 'Charter Isles');
     const { world: worldB } = await createTenantFixture(request!, 'user-b', 'Quiet Ledger');
     const categoryId = categories[0].id;
 
-    const created = await request!
-      .post(`/api/worlds/${world.id}/articles`)
-      .set(asUser('user-a'))
-      .send({
-        categoryId,
-        title: 'Harbor Charter',
-        introduction: 'The first harbor charter defines island trade.',
-        description: 'The charter binds the ferry guilds to common law.',
-        chronology: 'Year 4: signed under storm lanterns.',
-      })
-      .expect(201);
+    const created = await createArticleFixture(request!, 'user-a', world.id, categoryId, 'Harbor Charter');
 
-    expect(created.body.article.title).toBe('Harbor Charter');
-    expect(created.body.version.versionNumber).toBe(1);
+    expect(created.article.title).toBe('Harbor Charter');
+    expect(created.version.versionNumber).toBe(1);
 
     const read = await request!
-      .get(`/api/worlds/${world.id}/articles/${created.body.article.id}`)
+      .get(`/api/worlds/${world.id}/articles/${created.article.id}`)
       .set(asUser('user-a'))
       .expect(200);
     expect(read.body.article.title).toBe('Harbor Charter');
-    expect(read.body.version.description).toContain('ferry guilds');
+    expect(read.body.version.description).toContain('old gate');
 
     await expectTenantHidden(request!, {
       method: 'get',
-      path: `/api/worlds/${world.id}/articles/${created.body.article.id}`,
+      path: `/api/worlds/${world.id}/articles/${created.article.id}`,
       userId: 'user-b',
     });
 
     await expectTenantListExcludes<Array<{ id: string }>>(request!, {
       path: `/api/worlds/${worldB.id}/articles`,
       userId: 'user-b',
-      hiddenId: created.body.article.id,
+      hiddenId: created.article.id,
       extractIds: (body) => body.map((article) => article.id),
     });
 
     await expectTenantHidden(request!, {
       method: 'get',
-      path: `/api/worlds/${worldB.id}/articles/${created.body.article.id}`,
+      path: `/api/worlds/${worldB.id}/articles/${created.article.id}`,
       userId: 'user-b',
     });
 
     await expectCrossTenantMutationBlocked(request!, {
       method: 'patch',
-      path: `/api/worlds/${worldB.id}/articles/${created.body.article.id}`,
+      path: `/api/worlds/${worldB.id}/articles/${created.article.id}`,
       userId: 'user-b',
       body: { title: 'Borrowed Charter' },
     });

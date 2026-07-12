@@ -14,7 +14,7 @@ This document defines the current WorldArchitect technology stack. Versions are 
 | Styling | Tailwind CSS | 4.2.4 | Primary styling system. |
 | Typography styling | `@tailwindcss/typography` | 0.5.19 | Prose/content styling support. |
 | Tailwind/Vite integration | `@tailwindcss/vite` | 4.2.4 | Tailwind integration for the Vite client. |
-| Rich text editor | TipTap React, TipTap Starter Kit | 2.27.2 | Used by article description and chronology editors. |
+| Rich text editor | TipTap React, TipTap Starter Kit | 2.27.2 | Used by article description editing. |
 | Rich text serialization | `tiptap-markdown` | 0.8.10 | Converts TipTap editor content to Markdown. |
 | Icons | `lucide-react` | 1.14.0 | Icon library used in the React UI. |
 | CMS | None | N/A | World content is first-party application data stored in Postgres, not managed by an external CMS. |

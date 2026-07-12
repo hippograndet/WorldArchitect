@@ -5,7 +5,6 @@ import { fetchWorldContext } from '../director.js';
 import { ArchitectAgent } from '../architect.js';
 import { MuseAgent } from '../muse.js';
 import { CuratorAgent } from '../curator.js';
-import { OracleAgent } from '../oracle.js';
 import { ResearcherAgent } from '../researcher.js';
 import { ScribeAgent } from '../scribe.js';
 import { ContinuityEditorAgent } from '../continuityEditor.js';
@@ -18,6 +17,7 @@ import { SentinelAgent } from '../sentinel.js';
 import { WardenAgent } from '../warden.js';
 import { CondenserAgent } from '../condenser.js';
 import { AuditorAgent } from '../auditor.js';
+import { recordArticleIssues } from '../../services/issueRecorder.js';
 import type { OrchestrationState } from './state.js';
 
 type Partial_ = Partial<OrchestrationState>;
@@ -104,6 +104,7 @@ export async function architectNode(state: OrchestrationState): Promise<Partial_
 // propose — Muse (+ optional Curator auto-select)
 // ---------------------------------------------------------------------------
 
+/** Muse is grounding-only — world context, article identity, Researcher's brief. No userSpec: user preference enters downstream, via Curator. */
 export async function museProposeNode(state: OrchestrationState): Promise<Partial_> {
   const pkg = state.contextPackage!;
   const agent = new MuseAgent();
@@ -113,15 +114,14 @@ export async function museProposeNode(state: OrchestrationState): Promise<Partia
     articleTitle: pkg.targetTitle,
     templateType: pkg.targetTemplateType,
     currentIntroduction: pkg.targetIntroduction || undefined,
-    userSpec: state.userSpec,
     researchBrief: state.researchBrief,
   }, callCtx(state));
-  return { proposals: result.output.proposals, tokensIn: result.tokensIn, tokensOut: result.tokensOut };
+  return { ideas: result.output.ideas, tokensIn: result.tokensIn, tokensOut: result.tokensOut };
 }
 
-/** No-op when autoSelect is off or Muse produced no proposals — mirrors director.ts's `if (autoSelect && proposals.length > 0)` guard. */
+/** No-op when autoSelect is off or Muse produced no ideas — mirrors director.ts's `if (autoSelect && ideas.length > 0)` guard. */
 export async function curatorAutoSelectNode(state: OrchestrationState): Promise<Partial_> {
-  if (!state.autoSelect || state.proposals.length === 0) return {};
+  if (!state.autoSelect || state.ideas.length === 0) return {};
 
   const article = await getDbClient().get<{ title: string; template_type: string }>(
     'SELECT title, template_type FROM articles WHERE id = ? AND world_id = ?',
@@ -130,42 +130,20 @@ export async function curatorAutoSelectNode(state: OrchestrationState): Promise<
 
   const agent = new CuratorAgent();
   const result = await agent.run(state.worldId, {
-    proposals: state.proposals,
+    ideas: state.ideas,
     articleTitle: article?.title ?? '',
     articleTemplateType: article?.template_type ?? 'general',
     currentSummary: state.contextPackage?.targetIntroduction,
     worldContext: state.worldContext!,
+    userSpec: state.userSpec,
   }, callCtx(state));
 
   return {
-    autoSelectedIndex: result.output.selectedIndex,
+    autoSelectedIndices: result.output.selectedIndices,
     autoSelectRationale: result.output.rationale,
     tokensIn: result.tokensIn,
     tokensOut: result.tokensOut,
   };
-}
-
-// ---------------------------------------------------------------------------
-// proposeIdeas — Oracle
-// ---------------------------------------------------------------------------
-
-export async function oracleNode(state: OrchestrationState): Promise<Partial_> {
-  const article = await getDbClient().get<{ title: string }>(
-    'SELECT title FROM articles WHERE id = ? AND world_id = ?',
-    [state.articleId, state.worldId],
-  );
-
-  const agent = new OracleAgent();
-  const result = await agent.run(state.worldId, {
-    worldContext: state.worldContext!,
-    articleTitle: article?.title ?? state.contextPackage!.targetTitle,
-    introduction: state.introduction!,
-    selectedProposal: state.selectedProposal!,
-    userSpec: state.userSpec,
-    researchBrief: state.researchBrief,
-  }, callCtx(state));
-
-  return { ideas: result.output.ideas, tokensIn: result.tokensIn, tokensOut: result.tokensOut };
 }
 
 // ---------------------------------------------------------------------------
@@ -184,15 +162,76 @@ export async function researcherNode(state: OrchestrationState): Promise<Partial
   return { researchBrief: result.output, tokensIn: result.tokensIn, tokensOut: result.tokensOut };
 }
 
+interface CheckOutcome {
+  approved: boolean;
+  contradictions: Array<{ excerpt: string; issue: string; correction: string }>;
+}
+
+function buildCorrectionNote(contradictions: CheckOutcome['contradictions']): string {
+  return contradictions
+    .map((c) => `- Excerpt: "${c.excerpt}"\n  Issue: ${c.issue}\n  Fix: ${c.correction}`)
+    .join('\n');
+}
+
 /**
- * Scribe's draft plus, when runContinuityEditor is on and mode isn't
- * 'reorganize', a single self-correction pass — kept as one node (not split
- * into separate graph nodes/edges) since it's a tight, bounded, single-purpose
- * loop internal to producing one draft, not a multi-step pipeline stage in
- * its own right. Continuity Editor checks once; if it flags a contradiction,
- * Scribe gets one revision attempt and that revision is trusted without a
- * second check — deeper verification happens in Consolidate (Linter, Warden),
- * not here.
+ * Shared N-cycle check→revise loop for Continuity Editor+Scribe and
+ * Grounding Check+Lorekeeper — both check/revise a single draft string and
+ * both output {approved, contradictions}, so one loop covers both.
+ *
+ * `level` (coherenceCheckLevel) <= 0 skips checking entirely. Otherwise runs
+ * up to `level` check→revise cycles, stopping early the moment a check
+ * approves; the last revision is never re-checked unless `safetyNet` adds one
+ * more check-only pass at the end. A safety-net failure is flagged via
+ * `onFlagged` but never blocks — the draft is returned as-is either way.
+ * Deeper verification, if anything is still wrong, happens in Consolidate
+ * (Linter, Warden), not here.
+ */
+async function runCheckReviseLoop(params: {
+  level: number;
+  safetyNet: boolean;
+  initialDraft: string;
+  check: (draft: string) => Promise<{ output: CheckOutcome; tokensIn: number; tokensOut: number }>;
+  revise: (draft: string, correctionNote: string) => Promise<{ draft: string; tokensIn: number; tokensOut: number }>;
+  onFlagged: (check: CheckOutcome) => Promise<void>;
+}): Promise<{ draft: string; lastCheck?: CheckOutcome; tokensIn: number; tokensOut: number }> {
+  let draft = params.initialDraft;
+  let lastCheck: CheckOutcome | undefined;
+  let tokensIn = 0;
+  let tokensOut = 0;
+
+  for (let cycle = 0; cycle < params.level; cycle++) {
+    const checkResult = await params.check(draft);
+    tokensIn += checkResult.tokensIn;
+    tokensOut += checkResult.tokensOut;
+    lastCheck = checkResult.output;
+
+    if (lastCheck.approved || lastCheck.contradictions.length === 0) break;
+
+    const revisionResult = await params.revise(draft, buildCorrectionNote(lastCheck.contradictions));
+    tokensIn += revisionResult.tokensIn;
+    tokensOut += revisionResult.tokensOut;
+    draft = revisionResult.draft;
+  }
+
+  if (params.safetyNet && params.level > 0) {
+    const finalCheck = await params.check(draft);
+    tokensIn += finalCheck.tokensIn;
+    tokensOut += finalCheck.tokensOut;
+    lastCheck = finalCheck.output;
+    if (!lastCheck.approved && lastCheck.contradictions.length > 0) {
+      await params.onFlagged(lastCheck);
+    }
+  }
+
+  return { draft, lastCheck, tokensIn, tokensOut };
+}
+
+/**
+ * Scribe's draft plus, when coherenceCheckLevel > 0 and mode isn't
+ * 'reorganize', a bounded Continuity Editor check→revise loop (see
+ * runCheckReviseLoop) — kept as one node (not split into separate graph
+ * nodes/edges) since it's a tight, single-purpose loop internal to producing
+ * one draft, not a multi-step pipeline stage in its own right.
  */
 export async function scribeNode(state: OrchestrationState): Promise<Partial_> {
   const pkg = state.contextPackage!;
@@ -205,7 +244,6 @@ export async function scribeNode(state: OrchestrationState): Promise<Partial_> {
     currentIntroduction: pkg.targetIntroduction || undefined,
     currentDescription: pkg.targetDescription || undefined,
     currentChronology: pkg.targetChronology || undefined,
-    selectedProposal: state.selectedProposal,
     selectedIdeas: state.selectedIdeas,
     researchBrief: state.researchBrief,
     wordCountPreset: state.wordCountPreset,
@@ -219,32 +257,51 @@ export async function scribeNode(state: OrchestrationState): Promise<Partial_> {
   let scribeOutput = expandResult.output;
 
   let continuityCheck: Partial_['continuityCheck'];
-  if (state.runContinuityEditor && state.expanderMode !== 'reorganize') {
-    const currentDesc = scribeOutput.mode === 'child' ? scribeOutput.childDescription : scribeOutput.description;
+  if (state.coherenceCheckLevel > 0 && state.expanderMode !== 'reorganize') {
     const ceAgent = new ContinuityEditorAgent();
-    const ceResult = await ceAgent.run(state.worldId, {
-      worldContext: state.worldContext!,
-      articleTitle: pkg.targetTitle,
-      draft: currentDesc,
-      researchBrief: state.researchBrief!,
-    }, callCtx(state));
-    tokensIn += ceResult.tokensIn;
-    tokensOut += ceResult.tokensOut;
-    continuityCheck = ceResult.output;
+    const currentDraft = () => (scribeOutput.mode === 'child' ? scribeOutput.childDescription : scribeOutput.description);
 
-    if (!continuityCheck.approved && continuityCheck.contradictions.length > 0) {
-      const correctionNote = continuityCheck.contradictions
-        .map((c) => `- Excerpt: "${c.excerpt}"\n  Issue: ${c.issue}\n  Fix: ${c.correction}`)
-        .join('\n');
-      const revisionResult = await scribeAgent.run(state.worldId, {
-        ...scribeFields,
-        userSpec: [state.userSpec, `\n\n## Revision Required\nPlease correct the following contradictions:\n${correctionNote}`]
-          .filter(Boolean).join(''),
-      }, callCtx(state));
-      tokensIn += revisionResult.tokensIn;
-      tokensOut += revisionResult.tokensOut;
-      scribeOutput = revisionResult.output;
-    }
+    const loopResult = await runCheckReviseLoop({
+      level: state.coherenceCheckLevel,
+      safetyNet: state.safetyNet,
+      initialDraft: currentDraft(),
+      check: async (draft) => {
+        const ceResult = await ceAgent.run(state.worldId, {
+          worldContext: state.worldContext!,
+          articleTitle: pkg.targetTitle,
+          draft,
+          researchBrief: state.researchBrief!,
+        }, callCtx(state));
+        return { output: ceResult.output, tokensIn: ceResult.tokensIn, tokensOut: ceResult.tokensOut };
+      },
+      revise: async (_draft, correctionNote) => {
+        const revisionResult = await scribeAgent.run(state.worldId, {
+          ...scribeFields,
+          userSpec: [state.userSpec, `\n\n## Revision Required\nPlease correct the following contradictions:\n${correctionNote}`]
+            .filter(Boolean).join(''),
+        }, callCtx(state));
+        scribeOutput = revisionResult.output;
+        return { draft: currentDraft(), tokensIn: revisionResult.tokensIn, tokensOut: revisionResult.tokensOut };
+      },
+      onFlagged: async (check) => {
+        if (!state.ownerId) return;
+        await recordArticleIssues(getDbClient(), {
+          worldId: state.worldId,
+          ownerId: state.ownerId,
+          articleId: state.articleId!,
+          source: 'continuity_editor',
+          issues: [{
+            severity: 'info',
+            code: 'CONTINUITY_UNRESOLVED_AFTER_SAFETY_NET',
+            excerpt: check.contradictions[0]?.excerpt ?? null,
+            explanation: `Continuity Editor still flagged contradictions after the safety-net pass: ${buildCorrectionNote(check.contradictions)}`,
+          }],
+        });
+      },
+    });
+    tokensIn += loopResult.tokensIn;
+    tokensOut += loopResult.tokensOut;
+    continuityCheck = loopResult.lastCheck;
   }
 
   const description = scribeOutput.mode === 'child' ? scribeOutput.childDescription : scribeOutput.description;
@@ -309,12 +366,9 @@ export async function styleWardenNode(state: OrchestrationState): Promise<Partia
 // ---------------------------------------------------------------------------
 
 /**
- * Lorekeeper's introduction plus, when runGroundingCheck is on, a single
- * Grounding Check self-correction pass — same bounded shape as scribeNode's
- * Continuity Editor pass. Grounding Check runs once; if it flags a
- * contradiction, Lorekeeper gets one revision attempt and that revision is
- * trusted without a second check or a commit-blocking gate — deeper
- * verification happens in Consolidate (Linter, Warden), not here.
+ * Lorekeeper's introduction plus, when coherenceCheckLevel > 0, a bounded
+ * Grounding Check check→revise loop (see runCheckReviseLoop) — same shape as
+ * scribeNode's Continuity Editor pass.
  */
 export async function lorekeeperSummarizeNode(state: OrchestrationState): Promise<Partial_> {
   const article = await getDbClient().get<{ title: string; introduction: string }>(
@@ -342,34 +396,53 @@ export async function lorekeeperSummarizeNode(state: OrchestrationState): Promis
   let introduction = lorekeeperResult.output.introduction;
 
   let groundingCheck: Partial_['groundingCheck'];
-  if (state.runGroundingCheck) {
+  if (state.coherenceCheckLevel > 0) {
     const gcAgent = new GroundingCheckAgent();
-    const gcResult = await gcAgent.run(state.worldId, {
-      worldContext: state.worldContext!,
-      articleTitle: article.title,
-      draft: introduction,
-      researchBrief: state.researchBrief,
-    }, callCtx(state));
-    tokensIn += gcResult.tokensIn;
-    tokensOut += gcResult.tokensOut;
-    groundingCheck = gcResult.output;
 
-    if (!groundingCheck.approved && groundingCheck.contradictions.length > 0) {
-      const correctionNote = groundingCheck.contradictions
-        .map((c) => `- Excerpt: "${c.excerpt}"\n  Issue: ${c.issue}\n  Fix: ${c.correction}`)
-        .join('\n');
-      const revisionResult = await lorekeeperAgent.run(state.worldId, {
-        articleTitle: article.title,
-        worldContext: state.worldContext!,
-        mode: effectiveMode,
-        existingIntro: effectiveMode === 'improve' ? existingIntro : undefined,
-        revisionNotes: correctionNote,
-        researchBrief: state.researchBrief,
-      }, callCtx(state));
-      tokensIn += revisionResult.tokensIn;
-      tokensOut += revisionResult.tokensOut;
-      introduction = revisionResult.output.introduction;
-    }
+    const loopResult = await runCheckReviseLoop({
+      level: state.coherenceCheckLevel,
+      safetyNet: state.safetyNet,
+      initialDraft: introduction,
+      check: async (draft) => {
+        const gcResult = await gcAgent.run(state.worldId, {
+          worldContext: state.worldContext!,
+          articleTitle: article.title,
+          draft,
+          researchBrief: state.researchBrief,
+        }, callCtx(state));
+        return { output: gcResult.output, tokensIn: gcResult.tokensIn, tokensOut: gcResult.tokensOut };
+      },
+      revise: async (_draft, correctionNote) => {
+        const revisionResult = await lorekeeperAgent.run(state.worldId, {
+          articleTitle: article.title,
+          worldContext: state.worldContext!,
+          mode: effectiveMode,
+          existingIntro: effectiveMode === 'improve' ? existingIntro : undefined,
+          revisionNotes: correctionNote,
+          researchBrief: state.researchBrief,
+        }, callCtx(state));
+        return { draft: revisionResult.output.introduction, tokensIn: revisionResult.tokensIn, tokensOut: revisionResult.tokensOut };
+      },
+      onFlagged: async (check) => {
+        if (!state.ownerId) return;
+        await recordArticleIssues(getDbClient(), {
+          worldId: state.worldId,
+          ownerId: state.ownerId,
+          articleId: state.articleId!,
+          source: 'grounding_check',
+          issues: [{
+            severity: 'info',
+            code: 'GROUNDING_UNRESOLVED_AFTER_SAFETY_NET',
+            excerpt: check.contradictions[0]?.excerpt ?? null,
+            explanation: `Grounding Check still flagged contradictions after the safety-net pass: ${buildCorrectionNote(check.contradictions)}`,
+          }],
+        });
+      },
+    });
+    tokensIn += loopResult.tokensIn;
+    tokensOut += loopResult.tokensOut;
+    introduction = loopResult.draft;
+    groundingCheck = loopResult.lastCheck;
   }
 
   return {
@@ -385,11 +458,20 @@ export async function lorekeeperSummarizeNode(state: OrchestrationState): Promis
 // ---------------------------------------------------------------------------
 
 /**
- * Cartographer's proposals plus, when runDedupCheck is on, a Dedup Check pass
- * that filters out any proposals flagged as semantic duplicates of existing
- * siblings — shared by both Spark's manual "propose children" flow and
- * Forge's branchingNode, so both get the same protection from one
- * implementation.
+ * Cartographer's proposals plus, when coherenceCheckLevel > 0, a Dedup Check
+ * loop that filters out proposals flagged as semantic duplicates of existing
+ * siblings and, if cycles remain, re-runs Cartographer for fresh
+ * replacements (excluding what's already known) — shared by both Spark's
+ * manual "propose children" flow and Forge's branchingNode. Dedup Check's
+ * shape (filter a list + regenerate) doesn't fit runCheckReviseLoop's
+ * single-draft check/revise contract, so it has its own loop here.
+ *
+ * Filtering out a flagged duplicate always happens, even on the final
+ * safety-net pass — there's no reason to keep a known duplicate just because
+ * cycles ran out. The safety-net's "flag, don't block" behavior instead means
+ * the resulting list may end up shorter than requested, and that gets
+ * recorded via recordArticleIssues so Consolidate/the UI can see fewer
+ * children were produced than asked for.
  */
 export async function cartographerNode(state: OrchestrationState): Promise<Partial_> {
   const pkg = state.contextPackage!;
@@ -411,21 +493,70 @@ export async function cartographerNode(state: OrchestrationState): Promise<Parti
   let childProposals = result.output.proposals;
 
   let dedupCheck: Partial_['dedupCheck'];
-  if (state.runDedupCheck && childProposals.length > 0) {
+  if (state.coherenceCheckLevel > 0 && childProposals.length > 0) {
     const dedupAgent = new DedupCheckAgent();
-    const dedupResult = await dedupAgent.run(state.worldId, {
-      worldContext: state.worldContext!,
-      articleTitle: pkg.targetTitle,
-      existingChildren,
-      proposals: childProposals,
-    }, callCtx(state));
-    tokensIn += dedupResult.tokensIn;
-    tokensOut += dedupResult.tokensOut;
-    dedupCheck = dedupResult.output;
+    const level = state.coherenceCheckLevel;
 
-    if (dedupCheck.duplicates.length > 0) {
+    for (let cycle = 0; cycle < level && childProposals.length > 0; cycle++) {
+      const dedupResult = await dedupAgent.run(state.worldId, {
+        worldContext: state.worldContext!,
+        articleTitle: pkg.targetTitle,
+        existingChildren,
+        proposals: childProposals,
+      }, callCtx(state));
+      tokensIn += dedupResult.tokensIn;
+      tokensOut += dedupResult.tokensOut;
+      dedupCheck = dedupResult.output;
+
+      if (dedupCheck.duplicates.length === 0) break;
+
       const flaggedTitles = new Set(dedupCheck.duplicates.map((d) => d.proposalTitle));
       childProposals = childProposals.filter((p) => !flaggedTitles.has(p.title));
+
+      if (cycle >= level - 1) break;
+      const regenResult = await agent.run(state.worldId, {
+        worldContext: state.worldContext!,
+        articleTitle: pkg.targetTitle,
+        templateType: pkg.targetTemplateType,
+        currentIntroduction: pkg.targetIntroduction || undefined,
+        currentDescription: pkg.targetDescription || undefined,
+        existingChildren: [...existingChildren, ...childProposals.map((p) => ({ title: p.title, summary: p.introduction }))],
+        userSpec: state.userSpec,
+        researchBrief: state.researchBrief,
+      }, callCtx(state));
+      tokensIn += regenResult.tokensIn;
+      tokensOut += regenResult.tokensOut;
+      childProposals = [...childProposals, ...regenResult.output.proposals];
+    }
+
+    if (state.safetyNet) {
+      const finalCheck = await dedupAgent.run(state.worldId, {
+        worldContext: state.worldContext!,
+        articleTitle: pkg.targetTitle,
+        existingChildren,
+        proposals: childProposals,
+      }, callCtx(state));
+      tokensIn += finalCheck.tokensIn;
+      tokensOut += finalCheck.tokensOut;
+      dedupCheck = finalCheck.output;
+
+      if (dedupCheck.duplicates.length > 0) {
+        const flaggedTitles = new Set(dedupCheck.duplicates.map((d) => d.proposalTitle));
+        childProposals = childProposals.filter((p) => !flaggedTitles.has(p.title));
+        if (state.ownerId) {
+          await recordArticleIssues(getDbClient(), {
+            worldId: state.worldId,
+            ownerId: state.ownerId,
+            articleId: state.articleId!,
+            source: 'dedup_check',
+            issues: dedupCheck.duplicates.map((d) => ({
+              severity: 'info',
+              code: 'DUPLICATE_PROPOSAL_UNRESOLVED_AFTER_SAFETY_NET',
+              explanation: `Proposed child "${d.proposalTitle}" filtered as a likely duplicate of existing article "${d.matchedExisting}" after the safety-net pass: ${d.rationale}`,
+            })),
+          });
+        }
+      }
     }
   }
 

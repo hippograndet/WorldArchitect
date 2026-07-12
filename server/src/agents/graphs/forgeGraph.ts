@@ -14,7 +14,6 @@ import { buildContextPackage } from '../../services/archivist.js';
 import { runResearchGraph } from './pipelines/research.js';
 import { runSummarizeGraph } from './pipelines/summarize.js';
 import { runProposeGraph } from './pipelines/propose.js';
-import { runProposeIdeasGraph } from './pipelines/proposeIdeas.js';
 import { runExpandGraph } from './pipelines/expand.js';
 import { runProposeChildrenGraph } from './pipelines/proposeChildren.js';
 import { ForgeAnnotation } from './forgeState.js';
@@ -153,34 +152,6 @@ function payloadChildren(
       templateType: typeof child.templateType === 'string' ? child.templateType : 'general',
     }))
     .filter((child) => child.title.trim().length > 0);
-}
-
-function payloadProposals(review: Awaited<ReturnType<typeof getLatestReviewDecision>>): Array<{ title: string; direction: string }> {
-  const raw = review?.payload?.proposals;
-  if (!Array.isArray(raw)) return [];
-  return raw
-    .filter((proposal): proposal is Record<string, unknown> => Boolean(proposal) && typeof proposal === 'object' && !Array.isArray(proposal))
-    .map((proposal) => ({
-      title: typeof proposal.title === 'string' ? proposal.title : '',
-      direction: typeof proposal.direction === 'string' ? proposal.direction : '',
-    }))
-    .filter((proposal) => proposal.title.trim().length > 0 || proposal.direction.trim().length > 0);
-}
-
-function selectedProposalDecision(
-  review: Awaited<ReturnType<typeof getLatestReviewDecision>>,
-  fallback?: { title: string; direction: string },
-): { title: string; direction: string } | undefined {
-  const raw = review?.decision?.proposal;
-  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
-    const proposal = raw as Record<string, unknown>;
-    return {
-      title: typeof proposal.title === 'string' ? proposal.title : '',
-      direction: typeof proposal.direction === 'string' ? proposal.direction : '',
-    };
-  }
-  const index = typeof review?.decision?.selectedIndex === 'number' ? review.decision.selectedIndex : 0;
-  return payloadProposals(review)[index] ?? fallback;
 }
 
 function payloadIdeas(review: Awaited<ReturnType<typeof getLatestReviewDecision>>): Array<{ id: string; theme: string; detail: string }> {
@@ -362,7 +333,8 @@ async function inceptionNode(state: ForgeState): Promise<Partial<ForgeState>> {
       articleId: item.articleId,
       mode: summarizeMode,
       pipelineRunId: state.runId,
-      runGroundingCheck: state.forgeUseGroundingCheck,
+      coherenceCheckLevel: state.coherenceCheckLevel,
+      safetyNet: state.safetyNet,
       worldContext: state.worldContext,
       contextPackage: state.currentItemContextPackage,
       researchBrief: state.currentItemResearchBrief,
@@ -469,30 +441,30 @@ async function expansionNode(state: ForgeState): Promise<Partial<ForgeState>> {
       return { signal: 'continue', currentItemStepsDone: [...state.currentItemStepsDone, 'expansion'] };
     }
 
-    const proposalDecision = requiresUserReview(state)
+    const ideaDecision = requiresUserReview(state)
       ? await getLatestReviewDecision({
         worldId: state.worldId,
         ownerId: state.ownerId,
         runId: state.runId,
         articleId: item.articleId,
-        kind: 'proposal_selection',
+        kind: 'idea_selection',
       })
       : null;
-    if (proposalDecision?.status === 'rejected') {
-      await logEvent(state, 'Expansion', item.title, false, 'Expansion direction rejected by user.');
-      return { signal: 'continue', lastStepError: { step: 'Expansion', fatal: false, message: 'Expansion direction rejected by user.' } };
+    if (ideaDecision?.status === 'rejected') {
+      await logEvent(state, 'Expansion', item.title, false, 'Expansion themes rejected by user.');
+      return { signal: 'continue', lastStepError: { step: 'Expansion', fatal: false, message: 'Expansion themes rejected by user.' } };
     }
 
     // Reuses Inception's cached package (patched with the fresh intro) when
     // this item's cascade included Inception; otherwise builds fresh here.
-    // Shared across every sub-pipeline call below — Muse/Curator, Oracle, and
+    // Shared across every sub-pipeline call below — Muse/Curator and
     // Researcher/Scribe all otherwise rebuild the same 'default'-mode package
     // back-to-back with nothing in between to invalidate it.
     const contextPackage = state.currentItemContextPackage
       ?? await buildContextPackage(state.worldId, item.articleId, { mode: 'default', contextDepth: state.contextDepth });
 
-    let selectedProposal = selectedProposalDecision(proposalDecision);
-    if (!selectedProposal) {
+    let selectedIdeas = selectedIdeasDecision(ideaDecision);
+    if (!ideaDecision) {
       const proposeResult = await runProposeGraph({
         worldId: state.worldId,
         ownerId: state.ownerId,
@@ -506,7 +478,7 @@ async function expansionNode(state: ForgeState): Promise<Partial<ForgeState>> {
         researchBrief: state.currentItemResearchBrief,
       });
       await bumpRunBudget(state.worldId, state.ownerId, state.runId, proposeResult.tokensIn + proposeResult.tokensOut);
-      const selectedIndex = proposeResult.autoSelectedIndex ?? 0;
+      const suggestedIndices = proposeResult.autoSelectedIndices ?? [];
 
       if (requiresUserReview(state)) {
         await createRunReviewItem({
@@ -515,68 +487,14 @@ async function expansionNode(state: ForgeState): Promise<Partial<ForgeState>> {
           runId: state.runId,
           articleId: item.articleId,
           step: 'Expansion',
-          kind: 'proposal_selection',
-          payload: { title: item.title, proposals: proposeResult.proposals, suggestedIndex: selectedIndex },
+          kind: 'idea_selection',
+          payload: { title: item.title, ideas: proposeResult.ideas, suggestedIndices },
         });
-        await logEvent(state, 'Expansion', item.title, true, 'Expansion directions ready for selection.');
+        await logEvent(state, 'Expansion', item.title, true, 'Expansion themes ready for selection.');
         return { signal: 'needs_input' };
       }
 
-      selectedProposal = proposeResult.proposals[selectedIndex];
-    }
-    if (!selectedProposal) {
-      const message = 'No expansion direction was selected.';
-      await logEvent(state, 'Expansion', item.title, false, message);
-      return { signal: 'continue', lastStepError: { step: 'Expansion', fatal: false, message } };
-    }
-
-    let selectedIdeas: Awaited<ReturnType<typeof runProposeIdeasGraph>>['ideas'] | undefined;
-    if (state.forgeUseOracle && state.inceptionIntro?.trim() && selectedProposal) {
-      const ideaDecision = requiresUserReview(state)
-        ? await getLatestReviewDecision({
-          worldId: state.worldId,
-          ownerId: state.ownerId,
-          runId: state.runId,
-          articleId: item.articleId,
-          kind: 'idea_selection',
-        })
-        : null;
-      selectedIdeas = selectedIdeasDecision(ideaDecision);
-      if (!ideaDecision) {
-        try {
-          const ideasResult = await runProposeIdeasGraph({
-            worldId: state.worldId,
-            ownerId: state.ownerId,
-            articleId: item.articleId,
-            introduction: state.inceptionIntro,
-            selectedProposal,
-            contextDepth: state.contextDepth,
-            pipelineRunId: state.runId,
-            worldContext: state.worldContext,
-            contextPackage,
-            researchBrief: state.currentItemResearchBrief,
-          });
-          await bumpRunBudget(state.worldId, state.ownerId, state.runId, ideasResult.tokensIn + ideasResult.tokensOut);
-
-          if (requiresUserReview(state)) {
-            await createRunReviewItem({
-              worldId: state.worldId,
-              ownerId: state.ownerId,
-              runId: state.runId,
-              articleId: item.articleId,
-              step: 'Expansion',
-              kind: 'idea_selection',
-              payload: { title: item.title, ideas: ideasResult.ideas, proposal: selectedProposal },
-            });
-            await logEvent(state, 'Expansion', item.title, true, 'Expansion themes ready for selection.');
-            return { signal: 'needs_input' };
-          }
-
-          selectedIdeas = ideasResult.ideas;
-        } catch {
-          // Oracle failure is non-fatal — Scribe runs without ideas, same as the client loop.
-        }
-      }
+      selectedIdeas = suggestedIndices.map((i) => proposeResult.ideas[i]).filter((idea): idea is typeof proposeResult.ideas[number] => Boolean(idea));
     }
 
     const expandResult = await runExpandGraph({
@@ -584,13 +502,13 @@ async function expansionNode(state: ForgeState): Promise<Partial<ForgeState>> {
       ownerId: state.ownerId,
       articleId: item.articleId,
       pipelineType: 'expand_description',
-      selectedProposal,
       contextDepth: state.contextDepth,
       selectedIdeas,
       userSpec: state.forgeExpansionExistingMode === 'replace'
         ? 'Replace the current description completely. Do not preserve old wording unless it is required by established world facts.'
         : undefined,
-      runContinuityEditor: state.forgeUseContinuityEditor,
+      coherenceCheckLevel: state.coherenceCheckLevel,
+      safetyNet: state.safetyNet,
       pipelineRunId: state.runId,
       worldContext: state.worldContext,
       contextPackage,
@@ -617,7 +535,6 @@ async function expansionNode(state: ForgeState): Promise<Partial<ForgeState>> {
           payload: {
             title: item.title,
             description: expandResult.description,
-            proposal: selectedProposal,
             ideas: selectedIdeas ?? [],
           },
         });
@@ -724,7 +641,8 @@ async function branchingNode(state: ForgeState): Promise<Partial<ForgeState>> {
       contextDepth: state.contextDepth,
       userSpec: branchHint,
       pipelineRunId: state.runId,
-      runDedupCheck: state.forgeUseDedupCheck,
+      coherenceCheckLevel: state.coherenceCheckLevel,
+      safetyNet: state.safetyNet,
       worldContext: state.worldContext,
       // No contextPackage here — Branching always rebuilds its own under
       // 'propose_children' mode (see runProposeChildrenGraph's comment).
@@ -973,10 +891,8 @@ export async function startForgeRun(params: {
   forgeMode: 'breadth' | 'depth';
   forgeMaxDepth: number;
   forgeMaxChildren: number;
-  forgeUseOracle: boolean;
-  forgeUseContinuityEditor: boolean;
-  forgeUseGroundingCheck: boolean;
-  forgeUseDedupCheck: boolean;
+  coherenceCheckLevel: number;
+  safetyNet: boolean;
   forgeContinuationMode?: ForgeContinuationMode;
   forgeInceptionExistingMode?: ForgeExistingContentMode;
   forgeExpansionExistingMode?: ForgeExistingContentMode;
@@ -1016,10 +932,8 @@ export async function startForgeRun(params: {
           forgeMode: params.forgeMode,
           forgeMaxDepth: params.forgeMaxDepth,
           forgeMaxChildren: params.forgeMaxChildren,
-          forgeUseOracle: params.forgeUseOracle,
-          forgeUseContinuityEditor: params.forgeUseContinuityEditor,
-          forgeUseGroundingCheck: params.forgeUseGroundingCheck,
-          forgeUseDedupCheck: params.forgeUseDedupCheck,
+          coherenceCheckLevel: params.coherenceCheckLevel,
+          safetyNet: params.safetyNet,
           forgeContinuationMode: params.forgeContinuationMode ?? 'recursive',
           forgeInceptionExistingMode: params.forgeInceptionExistingMode ?? 'improve',
           forgeExpansionExistingMode: params.forgeExpansionExistingMode ?? 'improve',

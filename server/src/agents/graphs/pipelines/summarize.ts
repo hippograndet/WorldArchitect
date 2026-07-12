@@ -34,7 +34,8 @@ export async function runSummarizeGraph(params: {
   articleId: string;
   mode?: LorekeepMode;
   contextDepth?: ContextDepth;
-  runGroundingCheck?: boolean;
+  coherenceCheckLevel?: number;
+  safetyNet?: boolean;
   pipelineRunId?: string;
   worldContext?: WorldContext;
   contextPackage?: ContextPackage;
@@ -54,7 +55,8 @@ export async function runSummarizeGraph(params: {
     })),
     lorekeeperMode: params.mode ?? 'full',
     contextDepth: params.contextDepth ?? 'mid',
-    runGroundingCheck: params.runGroundingCheck ?? false,
+    coherenceCheckLevel: params.coherenceCheckLevel ?? 0,
+    safetyNet: params.safetyNet ?? false,
     ...(params.worldContext ? { worldContext: params.worldContext } : {}),
     ...(params.contextPackage ? { contextPackage: params.contextPackage } : {}),
     ...(params.researchBrief ? { researchBrief: params.researchBrief } : {}),

@@ -13,11 +13,6 @@ export interface ExpansionParams {
   breadth: Breadth;
 }
 
-export interface Proposal {
-  title: string;
-  direction: string;
-}
-
 export interface ChildProposal {
   title: string;
   introduction: string;

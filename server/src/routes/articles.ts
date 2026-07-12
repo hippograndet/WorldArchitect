@@ -15,7 +15,6 @@ import {
   acceptDraft,
   ArticleServiceError,
   batchCreateChildArticles,
-  createArticle,
   revertArticleVersion,
   updateArticle,
 } from '../services/articlesService.js';
@@ -37,22 +36,6 @@ function sendArticleServiceError(res: Response, err: ArticleServiceError) {
 // ---------------------------------------------------------------------------
 // Schemas
 // ---------------------------------------------------------------------------
-
-const CreateArticleSchema = z.object({
-  categoryId: z.string().min(1).optional(),
-  title: z.string().min(1).max(500),
-  templateType: z
-    .enum(['general', 'character', 'location', 'faction', 'historical_event'])
-    .optional()
-    .default('general'),
-  introduction: z.string().optional().default(''),
-  description: z.string().optional().default(''),
-  chronology: z.string().optional().default(''),
-  body: z.string().optional(),
-  temporalAnchorStart: z.string().optional(),
-  temporalAnchorEnd: z.string().optional(),
-  isFixedPoint: z.boolean().optional().default(false),
-});
 
 const ManualEditSchema = z.object({
   body: z.string().optional(),
@@ -118,35 +101,6 @@ router.get('/', asyncHandler(async (req, res) => {
 
   const rows = await getDbClient().all<DbRow>(sql, params);
   res.json(rows.map(parseArticle));
-}));
-
-// POST /api/worlds/:wid/articles — create article manually
-router.post('/', asyncHandler(async (req, res) => {
-  const parse = CreateArticleSchema.safeParse(req.body);
-  if (!parse.success) {
-    res.status(400).json({ error: parse.error.flatten().fieldErrors });
-    return;
-  }
-
-  if (!parse.data.categoryId) {
-    res.status(400).json({ error: { categoryId: ['Required'] } });
-    return;
-  }
-
-  try {
-    const result = await createArticle({
-      ...parse.data,
-      ...requireTenantContext(req),
-      categoryId: parse.data.categoryId,
-    });
-    res.status(201).json(result);
-  } catch (err) {
-    if (err instanceof ArticleServiceError) {
-      sendArticleServiceError(res, err);
-      return;
-    }
-    throw err;
-  }
 }));
 
 // GET /api/worlds/:wid/articles/:aid — article + current version body

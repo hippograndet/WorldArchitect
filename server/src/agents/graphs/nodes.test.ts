@@ -117,8 +117,8 @@ function scribeState(overrides: Partial<OrchestrationState> = {}): Orchestration
       styleConfig: null,
     },
     expanderMode: 'expand_description',
-    selectedProposal: { title: 'Proposal', direction: 'Develop the article.' },
-    runContinuityEditor: false,
+    coherenceCheckLevel: 0,
+    safetyNet: false,
     wordCountPreset: 'medium',
     ...overrides,
   } as unknown as OrchestrationState;
@@ -293,7 +293,7 @@ describe('scribeNode free-text drafting', () => {
       .mockResolvedValueOnce(textResult('A corrected draft.'));
 
     const result = await scribeNode(scribeState({
-      runContinuityEditor: true,
+      coherenceCheckLevel: 1,
       researchBrief: 'A fact established in the world context that the draft must respect.',
     }));
 
@@ -303,5 +303,48 @@ describe('scribeNode free-text drafting', () => {
     expect(result.description).toBe('A corrected draft.');
     expect(result.continuityCheck).toMatchObject({ approved: false });
     expect(completeMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('at coherenceCheckLevel 2, runs a second check-revise cycle when the first revision is still flagged', async () => {
+    completeMock
+      .mockResolvedValueOnce(textResult('Draft one.'))
+      .mockResolvedValueOnce(genericToolUseResult('submit_continuity_check', {
+        approved: false,
+        contradictions: [{ excerpt: 'one', issue: 'Wrong fact one', correction: 'Fix one' }],
+      }))
+      .mockResolvedValueOnce(textResult('Draft two.'))
+      .mockResolvedValueOnce(genericToolUseResult('submit_continuity_check', {
+        approved: false,
+        contradictions: [{ excerpt: 'two', issue: 'Wrong fact two', correction: 'Fix two' }],
+      }))
+      .mockResolvedValueOnce(textResult('Draft three.'));
+
+    const result = await scribeNode(scribeState({
+      coherenceCheckLevel: 2,
+      researchBrief: 'A fact established in the world context that the draft must respect.',
+    }));
+
+    // Two full check-revise cycles ran; the second revision is trusted without a third check.
+    expect(result.description).toBe('Draft three.');
+    expect(result.continuityCheck).toMatchObject({ approved: false });
+    expect(completeMock).toHaveBeenCalledTimes(5);
+  });
+
+  it('stops early when a check approves before using the full coherenceCheckLevel budget', async () => {
+    completeMock
+      .mockResolvedValueOnce(textResult('A clean draft.'))
+      .mockResolvedValueOnce(genericToolUseResult('submit_continuity_check', {
+        approved: true,
+        contradictions: [],
+      }));
+
+    const result = await scribeNode(scribeState({
+      coherenceCheckLevel: 3,
+      researchBrief: 'A fact established in the world context that the draft must respect.',
+    }));
+
+    expect(result.description).toBe('A clean draft.');
+    expect(result.continuityCheck).toMatchObject({ approved: true });
+    expect(completeMock).toHaveBeenCalledTimes(2);
   });
 });

@@ -9,7 +9,7 @@ ${buildWorldHeader(worldContext)}
 
 Your task: review newly written article content against the established World Bible and context. Flag ONLY:
 1. **Conflicts** (severity: 'conflict') — direct factual contradictions with something already established in the World Bible or a related article. Example: article A says character X died in Year 10, but this content says they were alive in Year 15.
-2. **Warnings** (severity: 'warning') — facts that directly contradict or are incompatible with established world rules, timelines, or named entities.
+2. **Warnings** (severity: 'warning') — facts that directly contradict or are incompatible with established world rules, event sequences, or named entities.
 
 Do NOT flag:
 - Things that are not yet defined elsewhere (missing context, unexplained references, or "readers may not know X")

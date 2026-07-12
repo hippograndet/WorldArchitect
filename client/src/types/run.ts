@@ -20,10 +20,8 @@ export interface RunConfig {
   forgeMode?: 'breadth' | 'depth';
   forgeMaxDepth?: number;
   forgeMaxChildren?: number;
-  forgeUseOracle?: boolean;
-  forgeUseContinuityEditor?: boolean;
-  forgeUseGroundingCheck?: boolean;
-  forgeUseDedupCheck?: boolean;
+  coherenceCheckLevel?: number;
+  safetyNet?: boolean;
   forgeContinuationMode?: 'one_step' | 'finish_document' | 'recursive';
   validationLevel?: 'manual' | 'assisted' | 'autopilot';
   autonomyMode?: 'manual' | 'review_each_step' | 'auto_with_post_review';

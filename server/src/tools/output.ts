@@ -38,15 +38,6 @@ const stubItemSchema: ToolParamSchema = {
   required: ['categoryName', 'title', 'summary', 'templateType'],
 };
 
-const proposalItemSchema: ToolParamSchema = {
-  type: 'object',
-  properties: {
-    title: { type: 'string', description: 'Short creative direction title (3–8 words)' },
-    direction: { type: 'string', description: 'Creative angle description (~60 words)' },
-  },
-  required: ['title', 'direction'],
-};
-
 const childProposalItemSchema: ToolParamSchema = {
   type: 'object',
   properties: {
@@ -152,23 +143,6 @@ export const OUTPUT_TOOLS: Record<string, Tool> = {
         },
       },
       required: ['stubs'],
-    },
-  },
-
-  // Muse: 3–5 creative direction proposals
-  submit_proposals: {
-    name: 'submit_proposals',
-    description: 'Submit 3–5 creative direction proposals for the user to choose from.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        proposals: {
-          type: 'array',
-          description: '3 to 5 creative direction proposals',
-          items: proposalItemSchema,
-        },
-      },
-      required: ['proposals'],
     },
   },
 
@@ -343,17 +317,21 @@ export const OUTPUT_TOOLS: Record<string, Tool> = {
     },
   },
 
-  // Curator: selects the best proposal based on world style
+  // Curator: selects the best ideas, weighing user preference when given
   submit_taste_selection: {
     name: 'submit_taste_selection',
-    description: 'Select the proposal index that best fits the world style.',
+    description: 'Select the idea indices that best fit the world style and (when given) the user\'s stated preference.',
     inputSchema: {
       type: 'object',
       properties: {
-        selectedIndex: { type: 'number', description: 'Zero-based index of the selected proposal (0 to 4)' },
+        selectedIndices: {
+          type: 'array',
+          description: 'Zero-based indices of the selected ideas',
+          items: { type: 'number' },
+        },
         rationale: { type: 'string', description: '1-sentence rationale for the selection' },
       },
-      required: ['selectedIndex', 'rationale'],
+      required: ['selectedIndices', 'rationale'],
     },
   },
 
@@ -450,7 +428,7 @@ export const OUTPUT_TOOLS: Record<string, Tool> = {
     },
   },
 
-  // Oracle: 5–10 thematic ideas for Step B expansion
+  // Muse: 5–10 thematic ideas grounded in world context + the article's own identity
   submit_ideas: {
     name: 'submit_ideas',
     description: 'Submit 5–10 thematic ideas or content angles to explore in the Description section.',

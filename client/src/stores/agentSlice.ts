@@ -1,7 +1,7 @@
 import type { StateCreator } from 'zustand';
 import type { StoreState } from './index.ts';
 import { api } from '../lib/api.ts';
-import type { Proposal, ChildProposal, ContextDepth, SummarizerMode, IdeaItem, EdgeProposal, GlobalWarning, StyleWardenResult } from '../types/agent.ts';
+import type { ChildProposal, ContextDepth, SummarizerMode, IdeaItem, EdgeProposal, GlobalWarning, StyleWardenResult } from '../types/agent.ts';
 import type { DraftContent, PendingDraft } from '../types/article.ts';
 import { defaultForgeRuntime } from './forgeSlice.ts';
 export type { ForgeLogEntry } from './forgeSlice.ts';
@@ -61,10 +61,11 @@ export interface AgentParams {
   forgeMode: 'breadth' | 'depth';
   forgeMaxDepth: number;    // 1–3 extra levels below start node
   forgeMaxChildren: number; // 0 = all, otherwise take top N
-  forgeUseOracle: boolean;          // run Oracle idea-selection step in the Forge loop
-  forgeUseContinuityEditor: boolean; // run Continuity Editor self-correction pass after Scribe
-  forgeUseGroundingCheck: boolean;  // run Grounding Check self-correction pass after Lorekeeper (Inception)
-  forgeUseDedupCheck: boolean;      // run Dedup Check pass after Cartographer (Branching)
+  // One global dial covering Continuity Editor (Scribe), Grounding Check
+  // (Lorekeeper), and Dedup Check (Cartographer): 0 = off, N = up to N
+  // check→revise cycles.
+  coherenceCheckLevel: number;
+  safetyNet: boolean; // one final check-only pass after coherenceCheckLevel cycles; flags but never blocks
   forgeContinuationMode: 'one_step' | 'finish_document' | 'recursive';
   runValidationLevel: RunValidationLevel;
   forgeInceptionExistingMode: 'create' | 'improve' | 'replace' | 'skip_existing';
@@ -87,10 +88,8 @@ const defaultParams: AgentParams = {
   forgeMode:            'breadth',
   forgeMaxDepth:        2,
   forgeMaxChildren:     5,
-  forgeUseOracle:             false,
-  forgeUseContinuityEditor:   false,
-  forgeUseGroundingCheck:     false,
-  forgeUseDedupCheck:         false,
+  coherenceCheckLevel:        1,
+  safetyNet:                  false,
   forgeContinuationMode:      'recursive',
   runValidationLevel:         'autopilot',
   forgeInceptionExistingMode: 'improve',
@@ -100,9 +99,7 @@ const defaultParams: AgentParams = {
 
 export const defaultAgentRuntime: Pick<
   AgentSlice,
-  | 'agentProposals'
   | 'agentChildProposals'
-  | 'agentSelectedProposalIndex'
   | 'agentDraftResult'
   | 'agentEstimatedTokens'
   | 'agentError'
@@ -113,9 +110,7 @@ export const defaultAgentRuntime: Pick<
   | 'agentAuditEdgeProposals'
   | 'agentAuditGlobalWarnings'
 > = {
-  agentProposals: [],
   agentChildProposals: [],
-  agentSelectedProposalIndex: null,
   agentDraftResult: null,
   agentEstimatedTokens: null,
   agentError: null,
@@ -175,9 +170,7 @@ export interface AgentSlice {
   agentTargetArticleTitle: string | null;
   agentPipelineType: PipelineType;
   agentParams: AgentParams;
-  agentProposals: Proposal[];
   agentChildProposals: ChildProposal[];
-  agentSelectedProposalIndex: number | null;
   agentDraftResult: DraftContent | null;
   agentEstimatedTokens: number | null;
   agentError: string | null;
@@ -192,11 +185,8 @@ export interface AgentSlice {
   closeAgentPanel: () => void;
   setAgentPipelineType: (type: PipelineType) => void;
   setAgentParams: (params: Partial<AgentParams>) => void;
-  selectAgentProposal: (index: number) => void;
-  editAgentProposalDirection: (index: number, direction: string) => void;
   toggleAgentIdea: (idea: IdeaItem) => void;
   clearAgentIdeas: () => void;
-  backToProposals: () => void;
   agentRetry: () => void;
   loadDraftIntoPanel: (draft: PendingDraft) => void;
   continueWithStep: (step: NextStep) => void;
@@ -251,27 +241,13 @@ export const agentSlice: StateCreator<StoreState, [['zustand/immer', never]], []
     setAgentPipelineType: (type) => {
       set((s) => {
         s.agentPipelineType = type;
-        s.agentProposals = [];
         s.agentChildProposals = [];
-        s.agentSelectedProposalIndex = null;
         s.agentDraftResult = null;
       });
     },
 
     setAgentParams: (params) => {
       set((s) => { Object.assign(s.agentParams, params); });
-    },
-
-    selectAgentProposal: (index) => {
-      set((s) => { s.agentSelectedProposalIndex = index; });
-    },
-
-    editAgentProposalDirection: (index, direction) => {
-      set((s) => {
-        if (s.agentProposals[index]) {
-          s.agentProposals[index].direction = direction;
-        }
-      });
     },
 
     toggleAgentIdea: (idea) => {
@@ -287,14 +263,6 @@ export const agentSlice: StateCreator<StoreState, [['zustand/immer', never]], []
 
     clearAgentIdeas: () => {
       set((s) => { s.agentSelectedIdeas = []; });
-    },
-
-    backToProposals: () => {
-      set((s) => {
-        s.agentIdeas = [];
-        s.agentSelectedIdeas = [];
-        s.agentPhase = 'proposals_ready';
-      });
     },
 
     agentRetry: () => {
@@ -400,16 +368,17 @@ export const agentSlice: StateCreator<StoreState, [['zustand/immer', never]], []
               autoSelect:   agentParams.autoSelect,
               contextDepth: agentParams.contextDepth,
             });
-            set((s) => { s.agentProposals = result.proposals; });
+            set((s) => { s.agentIdeas = result.ideas; });
 
-            if (agentParams.autoSelect && result.autoSelectedIndex !== undefined) {
+            if (agentParams.autoSelect && result.autoSelectedIndices !== undefined) {
+              const indices = result.autoSelectedIndices;
               set((s) => {
-                s.agentSelectedProposalIndex = result.autoSelectedIndex!;
+                s.agentSelectedIdeas = indices.map((i) => result.ideas[i]).filter((idea): idea is IdeaItem => Boolean(idea));
                 s.agentPhase = 'expanding';
               });
               get().runAgentExpand(worldId).catch(console.error);
             } else {
-              set((s) => { s.agentPhase = 'proposals_ready'; });
+              set((s) => { s.agentSelectedIdeas = [...result.ideas]; s.agentPhase = 'ideas_ready'; });
             }
             break;
           }
@@ -467,16 +436,17 @@ export const agentSlice: StateCreator<StoreState, [['zustand/immer', never]], []
               autoSelect:   agentParams.autoSelect,
               contextDepth: agentParams.contextDepth,
             });
-            set((s) => { s.agentProposals = result.proposals; });
+            set((s) => { s.agentIdeas = result.ideas; });
 
-            if (agentParams.autoSelect && result.autoSelectedIndex !== undefined) {
+            if (agentParams.autoSelect && result.autoSelectedIndices !== undefined) {
+              const indices = result.autoSelectedIndices;
               set((s) => {
-                s.agentSelectedProposalIndex = result.autoSelectedIndex!;
+                s.agentSelectedIdeas = indices.map((i) => result.ideas[i]).filter((idea): idea is IdeaItem => Boolean(idea));
                 s.agentPhase = 'expanding';
               });
               get().runAgentExpand(worldId).catch(console.error);
             } else {
-              set((s) => { s.agentPhase = 'proposals_ready'; });
+              set((s) => { s.agentSelectedIdeas = [...result.ideas]; s.agentPhase = 'ideas_ready'; });
             }
             break;
           }
@@ -497,49 +467,30 @@ export const agentSlice: StateCreator<StoreState, [['zustand/immer', never]], []
     },
 
     runAgentExpand: async (worldId) => {
-      const { agentTargetArticleId, agentPipelineType, agentProposals, agentSelectedProposalIndex, agentParams, agentIdeas, agentSelectedIdeas } = get();
-      if (!agentTargetArticleId || agentSelectedProposalIndex === null) return;
+      const { agentTargetArticleId, agentPipelineType, agentParams, agentSelectedIdeas } = get();
+      if (!agentTargetArticleId) return;
 
       set((s) => { s.agentPhase = 'expanding'; s.agentError = null; });
 
       try {
-        if (agentPipelineType === 'forge_expand' && agentIdeas.length === 0) {
-          const introduction = get().currentArticleDetail?.introduction ?? '';
-          const selectedProposal = agentProposals[agentSelectedProposalIndex];
-          const { ideas } = await api.agents.proposeIdeas(worldId, {
-            articleId:    agentTargetArticleId,
-            introduction,
-            selectedProposal,
-            userSpec:     agentParams.userSpec || undefined,
-            contextDepth: agentParams.contextDepth,
-          });
-          set((s) => {
-            s.agentIdeas = ideas;
-            s.agentSelectedIdeas = [...ideas];
-            s.agentPhase = 'ideas_ready';
-          });
-        } else {
-          const result = await api.agents.expand(worldId, {
-            articleId:             agentTargetArticleId,
-            pipelineType:          agentPipelineType === 'forge_expand' ? 'expand_description' : agentPipelineType,
-            selectedProposalIndex: agentSelectedProposalIndex,
-            proposals:             agentProposals,
-            userSpec:              agentParams.userSpec || undefined,
-            contextDepth:          agentParams.contextDepth,
-            selectedIdeas:         agentPipelineType === 'forge_expand' ? agentSelectedIdeas : undefined,
-            wordCountPreset:       agentParams.wordCountPreset,
-          });
-          set((s) => {
-            s.agentDraftResult = {
-              description:  result.description,
-              introduction: result.introduction,
-            };
-            if (result.styleCheck) {
-              s.agentStyleCheck = result.styleCheck;
-            }
-            s.agentPhase = 'reviewing';
-          });
-        }
+        const result = await api.agents.expand(worldId, {
+          articleId:       agentTargetArticleId,
+          pipelineType:    agentPipelineType === 'forge_expand' ? 'expand_description' : agentPipelineType,
+          selectedIdeas:   agentSelectedIdeas,
+          userSpec:        agentParams.userSpec || undefined,
+          contextDepth:    agentParams.contextDepth,
+          wordCountPreset: agentParams.wordCountPreset,
+        });
+        set((s) => {
+          s.agentDraftResult = {
+            description:  result.description,
+            introduction: result.introduction,
+          };
+          if (result.styleCheck) {
+            s.agentStyleCheck = result.styleCheck;
+          }
+          s.agentPhase = 'reviewing';
+        });
       } catch (err) {
         set((s) => { s.agentPhase = 'error'; s.agentError = (err as Error).message; });
       }
@@ -639,14 +590,13 @@ export const agentSlice: StateCreator<StoreState, [['zustand/immer', never]], []
         await get().loadTree(worldId);
         await get().selectArticle(worldId, agentTargetArticleId);
         get().addToast({
-          message: `Created ${selected.length} subsection${selected.length > 1 ? 's' : ''}.`,
+          message: `Created ${selected.length} child subject${selected.length > 1 ? 's' : ''}.`,
           type: 'success',
         });
         set((s) => {
           s.agentPhase = 'idle';
           s.agentPanelOpen = false;
           s.agentChildProposals = [];
-          s.agentSelectedProposalIndex = null;
           s.agentNextSteps = [];
         });
       } catch (err) {

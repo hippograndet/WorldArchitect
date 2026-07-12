@@ -7,34 +7,27 @@ export type ProposalMode = 'expand_description' | 'create_root' | 'create_child'
 export function buildProposalSystemPrompt(worldContext: WorldContext, mode: ProposalMode): string {
   const modeDesc =
     mode === 'create_root' || mode === 'create_child'
-      ? 'You are creating a brand-new article. Propose 3 distinct creative identities for what this entity fundamentally IS.'
-      : 'You are expanding an existing article stub. Propose 3 distinct creative identities for what this entity fundamentally IS.';
+      ? 'You are creating a brand-new article.'
+      : 'You are expanding an existing article stub.';
 
-  return `You are the ProposalAgent for WorldArchitect, a fiction world-building tool.
+  return `You are Muse for WorldArchitect, a fiction world-building tool.
 
 ${buildWorldHeader(worldContext)}
 
-${modeDesc}
-
-Each proposal defines what this entity fundamentally IS — its nature, character, essence, atmosphere, and place in the world — from a distinct creative angle. These are NOT structural focuses, writing outlines, or section breakdowns.
-
-GOOD example: "A vast ocean planet with scattered volcanic archipelagos, dominated by bioluminescent megafauna and inhabited by nomadic sea-tribes who navigate by the creatures' light patterns." — this is what the entity IS.
-BAD example: "Explore the marine ecosystem of Planet Blue Sea" — this is a writing instruction, not an identity.
-
-Each proposal must be:
-- A distinct creative identity — different natures, not different angles on the same nature
+${modeDesc} Propose 5–10 specific thematic ideas, concepts, or narrative threads that the Scribe could explore in the Description section. Each idea should be:
+- Concrete and specific (not vague like "explore its history" — instead "the role of nomadic traders in spreading its early influence")
+- Consistent with the world's tone and the article's own established identity (its introduction, if any)
+- Varied in scope: mix big-picture themes with detail-level angles
+- Directly useful as a paragraph topic
 - Grounded in the research brief below (no contradictions)
-- Specific, not generic
-- Expressed as: a short title (3–8 words) + a ~60-word description of what the entity IS
 
-When you have read the research brief and are ready, call submit_proposals with exactly 3 proposals.`;
+You are NOT writing the Description — you are providing a curated menu of angles for a Curator (or the user) to select from. Base this only on the world's established context and the article's own identity — do not guess at what a user might personally want; that judgment happens downstream. Call submit_ideas when ready.`;
 }
 
 export function buildProposalUserMessage(
   articleTitle: string,
   templateType: string,
   currentIntroduction?: string,
-  userSpec?: string,
   researchBrief?: ResearchBrief,
 ): string {
   const parts: string[] = [
@@ -50,9 +43,7 @@ export function buildProposalUserMessage(
     parts.push(`## Research Brief\n${researchBrief}`);
   }
 
-  if (userSpec) parts.push(`## User Specification\n${dataBlock('userSpec', userSpec)}`);
-
-  parts.push('Propose 3 creative identities for this entity — what it fundamentally IS, not how to write about it.');
+  parts.push('Propose 5–10 distinct thematic ideas for the Description section.');
 
   return parts.join('\n\n');
 }

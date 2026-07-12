@@ -96,10 +96,15 @@ router.post('/skeleton', requireLLM, checkCap, asyncHandler(async (req, res) => 
 
 // ---------------------------------------------------------------------------
 // POST /api/worlds/:wid/agents/propose  — Phase 1
-// Returns 3 creative direction proposals for the user to choose from.
+// Returns 5-10 thematic ideas (Muse) for the user, or Curator, to select from.
 // ---------------------------------------------------------------------------
 
 const ContextDepthSchema = z.enum(['shallow', 'mid', 'deep']).optional().default('mid');
+// Default 0 (off) here, matching these routes' prior runContinuityEditor/runDedupCheck
+// defaults of false — unlike routes/runs.ts's Forge CreateRunSchema, which defaults to 1
+// to match Forge's previous always-on single-pass behavior.
+const CoherenceCheckLevelSchema = z.number().int().min(0).max(3).optional().default(0);
+const SafetyNetSchema = z.boolean().optional().default(false);
 
 const ProposeSchema = z.object({
   articleId:    z.string().min(1),
@@ -124,9 +129,9 @@ router.post('/propose', requireLLM, checkCap, asyncHandler(async (req, res) => {
     parse.data.contextDepth,
   );
   res.json({
-    proposals: result.proposals,
-    ...(result.autoSelectedIndex !== undefined
-      ? { autoSelectedIndex: result.autoSelectedIndex, autoSelectRationale: result.autoSelectRationale }
+    ideas: result.ideas,
+    ...(result.autoSelectedIndices !== undefined
+      ? { autoSelectedIndices: result.autoSelectedIndices, autoSelectRationale: result.autoSelectRationale }
       : {}),
   });
 }));
@@ -139,13 +144,12 @@ router.post('/propose', requireLLM, checkCap, asyncHandler(async (req, res) => {
 const ExpandSchema = z.object({
   articleId:              z.string().min(1),
   pipelineType:           z.enum(['expand_description', 'create_root', 'create_child', 'reorganize']),
-  selectedProposalIndex:  z.number().int().min(0).max(4),
-  proposals:              z.array(z.object({ title: z.string(), direction: z.string() })).max(5),
   selectedIdeas:          z.array(z.object({ id: z.string(), theme: z.string(), detail: z.string() })).optional(),
   userSpec:               z.string().optional(),
   contextDepth:           ContextDepthSchema,
   runStyleWarden:         z.boolean().optional().default(false),
-  runContinuityEditor:    z.boolean().optional().default(false),
+  coherenceCheckLevel:    CoherenceCheckLevelSchema,
+  safetyNet:              SafetyNetSchema,
   wordCountPreset:        z.enum(['short', 'medium', 'long']).optional().default('medium'),
 });
 
@@ -153,13 +157,11 @@ router.post('/expand', requireLLM, checkCap, asyncHandler(async (req, res) => {
   const parse = ExpandSchema.safeParse(req.body);
   if (!parse.success) throw new AppError(400, 'VALIDATION_ERROR', 'Invalid request', parse.error.flatten().fieldErrors);
 
-  const { articleId, pipelineType, selectedProposalIndex, proposals, selectedIdeas, userSpec, contextDepth, runStyleWarden, runContinuityEditor, wordCountPreset } = parse.data;
-  const selectedProposal = proposals[selectedProposalIndex];
-  if (!selectedProposal) throw new AppError(400, 'VALIDATION_ERROR', 'Invalid selectedProposalIndex');
+  const { articleId, pipelineType, selectedIdeas, userSpec, contextDepth, runStyleWarden, coherenceCheckLevel, safetyNet, wordCountPreset } = parse.data;
 
   const { worldId, ownerId } = requireTenantContext(req);
   await assertArticleUnlocked(worldId, ownerId, articleId);
-  const result = await coordinator.expand(worldId, articleId, pipelineType, selectedProposal, userSpec, contextDepth, selectedIdeas, runStyleWarden, runContinuityEditor, wordCountPreset);
+  const result = await coordinator.expand(worldId, articleId, pipelineType, userSpec, contextDepth, selectedIdeas, runStyleWarden, coherenceCheckLevel, safetyNet, wordCountPreset);
 
   // Persist draft so POST /accept can commit it
   const draftContent = pipelineType === 'create_child'
@@ -172,7 +174,7 @@ router.post('/expand', requireLLM, checkCap, asyncHandler(async (req, res) => {
     articleId,
     pipelineType,
     phase: 'done',
-    selectedProposal: selectedProposal as unknown as Record<string, unknown>,
+    selectedProposal: selectedIdeas ? { selectedIdeas } : undefined,
     draftContent,
     parentUpdate: result.parentUpdate ? { articleId, appendText: result.parentUpdate.appendText } : undefined,
     matchPipelineType: true,
@@ -188,15 +190,20 @@ router.post('/expand', requireLLM, checkCap, asyncHandler(async (req, res) => {
 
 router.post('/propose-children', requireLLM, checkCap, asyncHandler(async (req, res) => {
   const parse = z.object({
-    articleId:    z.string().min(1),
-    userSpec:     z.string().optional(),
-    contextDepth: ContextDepthSchema,
+    articleId:           z.string().min(1),
+    userSpec:            z.string().optional(),
+    contextDepth:        ContextDepthSchema,
+    coherenceCheckLevel: CoherenceCheckLevelSchema,
+    safetyNet:           SafetyNetSchema,
   }).safeParse(req.body);
   if (!parse.success) throw new AppError(400, 'VALIDATION_ERROR', 'Invalid request', parse.error.flatten().fieldErrors);
 
   const { worldId, ownerId } = requireTenantContext(req);
   await assertArticleUnlocked(worldId, ownerId, parse.data.articleId);
-  const result = await coordinator.proposeChildren(worldId, parse.data.articleId, parse.data.userSpec, parse.data.contextDepth);
+  const result = await coordinator.proposeChildren(
+    worldId, parse.data.articleId, parse.data.userSpec, parse.data.contextDepth,
+    parse.data.coherenceCheckLevel, parse.data.safetyNet,
+  );
   res.json({ proposals: result.proposals });
 }));
 
@@ -292,33 +299,6 @@ router.post('/compress', requireLLM, checkCap, asyncHandler(async (req, res) => 
   const { worldId } = requireTenantContext(req);
   const result = await coordinator.compress(worldId);
   res.json({ entries: result.entries });
-}));
-
-// ---------------------------------------------------------------------------
-// POST /api/worlds/:wid/agents/propose-ideas  — Oracle (Step B idea selection)
-// ---------------------------------------------------------------------------
-
-router.post('/propose-ideas', requireLLM, checkCap, asyncHandler(async (req, res) => {
-  const parse = z.object({
-    articleId:        z.string().min(1),
-    introduction:     z.string().min(1),
-    selectedProposal: z.object({ title: z.string(), direction: z.string() }),
-    userSpec:         z.string().optional(),
-    contextDepth:     ContextDepthSchema,
-  }).safeParse(req.body);
-  if (!parse.success) throw new AppError(400, 'VALIDATION_ERROR', 'Invalid request', parse.error.flatten().fieldErrors);
-
-  const { worldId, ownerId } = requireTenantContext(req);
-  await assertArticleUnlocked(worldId, ownerId, parse.data.articleId);
-  const result = await coordinator.proposeIdeas(
-    worldId,
-    parse.data.articleId,
-    parse.data.introduction,
-    parse.data.selectedProposal,
-    parse.data.userSpec,
-    parse.data.contextDepth,
-  );
-  res.json({ ideas: result.ideas });
 }));
 
 // ---------------------------------------------------------------------------

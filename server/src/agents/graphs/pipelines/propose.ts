@@ -5,7 +5,7 @@ import { fetchWorldContextNode, buildContextPackageNode, museProposeNode, curato
 import { articleContract, contractState, proposalIntent } from '../masContract.js';
 import type { ContextDepth, ContextPackage } from '../../../services/archivist.js';
 import type { ProposalMode } from '../../../prompts/proposal.js';
-import type { ProposalItem } from '../../muse.js';
+import type { IdeaItem } from '../../muse.js';
 import type { WorldContext } from '../../director.js';
 import type { ResearchBrief } from '../../scribe.js';
 
@@ -22,8 +22,8 @@ const graph = new StateGraph(OrchestrationAnnotation)
   .compile();
 
 export interface ProposeGraphOutput {
-  proposals: ProposalItem[];
-  autoSelectedIndex?: number;
+  ideas: IdeaItem[];
+  autoSelectedIndices?: number[];
   autoSelectRationale?: string;
   tokensIn: number;
   tokensOut: number;
@@ -64,8 +64,8 @@ export async function runProposeGraph(params: {
   });
 
   return {
-    proposals: result.proposals,
-    autoSelectedIndex: result.autoSelectedIndex,
+    ideas: result.ideas,
+    autoSelectedIndices: result.autoSelectedIndices,
     autoSelectRationale: result.autoSelectRationale,
     tokensIn: result.tokensIn,
     tokensOut: result.tokensOut,
