@@ -360,6 +360,7 @@ export default function ExpandPage() {
       maxDepth: runDepth,
       maxChildren: agentParams.forgeMaxChildren,
       contextDepth: agentParams.contextDepth,
+      contextBasis: agentParams.contextBasis,
       coherenceCheckLevel,
       safetyNet,
       runStyleWarden: false,
@@ -381,6 +382,7 @@ export default function ExpandPage() {
     runDepth,
     agentParams.forgeMaxChildren,
     agentParams.contextDepth,
+    agentParams.contextBasis,
     coherenceCheckLevel,
     safetyNet,
   ]);
@@ -400,6 +402,7 @@ export default function ExpandPage() {
       forgeMode: agentParams.forgeMode,
       branchingMode: agentParams.branchingMode,
       contextDepth: agentParams.contextDepth,
+      contextBasis: agentParams.contextBasis,
       includeCurrentContent: startStep === 'inception' || agentParams.includeCurrentContent,
       coherenceCheckLevel,
       safetyNet,
@@ -1136,21 +1139,47 @@ export default function ExpandPage() {
             </SettingGroup>
 
             <SettingGroup title="Context">
-              <p className="text-xs text-gray-500 mb-1">Context amount</p>
-              <div className="grid grid-cols-3 gap-1.5">
-                {(['shallow', 'mid', 'deep'] as const).map((value) => (
-                  <button
-                    key={value}
-                    onClick={() => { markCustom(); setAgentParams({ contextDepth: value }); }}
-                    className={`py-1.5 text-xs rounded-md border capitalize ${
-                      agentParams.contextDepth === value
-                        ? 'border-purple-400 bg-purple-50 text-purple-700'
-                        : 'border-gray-200 text-gray-600 hover:bg-gray-50'
-                    }`}
-                  >
-                    {value === 'mid' ? 'medium' : value}
-                  </button>
-                ))}
+              <div className="space-y-3">
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">Context amount</p>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {(['shallow', 'mid', 'deep'] as const).map((value) => (
+                      <button
+                        key={value}
+                        onClick={() => { markCustom(); setAgentParams({ contextDepth: value }); }}
+                        className={`py-1.5 text-xs rounded-md border capitalize ${
+                          agentParams.contextDepth === value
+                            ? 'border-purple-400 bg-purple-50 text-purple-700'
+                            : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+                        }`}
+                      >
+                        {value === 'mid' ? 'medium' : value}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">Context basis</p>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {([
+                      { value: 'current' as const, label: 'Current' },
+                      { value: 'latest_draft' as const, label: 'Drafts' },
+                      { value: 'published' as const, label: 'Published' },
+                    ]).map((option) => (
+                      <button
+                        key={option.value}
+                        onClick={() => { markCustom(); setAgentParams({ contextBasis: option.value }); }}
+                        className={`py-1.5 text-xs rounded-md border ${
+                          agentParams.contextBasis === option.value
+                            ? 'border-purple-400 bg-purple-50 text-purple-700'
+                            : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+                        }`}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
             </SettingGroup>
 

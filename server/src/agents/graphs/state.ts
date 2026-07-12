@@ -1,5 +1,6 @@
 import { Annotation } from '@langchain/langgraph';
 import type { ContextPackage, ArchivistMode, ContextDepth } from '../../services/archivist.js';
+import type { DraftContextBasis } from '../../services/draftsService.js';
 import type { WorldContext } from '../director.js';
 import type { ProposalMode } from '../../prompts/proposal.js';
 import type { ExpanderMode } from '../../prompts/expander.js';
@@ -40,6 +41,7 @@ export const OrchestrationAnnotation = Annotation.Root({
   worldContext: Annotation<WorldContext | undefined>({ reducer: replace, default: () => undefined }),
   contextPackage: Annotation<ContextPackage | undefined>({ reducer: replace, default: () => undefined }),
   contextDepth: Annotation<ContextDepth>({ reducer: replace, default: () => 'mid' }),
+  contextBasis: Annotation<DraftContextBasis>({ reducer: replace, default: () => 'current' }),
   contextMode: Annotation<ArchivistMode>({ reducer: replace, default: () => 'default' }),
   userSpec: Annotation<string | undefined>({ reducer: replace, default: () => undefined }),
   tokensIn: Annotation<number>({ reducer: sum, default: () => 0 }),

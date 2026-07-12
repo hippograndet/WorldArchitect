@@ -17,6 +17,7 @@ import type {
   ForgeBranchingExistingMode,
 } from '../forgeState.js';
 import type { ContextDepth } from '../../../services/archivist.js';
+import type { DraftContextBasis } from '../../../services/draftsService.js';
 
 // ---------------------------------------------------------------------------
 // Graph — one compiled instance per process, checkpointed on runId as thread_id
@@ -113,6 +114,7 @@ export async function startForgeRun(params: {
   articleTitle: string;
   startStep: ForgeQueueItem['startStep'];
   contextDepth: ContextDepth;
+  contextBasis: DraftContextBasis;
   branchingMode: 'specific' | 'conceptual';
   forgeMode: 'breadth' | 'depth';
   forgeMaxDepth: number;
@@ -154,6 +156,7 @@ export async function startForgeRun(params: {
             commitPolicy: params.commitPolicy,
           })),
           contextDepth: params.contextDepth,
+          contextBasis: params.contextBasis,
           branchingMode: params.branchingMode,
           forgeMode: params.forgeMode,
           forgeMaxDepth: params.forgeMaxDepth,

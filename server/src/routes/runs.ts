@@ -46,11 +46,11 @@ const ReviewDecisionSchema = z.object({
 });
 
 router.post('/:rid/review-items/:reviewId/decision', asyncHandler(async (req, res) => {
-  const parse = ReviewDecisionSchema.safeParse(req.body);
-  if (!parse.success) throw new AppError(400, 'VALIDATION_ERROR', 'Invalid review decision', parse.error.flatten().fieldErrors);
   const { worldId, ownerId } = requireTenantContext(req);
   const run = await getRun(worldId, ownerId, rid(req));
   if (!run) throw new AppError(404, 'NOT_FOUND', 'Run not found');
+  const parse = ReviewDecisionSchema.safeParse(req.body);
+  if (!parse.success) throw new AppError(400, 'VALIDATION_ERROR', 'Invalid review decision', parse.error.flatten().fieldErrors);
 
   const review = await decideRunReviewItem({
     worldId,
@@ -88,6 +88,7 @@ const CreateRunSchema = z.object({
     'reorganize', 'summarize', 'improve_intro', 'cohere', 'forge_expand', 'audit',
   ]),
   contextDepth: z.enum(['shallow', 'mid', 'deep']).optional().default('mid'),
+  contextBasis: z.enum(['current', 'latest_draft', 'published']).optional().default('current'),
   branchingMode: z.enum(['conceptual', 'specific']).optional().default('conceptual'),
   forgeMode: z.enum(['breadth', 'depth']).optional().default('breadth'),
   forgeMaxDepth: z.number().int().min(0).max(10).optional().default(2),
@@ -223,6 +224,7 @@ router.post('/', asyncHandler(async (req, res) => {
     articleTitle: rootArticle.title,
     startStep,
     contextDepth: parse.data.contextDepth,
+    contextBasis: parse.data.contextBasis,
     branchingMode: parse.data.branchingMode,
     forgeMode: parse.data.forgeMode,
     forgeMaxDepth: parse.data.forgeMaxDepth,

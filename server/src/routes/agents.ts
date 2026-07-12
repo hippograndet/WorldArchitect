@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { nanoid } from 'nanoid';
 import { requireLLM, isLLMConfigured, getProvider } from '../providers/index.js';
 import { renderBible, getBibleMeta } from '../services/worldBible.js';
 import { checkDailyCap } from '../services/callLogger.js';
@@ -100,6 +101,7 @@ router.post('/skeleton', requireLLM, checkCap, asyncHandler(async (req, res) => 
 // ---------------------------------------------------------------------------
 
 const ContextDepthSchema = z.enum(['shallow', 'mid', 'deep']).optional().default('mid');
+const ContextBasisSchema = z.enum(['current', 'latest_draft', 'published']).optional().default('current');
 // Default 0 (off) here, matching these routes' prior runContinuityEditor/runDedupCheck
 // defaults of false — unlike routes/runs.ts's Forge CreateRunSchema, which defaults to 1
 // to match Forge's previous always-on single-pass behavior.
@@ -112,6 +114,7 @@ const ProposeSchema = z.object({
   userSpec:     z.string().optional(),
   autoSelect:   z.boolean().optional().default(false),
   contextDepth: ContextDepthSchema,
+  contextBasis: ContextBasisSchema,
 });
 
 router.post('/propose', requireLLM, checkCap, asyncHandler(async (req, res) => {
@@ -127,9 +130,11 @@ router.post('/propose', requireLLM, checkCap, asyncHandler(async (req, res) => {
     parse.data.userSpec,
     parse.data.autoSelect,
     parse.data.contextDepth,
+    parse.data.contextBasis,
   );
   res.json({
     ideas: result.ideas,
+    contextDraftIds: result.contextDraftIds ?? [],
     ...(result.autoSelectedIndices !== undefined
       ? { autoSelectedIndices: result.autoSelectedIndices, autoSelectRationale: result.autoSelectRationale }
       : {}),
@@ -147,6 +152,7 @@ const ExpandSchema = z.object({
   selectedIdeas:          z.array(z.object({ id: z.string(), theme: z.string(), detail: z.string() })).optional(),
   userSpec:               z.string().optional(),
   contextDepth:           ContextDepthSchema,
+  contextBasis:           ContextBasisSchema,
   runStyleWarden:         z.boolean().optional().default(false),
   coherenceCheckLevel:    CoherenceCheckLevelSchema,
   safetyNet:              SafetyNetSchema,
@@ -157,18 +163,19 @@ router.post('/expand', requireLLM, checkCap, asyncHandler(async (req, res) => {
   const parse = ExpandSchema.safeParse(req.body);
   if (!parse.success) throw new AppError(400, 'VALIDATION_ERROR', 'Invalid request', parse.error.flatten().fieldErrors);
 
-  const { articleId, pipelineType, selectedIdeas, userSpec, contextDepth, runStyleWarden, coherenceCheckLevel, safetyNet, wordCountPreset } = parse.data;
+  const { articleId, pipelineType, selectedIdeas, userSpec, contextDepth, contextBasis, runStyleWarden, coherenceCheckLevel, safetyNet, wordCountPreset } = parse.data;
 
   const { worldId, ownerId } = requireTenantContext(req);
   await assertArticleUnlocked(worldId, ownerId, articleId);
-  const result = await coordinator.expand(worldId, articleId, pipelineType, userSpec, contextDepth, selectedIdeas, runStyleWarden, coherenceCheckLevel, safetyNet, wordCountPreset);
+  const sourceRunId = nanoid();
+  const result = await coordinator.expand(worldId, articleId, pipelineType, userSpec, contextDepth, selectedIdeas, runStyleWarden, coherenceCheckLevel, safetyNet, wordCountPreset, contextBasis);
 
   // Persist draft so POST /accept can commit it
   const draftContent = pipelineType === 'create_child'
     ? { childDescription: result.description, introduction: result.introduction }
     : { description: result.description };
 
-  await savePendingDraft({
+  const draft = await savePendingDraft({
     worldId,
     ownerId,
     articleId,
@@ -177,10 +184,14 @@ router.post('/expand', requireLLM, checkCap, asyncHandler(async (req, res) => {
     selectedProposal: selectedIdeas ? { selectedIdeas } : undefined,
     draftContent,
     parentUpdate: result.parentUpdate ? { articleId, appendText: result.parentUpdate.appendText } : undefined,
-    matchPipelineType: true,
+    sourceRunId,
+    runType: pipelineType,
+    contextBasis,
+    contextDraftIds: result.contextDraftIds ?? [],
+    displayTitle: pipelineType === 'create_child' ? 'Child subject draft' : 'Expansion draft',
   });
 
-  res.json(result);
+  res.json({ ...result, draft });
 }));
 
 // ---------------------------------------------------------------------------
@@ -193,6 +204,7 @@ router.post('/propose-children', requireLLM, checkCap, asyncHandler(async (req, 
     articleId:           z.string().min(1),
     userSpec:            z.string().optional(),
     contextDepth:        ContextDepthSchema,
+    contextBasis:        ContextBasisSchema,
     coherenceCheckLevel: CoherenceCheckLevelSchema,
     safetyNet:           SafetyNetSchema,
   }).safeParse(req.body);
@@ -201,7 +213,7 @@ router.post('/propose-children', requireLLM, checkCap, asyncHandler(async (req, 
   const { worldId, ownerId } = requireTenantContext(req);
   await assertArticleUnlocked(worldId, ownerId, parse.data.articleId);
   const result = await coordinator.proposeChildren(
-    worldId, parse.data.articleId, parse.data.userSpec, parse.data.contextDepth,
+    worldId, parse.data.articleId, parse.data.userSpec, parse.data.contextDepth, parse.data.contextBasis,
     parse.data.coherenceCheckLevel, parse.data.safetyNet,
   );
   res.json({ proposals: result.proposals });
@@ -233,28 +245,34 @@ router.post('/reorganize', requireLLM, checkCap, asyncHandler(async (req, res) =
   const parse = z.object({
     articleId:    z.string().min(1),
     contextDepth: ContextDepthSchema,
+    contextBasis: ContextBasisSchema,
   }).safeParse(req.body);
   if (!parse.success) throw new AppError(400, 'VALIDATION_ERROR', 'Invalid request', parse.error.flatten().fieldErrors);
 
   const { worldId, ownerId } = requireTenantContext(req);
   const { articleId } = parse.data;
   await assertArticleUnlocked(worldId, ownerId, articleId);
-  const result = await coordinator.reorganize(worldId, articleId, parse.data.contextDepth);
+  const sourceRunId = nanoid();
+  const result = await coordinator.reorganize(worldId, articleId, parse.data.contextDepth, parse.data.contextBasis);
 
   // Persist draft so POST /accept can commit it — mirrors /expand's persistence
   // (same table/shape), just without a selectedProposal (reorganize has none).
   const draftContent = { description: result.description, retentionIssues: result.retentionIssues };
-  await savePendingDraft({
+  const draft = await savePendingDraft({
     worldId,
     ownerId,
     articleId,
     pipelineType: 'reorganize',
     phase: 'done',
     draftContent,
-    matchPipelineType: true,
+    sourceRunId,
+    runType: 'reorganize',
+    contextBasis: parse.data.contextBasis,
+    contextDraftIds: result.contextDraftIds ?? [],
+    displayTitle: 'Reorganize draft',
   });
 
-  res.json(result);
+  res.json({ ...result, draft });
 }));
 
 // ---------------------------------------------------------------------------
@@ -265,13 +283,14 @@ router.post('/cohere', requireLLM, checkCap, asyncHandler(async (req, res) => {
   const parse = z.object({
     articleId:    z.string().min(1),
     contextDepth: ContextDepthSchema,
+    contextBasis: ContextBasisSchema,
   }).safeParse(req.body);
   if (!parse.success) throw new AppError(400, 'VALIDATION_ERROR', 'Invalid request', parse.error.flatten().fieldErrors);
 
   const { worldId, ownerId } = requireTenantContext(req);
   const { articleId } = parse.data;
   await assertArticleUnlocked(worldId, ownerId, articleId);
-  const result = await coordinator.cohere(worldId, articleId, parse.data.contextDepth);
+  const result = await coordinator.cohere(worldId, articleId, parse.data.contextDepth, parse.data.contextBasis);
 
   // Persist Warden warnings to article_issues, replacing prior Warden results.
   // An empty clean run must still clear stale Warden issues.

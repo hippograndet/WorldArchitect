@@ -131,14 +131,15 @@ export async function clearTerminalRunHistory(worldId: string, ownerId: string):
        WHERE world_id = ? AND owner_id = ? AND status IN ('completed', 'failed', 'stopped')`,
       [worldId, ownerId],
     );
-    const retainedRow = await tx.get<{ count: number }>(
+    const retainedRow = await tx.get<{ count: number | string }>(
       `SELECT COUNT(*) AS count FROM runs
        WHERE world_id = ? AND owner_id = ? AND status NOT IN ('completed', 'failed', 'stopped')`,
       [worldId, ownerId],
     );
+    const retained = Number(retainedRow?.count ?? 0);
 
     const runIds = terminalRuns.map((run) => run.id);
-    if (runIds.length === 0) return { deleted: 0, retained: retainedRow?.count ?? 0 };
+    if (runIds.length === 0) return { deleted: 0, retained };
 
     const placeholders = runIds.map(() => '?').join(',');
     await tx.run(
@@ -160,7 +161,7 @@ export async function clearTerminalRunHistory(worldId: string, ownerId: string):
       [worldId, ownerId, ...runIds],
     );
 
-    return { deleted: runIds.length, retained: retainedRow?.count ?? 0 };
+    return { deleted: runIds.length, retained };
   });
 }
 

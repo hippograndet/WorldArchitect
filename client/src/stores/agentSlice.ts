@@ -3,6 +3,7 @@ import type { StoreState } from './index.ts';
 import { api } from '../lib/api.ts';
 import type { ChildProposal, ContextDepth, SummarizerMode, IdeaItem, EdgeProposal, GlobalWarning, StyleWardenResult } from '../types/agent.ts';
 import type { DraftContent, PendingDraft } from '../types/article.ts';
+import type { DraftContextBasis } from '../lib/api.ts';
 import { defaultForgeRuntime } from './forgeSlice.ts';
 export type { ForgeLogEntry } from './forgeSlice.ts';
 
@@ -51,6 +52,7 @@ export interface AgentParams {
   breadth: 'focused' | 'connected';
   userSpec: string;
   contextDepth: ContextDepth;
+  contextBasis: DraftContextBasis;
   autoSelect: boolean;
   summarizerMode: SummarizerMode;
   branchingMode: 'conceptual' | 'specific';
@@ -79,6 +81,7 @@ const defaultParams: AgentParams = {
   breadth:              'focused',
   userSpec:             '',
   contextDepth:         'mid',
+  contextBasis:         'current',
   autoSelect:           false,
   summarizerMode:       'full',
   branchingMode:        'conceptual',
@@ -109,6 +112,7 @@ export const defaultAgentRuntime: Pick<
   | 'agentStyleCheck'
   | 'agentAuditEdgeProposals'
   | 'agentAuditGlobalWarnings'
+  | 'agentLoadedDraftId'
 > = {
   agentChildProposals: [],
   agentDraftResult: null,
@@ -120,6 +124,7 @@ export const defaultAgentRuntime: Pick<
   agentStyleCheck: null,
   agentAuditEdgeProposals: [],
   agentAuditGlobalWarnings: [],
+  agentLoadedDraftId: null,
 };
 
 // Pipelines that save a pending_draft on the server and commit via POST /accept
@@ -180,6 +185,7 @@ export interface AgentSlice {
   agentStyleCheck: StyleWardenResult | null;
   agentAuditEdgeProposals: EdgeProposal[];
   agentAuditGlobalWarnings: GlobalWarning[];
+  agentLoadedDraftId: string | null;
 
   openAgentPanel: (articleId: string | null, articleTitle: string | null, mode: AgentPanelMode, pipeline?: PipelineType) => void;
   closeAgentPanel: () => void;
@@ -280,6 +286,7 @@ export const agentSlice: StateCreator<StoreState, [['zustand/immer', never]], []
         s.agentTargetArticleId = draft.articleId;
         s.agentPipelineType = draft.pipelineType as PipelineType;
         s.agentDraftResult = draft.draftContent;
+        s.agentLoadedDraftId = draft.id;
       });
     },
 
@@ -348,6 +355,7 @@ export const agentSlice: StateCreator<StoreState, [['zustand/immer', never]], []
               articleId:    agentTargetArticleId,
               userSpec:     agentParams.userSpec || undefined,
               contextDepth: agentParams.contextDepth,
+              contextBasis: agentParams.contextBasis,
             });
             set((s) => {
               s.agentDraftResult = {
@@ -355,6 +363,7 @@ export const agentSlice: StateCreator<StoreState, [['zustand/immer', never]], []
                 introduction:     result.introduction,
                 retentionIssues:  result.retentionIssues,
               };
+              s.agentLoadedDraftId = result.draft?.id ?? null;
               s.agentPhase = 'reviewing';
             });
             break;
@@ -367,6 +376,7 @@ export const agentSlice: StateCreator<StoreState, [['zustand/immer', never]], []
               userSpec:     agentParams.userSpec || undefined,
               autoSelect:   agentParams.autoSelect,
               contextDepth: agentParams.contextDepth,
+              contextBasis: agentParams.contextBasis,
             });
             set((s) => { s.agentIdeas = result.ideas; });
 
@@ -393,6 +403,7 @@ export const agentSlice: StateCreator<StoreState, [['zustand/immer', never]], []
               articleId:    agentTargetArticleId,
               userSpec:     userSpec.trim() || undefined,
               contextDepth: agentParams.contextDepth,
+              contextBasis: agentParams.contextBasis,
             });
             set((s) => { s.agentChildProposals = proposals; s.agentPhase = 'proposals_ready'; });
             break;
@@ -418,6 +429,7 @@ export const agentSlice: StateCreator<StoreState, [['zustand/immer', never]], []
             const result = await api.agents.cohere(worldId, {
               articleId:    agentTargetArticleId,
               contextDepth: agentParams.contextDepth,
+              contextBasis: agentParams.contextBasis,
             });
             set((s) => {
               s.agentDraftResult = {
@@ -435,6 +447,7 @@ export const agentSlice: StateCreator<StoreState, [['zustand/immer', never]], []
               userSpec:     agentParams.userSpec || undefined,
               autoSelect:   agentParams.autoSelect,
               contextDepth: agentParams.contextDepth,
+              contextBasis: agentParams.contextBasis,
             });
             set((s) => { s.agentIdeas = result.ideas; });
 
@@ -479,6 +492,7 @@ export const agentSlice: StateCreator<StoreState, [['zustand/immer', never]], []
           selectedIdeas:   agentSelectedIdeas,
           userSpec:        agentParams.userSpec || undefined,
           contextDepth:    agentParams.contextDepth,
+          contextBasis:    agentParams.contextBasis,
           wordCountPreset: agentParams.wordCountPreset,
         });
         set((s) => {
@@ -489,6 +503,7 @@ export const agentSlice: StateCreator<StoreState, [['zustand/immer', never]], []
           if (result.styleCheck) {
             s.agentStyleCheck = result.styleCheck;
           }
+          s.agentLoadedDraftId = result.draft?.id ?? null;
           s.agentPhase = 'reviewing';
         });
       } catch (err) {
@@ -497,7 +512,7 @@ export const agentSlice: StateCreator<StoreState, [['zustand/immer', never]], []
     },
 
     agentCommit: async (worldId) => {
-      const { agentTargetArticleId, agentPipelineType, agentDraftResult, agentPanelMode, agentParams } = get();
+      const { agentTargetArticleId, agentPipelineType, agentDraftResult, agentPanelMode, agentParams, agentLoadedDraftId } = get();
       if (!agentTargetArticleId) return;
 
       try {
@@ -508,7 +523,7 @@ export const agentSlice: StateCreator<StoreState, [['zustand/immer', never]], []
         } else if (agentPipelineType === 'cohere') {
           // Warnings are display-only — nothing to commit
         } else if (DRAFT_PIPELINE_MAP[agentPipelineType]) {
-          await get().acceptDraft(worldId, agentTargetArticleId);
+          await get().acceptDraft(worldId, agentTargetArticleId, agentLoadedDraftId ?? undefined);
           await get().loadTree(worldId);
         }
 
@@ -556,11 +571,11 @@ export const agentSlice: StateCreator<StoreState, [['zustand/immer', never]], []
     },
 
     agentDiscard: async (worldId) => {
-      const { agentTargetArticleId, agentPipelineType } = get();
+      const { agentTargetArticleId, agentPipelineType, agentLoadedDraftId } = get();
 
       if (agentTargetArticleId && DRAFT_PIPELINE_MAP[agentPipelineType]) {
         try {
-          await get().discardDraft(worldId, agentTargetArticleId);
+          await get().discardDraft(worldId, agentTargetArticleId, agentLoadedDraftId ?? undefined);
         } catch { /* ignore */ }
       }
 

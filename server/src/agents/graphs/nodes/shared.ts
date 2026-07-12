@@ -65,6 +65,8 @@ export async function buildContextPackageNode(state: OrchestrationState): Promis
   const contextPackage = await buildContextPackage(state.worldId, state.articleId!, {
     mode: state.contextMode,
     contextDepth: state.contextDepth,
+    contextBasis: state.contextBasis,
+    ownerId: state.ownerId,
   });
   return { contextPackage };
 }

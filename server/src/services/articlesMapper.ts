@@ -58,6 +58,13 @@ export function parseDraft(row: DbRow) {
   return {
     id: row.id,
     articleId: row.article_id,
+    worldId: row.world_id ?? null,
+    status: (row.status as string) ?? 'pending',
+    sourceRunId: row.source_run_id ?? null,
+    runType: (row.run_type as string | null) ?? (row.pipeline_type as string) ?? 'expand_description',
+    contextBasis: (row.context_basis as string) ?? 'current',
+    contextDraftIds: row.context_draft_ids ? JSON.parse(row.context_draft_ids as string) : [],
+    displayTitle: row.display_title ?? null,
     selectedProposal: row.selected_proposal
       ? JSON.parse(row.selected_proposal as string)
       : null,
@@ -79,6 +86,7 @@ export function parseDraft(row: DbRow) {
       : null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    resolvedAt: row.resolved_at ?? null,
   };
 }
 

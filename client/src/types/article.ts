@@ -92,6 +92,13 @@ export interface ArticleMetadataFact {
 export interface PendingDraft {
   id: string;
   articleId: string;
+  worldId: string | null;
+  status: 'pending' | 'accepted' | 'discarded';
+  sourceRunId: string | null;
+  runType: string;
+  contextBasis: 'current' | 'latest_draft' | 'published';
+  contextDraftIds: string[];
+  displayTitle: string | null;
   selectedProposal: Record<string, unknown> | null;
   pipelineType: string;
   autoSelect: boolean;
@@ -103,6 +110,7 @@ export interface PendingDraft {
   draftContent: DraftContent | null;
   createdAt: number;
   updatedAt: number;
+  resolvedAt: number | null;
 }
 
 export type AcceptDraftResult =

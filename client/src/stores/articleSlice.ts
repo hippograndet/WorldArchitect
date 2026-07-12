@@ -11,6 +11,7 @@ export interface ArticleSlice {
   currentArticleDetail: ArticleDetail | null;
   versions: ArticleVersion[];
   pendingDraft: PendingDraft | null;
+  drafts: PendingDraft[];
   metadataFacts: ArticleMetadataFact[];
   metadataSuggestedFields: string[];
 
@@ -21,8 +22,8 @@ export interface ArticleSlice {
   checkDraft: (worldId: string, articleId: string) => Promise<void>;
   manualEdit: (worldId: string, articleId: string, fields: { introduction?: string; description?: string; chronology?: string }) => Promise<void>;
   revertToVersion: (worldId: string, articleId: string, versionId: string) => Promise<void>;
-  acceptDraft: (worldId: string, articleId: string) => Promise<void>;
-  discardDraft: (worldId: string, articleId: string) => Promise<void>;
+  acceptDraft: (worldId: string, articleId: string, draftId?: string) => Promise<void>;
+  discardDraft: (worldId: string, articleId: string, draftId?: string) => Promise<void>;
   loadMetadataFacts: (worldId: string, articleId: string) => Promise<void>;
   saveMetadataFacts: (worldId: string, articleId: string, facts: { key: string; value: unknown }[]) => Promise<void>;
   clearCurrentArticle: () => void;
@@ -35,6 +36,7 @@ export const articleSlice: StateCreator<StoreState, [['zustand/immer', never]], 
   currentArticleDetail: null,
   versions: [],
   pendingDraft: null,
+  drafts: [],
   metadataFacts: [],
   metadataSuggestedFields: [],
 
@@ -54,6 +56,7 @@ export const articleSlice: StateCreator<StoreState, [['zustand/immer', never]], 
       s.currentArticleDetail = null;
       s.versions = [];
       s.pendingDraft = null;
+      s.drafts = [];
     });
     const detail = await api.articles.get(worldId, articleId);
     set((s) => { s.currentArticleDetail = detail; });
@@ -66,10 +69,17 @@ export const articleSlice: StateCreator<StoreState, [['zustand/immer', never]], 
 
   checkDraft: async (worldId, articleId) => {
     try {
-      const draft = await api.articles.draft.get(worldId, articleId);
-      set((s) => { s.pendingDraft = draft; });
+      const drafts = await api.articles.draft.list(worldId, articleId, 'all');
+      const pendingDraft = drafts.find((draft) => draft.status === 'pending') ?? null;
+      set((s) => {
+        s.drafts = drafts;
+        s.pendingDraft = pendingDraft;
+      });
     } catch {
-      set((s) => { s.pendingDraft = null; });
+      set((s) => {
+        s.drafts = [];
+        s.pendingDraft = null;
+      });
     }
   },
 
@@ -99,8 +109,10 @@ export const articleSlice: StateCreator<StoreState, [['zustand/immer', never]], 
     });
   },
 
-  acceptDraft: async (worldId, articleId) => {
-    const result = await api.articles.draft.accept(worldId, articleId);
+  acceptDraft: async (worldId, articleId, draftId) => {
+    const result = draftId
+      ? await api.articles.draft.acceptById(worldId, articleId, draftId)
+      : await api.articles.draft.accept(worldId, articleId);
     set((s) => {
       const idx = s.articles.findIndex((a) => a.id === articleId);
       if (idx !== -1) s.articles[idx] = result.article;
@@ -118,15 +130,19 @@ export const articleSlice: StateCreator<StoreState, [['zustand/immer', never]], 
           s.articles[childIdx] = result.childArticle;
         }
       }
-      s.pendingDraft = null;
     });
+    await get().checkDraft(worldId, articleId);
     const currentWorldId = get().currentWorldId;
     if (currentWorldId) await get().loadBibleMeta(currentWorldId);
   },
 
-  discardDraft: async (worldId, articleId) => {
-    await api.articles.draft.discard(worldId, articleId);
-    set((s) => { s.pendingDraft = null; });
+  discardDraft: async (worldId, articleId, draftId) => {
+    if (draftId) {
+      await api.articles.draft.discardById(worldId, articleId, draftId);
+    } else {
+      await api.articles.draft.discard(worldId, articleId);
+    }
+    await get().checkDraft(worldId, articleId);
   },
 
   loadMetadataFacts: async (worldId, articleId) => {
@@ -148,6 +164,7 @@ export const articleSlice: StateCreator<StoreState, [['zustand/immer', never]], 
       s.currentArticleDetail = null;
       s.versions = [];
       s.pendingDraft = null;
+      s.drafts = [];
       s.metadataFacts = [];
       s.metadataSuggestedFields = [];
     });

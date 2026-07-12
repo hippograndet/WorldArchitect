@@ -74,7 +74,12 @@ export async function resolveItemContextPackage(
 ): Promise<ContextPackage> {
   const base = prebuilt ?? state.currentItemContextPackage;
   if (base) return { ...base, targetIntroduction: introduction };
-  return buildContextPackage(state.worldId, articleId, { mode: 'default', contextDepth: state.contextDepth });
+  return buildContextPackage(state.worldId, articleId, {
+    mode: 'default',
+    contextDepth: state.contextDepth,
+    contextBasis: state.contextBasis,
+    ownerId: state.ownerId,
+  });
 }
 
 export async function logEvent(state: Pick<ForgeState, 'runId' | 'worldId' | 'ownerId'>, step: string, title: string, ok: boolean, message?: string): Promise<void> {
@@ -173,6 +178,9 @@ export async function persistExpandDraft(params: {
   articleId: string;
   ownerId: string;
   description: string;
+  runId?: string;
+  contextBasis?: ForgeState['contextBasis'];
+  contextDraftIds?: string[];
 }): Promise<void> {
   await savePendingDraft({
     worldId: params.worldId,
@@ -181,6 +189,10 @@ export async function persistExpandDraft(params: {
     pipelineType: 'expand_description',
     phase: 'done',
     draftContent: { description: params.description },
-    matchPipelineType: true,
+    sourceRunId: params.runId,
+    runType: 'forge_expand',
+    contextBasis: params.contextBasis,
+    contextDraftIds: params.contextDraftIds,
+    displayTitle: 'Recursive Expand draft',
   });
 }

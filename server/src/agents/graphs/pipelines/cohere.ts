@@ -5,6 +5,7 @@ import { articleContract, contractState } from '../masContract.js';
 import { fetchWorldContextNode, buildContextPackageNode } from '../nodes/shared.js';
 import { wardenNode } from '../nodes/consolidate/cohere.js';
 import type { ContextDepth } from '../../../services/archivist.js';
+import type { DraftContextBasis } from '../../../services/draftsService.js';
 import type { CoherenceWarning, SuggestedLink } from '../../warden.js';
 
 const graph = new StateGraph(OrchestrationAnnotation)
@@ -22,6 +23,7 @@ export async function runCohereGraph(params: {
   ownerId?: string;
   articleId: string;
   contextDepth?: ContextDepth;
+  contextBasis?: DraftContextBasis;
   pipelineRunId?: string;
 }): Promise<{ warnings: CoherenceWarning[]; suggestedLinks: SuggestedLink[]; tokensIn: number; tokensOut: number }> {
   const result = await graph.invoke({
@@ -37,6 +39,7 @@ export async function runCohereGraph(params: {
       commitPolicy: 'no_commit',
     })),
     contextDepth: params.contextDepth ?? 'mid',
+    contextBasis: params.contextBasis ?? 'current',
   });
   return {
     warnings: result.warnings,

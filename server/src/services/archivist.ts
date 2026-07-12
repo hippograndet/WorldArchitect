@@ -1,4 +1,5 @@
 import { getDbClient } from '../db/client.js';
+import { findLatestPendingDraftRows, type DraftContextBasis } from './draftsService.js';
 import type {
   ArticleContextMode,
   ArticleContextSource,
@@ -44,6 +45,8 @@ export interface ContextPackage {
   referencedArticles: Array<{ id: string; title: string }>;
   dependencies?: ArticleDependencyReference[];
   metadataFacts?: ArticleMetadataFact[];
+  contextBasis?: DraftContextBasis;
+  contextDraftIds?: string[];
   estimatedTokens: number;
 }
 
@@ -58,6 +61,8 @@ export interface ArchivistOptions {
   mode?: ArchivistMode;
   maxTokens?: number;
   contextDepth?: ContextDepth;
+  contextBasis?: DraftContextBasis;
+  ownerId?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -94,6 +99,23 @@ function buildContextSource(row: Record<string, unknown>): ArticleContextSource 
     contextMode: toContextMode(status),
     authority: toAuthority(status),
   };
+}
+
+function parseDraftContent(row: Record<string, unknown> | undefined): Record<string, unknown> | null {
+  if (!row?.draft_content) return null;
+  try {
+    const parsed: unknown = JSON.parse(row.draft_content as string);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function draftString(content: Record<string, unknown> | null, key: string): string | undefined {
+  const value = content?.[key];
+  return typeof value === 'string' && value.trim() ? value : undefined;
 }
 
 const KNOWN_SUBJECT_TYPES = new Set<string>([
@@ -143,7 +165,7 @@ export async function buildContextPackage(
   options: ArchivistOptions = {},
 ): Promise<ContextPackage> {
   const exec = getDbClient();
-  const { mode = 'default', contextDepth = 'mid' } = options;
+  const { mode = 'default', contextDepth = 'mid', contextBasis = 'current' } = options;
 
   const budgetByDepth: Record<ContextDepth, number> = {
     shallow: 1500,
@@ -164,9 +186,9 @@ export async function buildContextPackage(
 
   if (!target) throw new Error(`Article ${articleId} not found in world ${worldId}`);
 
-  const targetDescription = (target.description as string) ?? '';
-  const targetChronology  = (target.chronology as string) ?? '';
-  const targetIntroduction = (target.introduction as string) ?? '';
+  let targetDescription = (target.description as string) ?? '';
+  let targetChronology  = (target.chronology as string) ?? '';
+  let targetIntroduction = (target.introduction as string) ?? '';
   const targetTitle = target.title as string;
   const targetTemplateType = target.template_type as string;
   const targetVersionId = (target.current_version_id as string | null) ?? null;
@@ -177,6 +199,70 @@ export async function buildContextPackage(
   const dependencies: ArticleDependencyReference[] = [];
 
   let budget = maxTokens;
+  const contextDraftIds = new Set<string>();
+  const latestDraftCache = new Map<string, Record<string, unknown> | undefined>();
+  const publishedVersionCache = new Map<string, { introduction: string; description: string; chronology: string } | undefined>();
+
+  const publishedVersionFor = async (targetArticleId: string): Promise<{ introduction: string; description: string; chronology: string } | undefined> => {
+    if (contextBasis !== 'published') return undefined;
+    if (publishedVersionCache.has(targetArticleId)) return publishedVersionCache.get(targetArticleId);
+    const row = await exec.get<{ introduction: string; description: string; chronology: string }>(
+      `SELECT introduction, description, chronology
+       FROM article_versions
+       WHERE article_id = ? AND is_published = 1
+       ORDER BY version_number DESC
+       LIMIT 1`,
+      [targetArticleId],
+    );
+    publishedVersionCache.set(targetArticleId, row);
+    return row;
+  };
+
+  const latestDraftFor = async (targetArticleId: string): Promise<Record<string, unknown> | undefined> => {
+    if (contextBasis !== 'latest_draft') return undefined;
+    if (latestDraftCache.has(targetArticleId)) return latestDraftCache.get(targetArticleId);
+    const rows = await findLatestPendingDraftRows({
+      worldId,
+      ownerId: options.ownerId,
+      articleIds: [targetArticleId],
+    });
+    const row = rows.get(targetArticleId);
+    latestDraftCache.set(targetArticleId, row);
+    if (row?.id) contextDraftIds.add(row.id as string);
+    return row;
+  };
+
+  const draftIntroductionFor = async (targetArticleId: string, fallback: string): Promise<string> => {
+    const published = await publishedVersionFor(targetArticleId);
+    if (published) return published.introduction ?? fallback;
+    const draft = await latestDraftFor(targetArticleId);
+    const content = parseDraftContent(draft);
+    return draftString(content, 'introduction') ?? draftString(content, 'childDescription') ?? fallback;
+  };
+
+  const draftDescriptionFor = async (targetArticleId: string, fallback: string): Promise<string> => {
+    const published = await publishedVersionFor(targetArticleId);
+    if (published) return published.description ?? fallback;
+    const draft = await latestDraftFor(targetArticleId);
+    const content = parseDraftContent(draft);
+    return draftString(content, 'description') ?? draftString(content, 'childDescription') ?? fallback;
+  };
+
+  if (contextBasis === 'published') {
+    const published = await publishedVersionFor(articleId);
+    if (published) targetChronology = published.chronology ?? targetChronology;
+  }
+
+  const contextSummaryFor = async (targetArticleId: string, fallback: string): Promise<string> => {
+    return draftIntroductionFor(targetArticleId, fallback);
+  };
+
+  const contextDescriptionFor = async (targetArticleId: string, fallback: string): Promise<string> => {
+    return draftDescriptionFor(targetArticleId, fallback);
+  };
+
+  targetIntroduction = await draftIntroductionFor(articleId, targetIntroduction);
+  targetDescription = await draftDescriptionFor(articleId, targetDescription);
 
   // reorganize: full description+chronology count against budget as read-only constraint
   if (mode === 'reorganize') budget -= est(targetDescription) + est(targetChronology);
@@ -193,7 +279,7 @@ export async function buildContextPackage(
       `SELECT av.description FROM articles a LEFT JOIN article_versions av ON av.id = a.current_version_id WHERE a.id = ?`,
       [articleRowId],
     );
-    return ver?.description ?? '';
+    return contextDescriptionFor(articleRowId, ver?.description ?? '');
   };
 
   /**
@@ -236,7 +322,7 @@ export async function buildContextPackage(
       );
 
       for (const r of rows) {
-        const summary = (r.summary as string) ?? '';
+        const summary = await contextSummaryFor(r.id as string, (r.summary as string) ?? '');
         const cost = est(`### ${r.title}\n${summary}\n`);
         if (budget - cost < 0) break;
         parents.push({ id: r.id as string, title: r.title as string, summary, source: buildContextSource(r) });
@@ -262,7 +348,7 @@ export async function buildContextPackage(
     );
 
     for (const r of rows) {
-      const summary = (r.summary as string) ?? '';
+      const summary = await contextSummaryFor(r.id as string, (r.summary as string) ?? '');
       const { description, cost } = await withDeepDescription(r, `### ${r.title}\n${summary}\n`, budget);
       if (budget - cost < 0) break;
       parents.push({ id: r.id as string, title: r.title as string, summary, description, source: buildContextSource(r) });
@@ -300,7 +386,7 @@ export async function buildContextPackage(
     );
 
     for (const r of [...before.reverse(), ...after]) {
-      const summary = (r.summary as string) ?? '';
+      const summary = await contextSummaryFor(r.id as string, (r.summary as string) ?? '');
       const cost = est(`### ${r.title}\n${summary}\n`);
       if (budget - cost < 0) break;
       temporalNeighbors.push({
@@ -329,7 +415,7 @@ export async function buildContextPackage(
     );
 
     for (const r of rows) {
-      const summary = (r.summary as string) ?? '';
+      const summary = await contextSummaryFor(r.id as string, (r.summary as string) ?? '');
       const { description, cost } = await withDeepDescription(r, `- ${r.title}: ${summary}\n`, budget);
       if (budget - cost < 0) break;
       children.push({ id: r.id as string, title: r.title as string, summary, description, source: buildContextSource(r) });
@@ -361,7 +447,7 @@ export async function buildContextPackage(
     );
 
     for (const r of siblingRows) {
-      const summary = (r.summary as string) ?? '';
+      const summary = await contextSummaryFor(r.id as string, (r.summary as string) ?? '');
       const { description, cost } = await withDeepDescription(r, `- ${r.title}: ${summary}\n`, budget);
       if (budget - cost < 0) break;
       siblings.push({ id: r.id as string, title: r.title as string, summary, description, source: buildContextSource(r) });
@@ -387,7 +473,7 @@ export async function buildContextPackage(
     );
 
     for (const r of fixedRows) {
-      const summary = (r.summary as string) ?? '';
+      const summary = await contextSummaryFor(r.id as string, (r.summary as string) ?? '');
       const cost = est(`### ${r.title}\n${summary}\n`);
       if (budget - cost < 0) break;
       fixedPoints.push({ id: r.id as string, title: r.title as string, summary, source: buildContextSource(r) });
@@ -436,6 +522,8 @@ export async function buildContextPackage(
     temporalNeighbors,
     referencedArticles,
     dependencies,
+    contextBasis,
+    contextDraftIds: [...contextDraftIds],
     estimatedTokens: maxTokens - budget,
   };
 }

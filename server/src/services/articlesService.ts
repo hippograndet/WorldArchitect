@@ -5,6 +5,7 @@ import { runSyncRules } from './syncRules.js';
 import { reindexArticle } from './searchIndex.js';
 import { GeneratedDraftContentSchema } from './articlesSchemas.js';
 import { pointArticleAtVersion, writeArticleVersion, writeArticleVersionAndSetCurrent } from './articleVersions.js';
+import { markDraftAccepted } from './draftsService.js';
 import {
   bodyToDescription,
   getNextVersionNumber,
@@ -64,6 +65,7 @@ export interface AcceptDraftInput {
   worldId: string;
   articleId: string;
   ownerId: string;
+  draftId?: string;
   descriptionOverride?: string;
   introductionOverride?: string;
   force?: boolean;
@@ -375,8 +377,27 @@ export async function acceptDraft(input: AcceptDraftInput) {
   assertNotOverwritingPublished(article, input.force);
   assertNotLocked(article, input.activeRunId);
 
-  const draft = await exec.get<DbRow>('SELECT * FROM pending_drafts WHERE article_id = ? AND owner_id = ?', [articleId, ownerId]);
-  if (!draft) throw new ArticleServiceError('No pending draft to accept', 400);
+  const draft = input.draftId
+    ? await exec.get<DbRow>(
+      `SELECT * FROM pending_drafts
+       WHERE id = ? AND article_id = ? AND owner_id = ? AND status = 'pending'`,
+      [input.draftId, articleId, ownerId],
+    )
+    : await exec.get<DbRow>(
+      `SELECT * FROM pending_drafts
+       WHERE article_id = ? AND owner_id = ? AND status = 'pending'
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [articleId, ownerId],
+    );
+  if (!draft) {
+    throw new ArticleServiceError(
+      input.draftId ? 'Draft not found' : 'No pending draft to accept',
+      input.draftId ? 404 : 400,
+      input.draftId ? 'NOT_FOUND' : undefined,
+    );
+  }
+  const draftId = draft.id as string;
 
   const draftContentParse = draft.draft_content
     ? GeneratedDraftContentSchema.safeParse(JSON.parse(draft.draft_content as string))
@@ -540,7 +561,7 @@ export async function acceptDraft(input: AcceptDraftInput) {
       `, [articleId, link.targetArticleId, ownerId]);
     }
 
-    await tx.run('DELETE FROM pending_drafts WHERE article_id = ? AND owner_id = ?', [articleId, ownerId]);
+    await markDraftAccepted({ worldId, articleId, ownerId, draftId, exec: tx });
   });
 
   await runSyncRules(worldId, articleId);

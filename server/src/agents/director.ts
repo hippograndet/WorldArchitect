@@ -4,6 +4,7 @@ import { ownerIdForWorld } from '../db/ownership.js';
 import { upsertEntry } from '../services/worldBible.js';
 import { reindexArticle } from '../services/searchIndex.js';
 import { type ContextDepth } from '../services/archivist.js';
+import type { DraftContextBasis } from '../services/draftsService.js';
 import { writeArticleVersion } from '../services/articleVersions.js';
 import type { Stub } from './architect.js';
 import type { MentionItem } from './scribe.js';
@@ -123,6 +124,7 @@ export interface ProposeOutput {
   ideas: IdeaItem[];
   autoSelectedIndices?: number[];
   autoSelectRationale?: string;
+  contextDraftIds?: string[];
   tokensIn: number;
   tokensOut: number;
 }
@@ -134,6 +136,7 @@ export interface ExpandOutput {
   styleCheck?: StyleWardenOutput;
   continuityCheck?: ContinuityEditorOutput;
   mentions?: MentionItem[];
+  contextDraftIds?: string[];
   tokensIn: number;
   tokensOut: number;
 }
@@ -154,6 +157,7 @@ export interface ReorganizeOutput {
   description: string;
   introduction: string;
   retentionIssues: RetentionIssue[];
+  contextDraftIds?: string[];
   tokensIn: number;
   tokensOut: number;
 }
@@ -255,9 +259,10 @@ export class PipelineCoordinator {
     userSpec?: string,
     autoSelect = false,
     contextDepth: ContextDepth = 'mid',
+    contextBasis: DraftContextBasis = 'current',
   ): Promise<ProposeOutput> {
     const ownerId = await ownerIdForWorld(getDbClient(), worldId);
-    return runProposeGraph({ worldId, ownerId, articleId, pipelineType, userSpec, autoSelect, contextDepth });
+    return runProposeGraph({ worldId, ownerId, articleId, pipelineType, userSpec, autoSelect, contextDepth, contextBasis });
   }
 
   // ---------------------------------------------------------------------------
@@ -275,10 +280,11 @@ export class PipelineCoordinator {
     coherenceCheckLevel = 0,
     safetyNet = false,
     wordCountPreset: 'short' | 'medium' | 'long' = 'medium',
+    contextBasis: DraftContextBasis = 'current',
   ): Promise<ExpandOutput> {
     const ownerId = await ownerIdForWorld(getDbClient(), worldId);
     return runExpandGraph({
-      worldId, ownerId, articleId, pipelineType, userSpec, contextDepth,
+      worldId, ownerId, articleId, pipelineType, userSpec, contextDepth, contextBasis,
       selectedIdeas, runStyleWarden, coherenceCheckLevel, safetyNet, wordCountPreset,
     });
   }
@@ -305,11 +311,12 @@ export class PipelineCoordinator {
     articleId: string,
     userSpec?: string,
     contextDepth: ContextDepth = 'mid',
+    contextBasis: DraftContextBasis = 'current',
     coherenceCheckLevel = 0,
     safetyNet = false,
   ): Promise<ProposeChildrenOutput> {
     const ownerId = await ownerIdForWorld(getDbClient(), worldId);
-    return runProposeChildrenGraph({ worldId, ownerId, articleId, userSpec, contextDepth, coherenceCheckLevel, safetyNet });
+    return runProposeChildrenGraph({ worldId, ownerId, articleId, userSpec, contextDepth, contextBasis, coherenceCheckLevel, safetyNet });
   }
 
   // ---------------------------------------------------------------------------
@@ -320,9 +327,10 @@ export class PipelineCoordinator {
     worldId: string,
     articleId: string,
     contextDepth: ContextDepth = 'mid',
+    contextBasis: DraftContextBasis = 'current',
   ): Promise<ReorganizeOutput> {
     const ownerId = await ownerIdForWorld(getDbClient(), worldId);
-    return runReorganizeGraph({ worldId, ownerId, articleId, contextDepth });
+    return runReorganizeGraph({ worldId, ownerId, articleId, contextDepth, contextBasis });
   }
 
   // ---------------------------------------------------------------------------
@@ -333,9 +341,10 @@ export class PipelineCoordinator {
     worldId: string,
     articleId: string,
     contextDepth: ContextDepth = 'mid',
+    contextBasis: DraftContextBasis = 'current',
   ): Promise<{ warnings: CoherenceWarning[]; suggestedLinks: SuggestedLink[]; tokensIn: number; tokensOut: number }> {
     const ownerId = await ownerIdForWorld(getDbClient(), worldId);
-    return runCohereGraph({ worldId, ownerId, articleId, contextDepth });
+    return runCohereGraph({ worldId, ownerId, articleId, contextDepth, contextBasis });
   }
 
   // ---------------------------------------------------------------------------

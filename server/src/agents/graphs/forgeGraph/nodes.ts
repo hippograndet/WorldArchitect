@@ -257,6 +257,9 @@ export async function expansionNode(state: ForgeState): Promise<Partial<ForgeSta
         articleId: item.articleId,
         ownerId: state.ownerId,
         description: acceptedDescription,
+        runId: state.runId,
+        contextBasis: state.contextBasis,
+        contextDraftIds: state.currentItemContextPackage?.contextDraftIds ?? [],
       });
       await acceptDraft({ worldId: state.worldId, articleId: item.articleId, ownerId: state.ownerId, activeRunId: state.runId });
       await logEvent(state, 'Expansion', item.title, true, 'Draft accepted and saved.');
@@ -283,7 +286,12 @@ export async function expansionNode(state: ForgeState): Promise<Partial<ForgeSta
     // Researcher/Scribe all otherwise rebuild the same 'default'-mode package
     // back-to-back with nothing in between to invalidate it.
     const contextPackage = state.currentItemContextPackage
-      ?? await buildContextPackage(state.worldId, item.articleId, { mode: 'default', contextDepth: state.contextDepth });
+      ?? await buildContextPackage(state.worldId, item.articleId, {
+        mode: 'default',
+        contextDepth: state.contextDepth,
+        contextBasis: state.contextBasis,
+        ownerId: state.ownerId,
+      });
 
     let selectedIdeas = selectedIdeasDecision(ideaDecision);
     if (!ideaDecision) {
@@ -294,6 +302,7 @@ export async function expansionNode(state: ForgeState): Promise<Partial<ForgeSta
         pipelineType: 'expand_description',
         autoSelect: !requiresUserReview(state),
         contextDepth: state.contextDepth,
+        contextBasis: state.contextBasis,
         pipelineRunId: state.runId,
         worldContext: state.worldContext,
         contextPackage,
@@ -325,6 +334,7 @@ export async function expansionNode(state: ForgeState): Promise<Partial<ForgeSta
       articleId: item.articleId,
       pipelineType: 'expand_description',
       contextDepth: state.contextDepth,
+      contextBasis: state.contextBasis,
       selectedIdeas,
       userSpec: state.forgeExpansionExistingMode === 'replace'
         ? 'Replace the current description completely. Do not preserve old wording unless it is required by established world facts.'
@@ -373,6 +383,9 @@ export async function expansionNode(state: ForgeState): Promise<Partial<ForgeSta
         articleId: item.articleId,
         ownerId: state.ownerId,
         description: acceptedDescription,
+        runId: state.runId,
+        contextBasis: state.contextBasis,
+        contextDraftIds: expandResult.contextDraftIds ?? contextPackage.contextDraftIds ?? [],
       });
       await acceptDraft({ worldId: state.worldId, articleId: item.articleId, ownerId: state.ownerId, activeRunId: state.runId });
       await logEvent(state, 'Expansion', item.title, true, 'Draft accepted and saved.');
@@ -384,6 +397,9 @@ export async function expansionNode(state: ForgeState): Promise<Partial<ForgeSta
       articleId: item.articleId,
       ownerId: state.ownerId,
       description: expandResult.description,
+      runId: state.runId,
+      contextBasis: state.contextBasis,
+      contextDraftIds: expandResult.contextDraftIds ?? contextPackage.contextDraftIds ?? [],
     });
 
     if (state.commitPolicy === 'auto_commit') {

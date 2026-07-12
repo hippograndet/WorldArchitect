@@ -18,7 +18,15 @@ import {
   revertArticleVersion,
   updateArticle,
 } from '../services/articlesService.js';
-import { discardPendingDraft, DraftServiceError, getPendingDraft, savePendingDraft } from '../services/draftsService.js';
+import {
+  discardDraftById,
+  discardPendingDraft,
+  DraftServiceError,
+  getDraftById,
+  getPendingDraft,
+  listDrafts,
+  savePendingDraft,
+} from '../services/draftsService.js';
 import articleGraphRoutes from './articleGraph.js';
 import articleIssuesRoutes from './articleIssues.js';
 import articleMetadataRoutes from './articleMetadata.js';
@@ -69,6 +77,11 @@ const SaveDraftSchema = z.object({
   parentUpdate: z
     .object({ articleId: z.string(), appendText: z.string() })
     .optional(),
+  sourceRunId: z.string().optional(),
+  runType: z.string().optional(),
+  contextBasis: z.enum(['current', 'latest_draft', 'published']).optional().default('current'),
+  contextDraftIds: z.array(z.string()).optional(),
+  displayTitle: z.string().optional(),
   // draftContent: flexible JSON blob stored by the Director; shape depends on pipelineType
   draftContent: GeneratedDraftContentSchema.optional(),
 });
@@ -78,6 +91,8 @@ const AcceptDraftSchema = z.object({
   introductionOverride: z.string().optional(),
   force: z.boolean().optional().default(false),
 });
+
+const DraftStatusQuerySchema = z.enum(['pending', 'accepted', 'discarded', 'all']).optional().default('pending');
 
 // ---------------------------------------------------------------------------
 // Article CRUD
@@ -238,6 +253,89 @@ router.post('/:aid/revert/:vid', asyncHandler(async (req, res) => {
 // ---------------------------------------------------------------------------
 // Drafts
 // ---------------------------------------------------------------------------
+
+// GET /api/worlds/:wid/articles/:aid/drafts — list draft bundles
+router.get('/:aid/drafts', asyncHandler(async (req, res) => {
+  const tenant = requireTenantContext(req);
+  const status = DraftStatusQuerySchema.parse((req.query as Record<string, string | undefined>).status);
+  try {
+    res.json(await listDrafts({ ...tenant, articleId: (req.params as Record<string, string>).aid, status }));
+  } catch (err) {
+    if (err instanceof DraftServiceError) {
+      res.status(err.status).json({ error: err.message, ...(err.code ? { code: err.code } : {}) });
+      return;
+    }
+    throw err;
+  }
+}));
+
+// GET /api/worlds/:wid/articles/:aid/drafts/:draftId — one draft bundle
+router.get('/:aid/drafts/:draftId', asyncHandler(async (req, res) => {
+  const tenant = requireTenantContext(req);
+  try {
+    res.json(await getDraftById({
+      ...tenant,
+      articleId: (req.params as Record<string, string>).aid,
+      draftId: (req.params as Record<string, string>).draftId,
+    }));
+  } catch (err) {
+    if (err instanceof DraftServiceError) {
+      res.status(err.status).json({ error: err.message, ...(err.code ? { code: err.code } : {}) });
+      return;
+    }
+    throw err;
+  }
+}));
+
+// POST /api/worlds/:wid/articles/:aid/drafts/:draftId/accept — commit one draft bundle
+router.post('/:aid/drafts/:draftId/accept', asyncHandler(async (req, res) => {
+  const parse = AcceptDraftSchema.safeParse(req.body ?? {});
+  if (!parse.success) {
+    res.status(400).json({ error: parse.error.flatten().fieldErrors });
+    return;
+  }
+
+  const { worldId, ownerId } = requireTenantContext(req);
+  try {
+    const result = await acceptDraft({
+      worldId,
+      articleId: (req.params as Record<string, string>).aid,
+      draftId: (req.params as Record<string, string>).draftId,
+      ownerId,
+      ...parse.data,
+    });
+    res.status(201).json(result);
+  } catch (err) {
+    if (err instanceof ArticleServiceError) {
+      res.status(err.status).json({
+        error: err.message,
+        ...(err.code ? { code: err.code } : {}),
+        ...(err.details ? { details: err.details } : {}),
+      });
+      return;
+    }
+    throw err;
+  }
+}));
+
+// POST /api/worlds/:wid/articles/:aid/drafts/:draftId/discard — mark one draft discarded
+router.post('/:aid/drafts/:draftId/discard', asyncHandler(async (req, res) => {
+  const tenant = requireTenantContext(req);
+  try {
+    await discardDraftById({
+      ...tenant,
+      articleId: (req.params as Record<string, string>).aid,
+      draftId: (req.params as Record<string, string>).draftId,
+    });
+    res.status(204).send();
+  } catch (err) {
+    if (err instanceof DraftServiceError) {
+      res.status(err.status).json({ error: err.message, ...(err.code ? { code: err.code } : {}) });
+      return;
+    }
+    throw err;
+  }
+}));
 
 // GET /api/worlds/:wid/articles/:aid/draft — crash recovery
 router.get('/:aid/draft', asyncHandler(async (req, res) => {

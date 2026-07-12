@@ -17,8 +17,11 @@ const mockApi = vi.hoisted(() => ({
     },
     draft: {
       get: vi.fn(),
+      list: vi.fn(),
       accept: vi.fn(),
+      acceptById: vi.fn(),
       discard: vi.fn(),
+      discardById: vi.fn(),
     },
   },
   bible: {
@@ -111,6 +114,13 @@ const articleDetail = {
 const pendingDraft = {
   id: 'draft1',
   articleId: 'art1',
+  worldId: 'w1',
+  status: 'pending' as const,
+  sourceRunId: null,
+  runType: 'expand_description',
+  contextBasis: 'current' as const,
+  contextDraftIds: [],
+  displayTitle: 'Expansion draft',
   selectedProposal: null,
   pipelineType: 'expand_description',
   autoSelect: false,
@@ -122,6 +132,7 @@ const pendingDraft = {
   draftContent: { description: 'New content.', coherenceWarnings: [], suggestedLinks: [] },
   createdAt: 1000,
   updatedAt: 1000,
+  resolvedAt: null,
 };
 
 // ---------------------------------------------------------------------------
@@ -231,15 +242,17 @@ describe('loadVersions', () => {
 
 describe('checkDraft', () => {
   it('sets pendingDraft when draft exists', async () => {
-    mockApi.articles.draft.get.mockResolvedValue(pendingDraft);
+    mockApi.articles.draft.list.mockResolvedValue([pendingDraft]);
     await S().checkDraft('w1', 'art1');
     expect(S().pendingDraft).toEqual(pendingDraft);
+    expect(S().drafts).toEqual([pendingDraft]);
   });
 
   it('sets pendingDraft to null when api throws (404 / no draft)', async () => {
-    mockApi.articles.draft.get.mockRejectedValue(new Error('Not found'));
+    mockApi.articles.draft.list.mockRejectedValue(new Error('Not found'));
     await S().checkDraft('w1', 'art1');
     expect(S().pendingDraft).toBeNull();
+    expect(S().drafts).toEqual([]);
   });
 
   it('does not propagate errors from the api', async () => {

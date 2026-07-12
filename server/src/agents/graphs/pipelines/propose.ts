@@ -5,6 +5,7 @@ import { fetchWorldContextNode, buildContextPackageNode } from '../nodes/shared.
 import { museProposeNode, curatorAutoSelectNode } from '../nodes/expand/propose.js';
 import { articleContract, contractState, proposalIntent } from '../masContract.js';
 import type { ContextDepth, ContextPackage } from '../../../services/archivist.js';
+import type { DraftContextBasis } from '../../../services/draftsService.js';
 import type { ProposalMode } from '../../../prompts/proposal.js';
 import type { IdeaItem } from '../../muse.js';
 import type { WorldContext } from '../../director.js';
@@ -26,6 +27,7 @@ export interface ProposeGraphOutput {
   ideas: IdeaItem[];
   autoSelectedIndices?: number[];
   autoSelectRationale?: string;
+  contextDraftIds: string[];
   tokensIn: number;
   tokensOut: number;
 }
@@ -38,6 +40,7 @@ export async function runProposeGraph(params: {
   userSpec?: string;
   autoSelect?: boolean;
   contextDepth?: ContextDepth;
+  contextBasis?: DraftContextBasis;
   pipelineRunId?: string;
   worldContext?: WorldContext;
   contextPackage?: ContextPackage;
@@ -59,6 +62,7 @@ export async function runProposeGraph(params: {
     userSpec: params.userSpec,
     autoSelect: params.autoSelect ?? false,
     contextDepth: params.contextDepth ?? 'mid',
+    contextBasis: params.contextBasis ?? 'current',
     ...(params.worldContext ? { worldContext: params.worldContext } : {}),
     ...(params.contextPackage ? { contextPackage: params.contextPackage } : {}),
     ...(params.researchBrief ? { researchBrief: params.researchBrief } : {}),
@@ -68,6 +72,7 @@ export async function runProposeGraph(params: {
     ideas: result.ideas,
     autoSelectedIndices: result.autoSelectedIndices,
     autoSelectRationale: result.autoSelectRationale,
+    contextDraftIds: result.contextPackage?.contextDraftIds ?? [],
     tokensIn: result.tokensIn,
     tokensOut: result.tokensOut,
   };

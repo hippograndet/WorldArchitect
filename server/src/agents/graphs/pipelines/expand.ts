@@ -6,6 +6,7 @@ import { researcherNode } from '../nodes/expand/research.js';
 import { scribeNode, lorekeeperSummarizeAfterExpandNode, styleWardenNode } from '../nodes/expand/draft.js';
 import { articleContract, contractState, expanderIntent } from '../masContract.js';
 import type { ContextDepth, ArchivistMode, ContextPackage } from '../../../services/archivist.js';
+import type { DraftContextBasis } from '../../../services/draftsService.js';
 import type { ExpanderMode } from '../../../prompts/expander.js';
 import type { IdeaItem } from '../../muse.js';
 import type { ResearchBrief } from '../../scribe.js';
@@ -35,6 +36,7 @@ export interface ExpandGraphOutput {
   parentUpdate?: { appendText: string };
   styleCheck?: StyleWardenOutput;
   continuityCheck?: ContinuityEditorOutput;
+  contextDraftIds: string[];
   tokensIn: number;
   tokensOut: number;
 }
@@ -46,6 +48,7 @@ export async function runExpandGraph(params: {
   pipelineType: ExpanderMode;
   userSpec?: string;
   contextDepth?: ContextDepth;
+  contextBasis?: DraftContextBasis;
   selectedIdeas?: IdeaItem[];
   runStyleWarden?: boolean;
   coherenceCheckLevel?: number;
@@ -80,6 +83,7 @@ export async function runExpandGraph(params: {
     expanderMode: params.pipelineType,
     userSpec: params.userSpec,
     contextDepth: params.contextDepth ?? 'mid',
+    contextBasis: params.contextBasis ?? 'current',
     contextMode,
     selectedIdeas: params.selectedIdeas,
     runStyleWarden: params.runStyleWarden ?? false,
@@ -97,6 +101,7 @@ export async function runExpandGraph(params: {
     ...(result.parentUpdate ? { parentUpdate: result.parentUpdate } : {}),
     ...(result.styleCheck ? { styleCheck: result.styleCheck } : {}),
     ...(result.continuityCheck ? { continuityCheck: result.continuityCheck } : {}),
+    contextDraftIds: result.contextPackage?.contextDraftIds ?? [],
     tokensIn: result.tokensIn,
     tokensOut: result.tokensOut,
   };

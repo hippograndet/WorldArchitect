@@ -6,6 +6,7 @@ import { fetchWorldContextNode, buildContextPackageNode } from '../nodes/shared.
 import { scribeNode } from '../nodes/expand/draft.js';
 import { sentinelNode, lorekeeperSummarizeUnconditionalNode } from '../nodes/consolidate/reorganize.js';
 import type { ContextDepth } from '../../../services/archivist.js';
+import type { DraftContextBasis } from '../../../services/draftsService.js';
 import type { RetentionIssue } from '../../sentinel.js';
 
 const graph = new StateGraph(OrchestrationAnnotation)
@@ -26,6 +27,7 @@ export interface ReorganizeGraphOutput {
   description: string;
   introduction: string;
   retentionIssues: RetentionIssue[];
+  contextDraftIds: string[];
   tokensIn: number;
   tokensOut: number;
 }
@@ -35,6 +37,7 @@ export async function runReorganizeGraph(params: {
   ownerId?: string;
   articleId: string;
   contextDepth?: ContextDepth;
+  contextBasis?: DraftContextBasis;
   pipelineRunId?: string;
 }): Promise<ReorganizeGraphOutput> {
   const result = await graph.invoke({
@@ -50,6 +53,7 @@ export async function runReorganizeGraph(params: {
       commitPolicy: 'pending_draft',
     })),
     contextDepth: params.contextDepth ?? 'mid',
+    contextBasis: params.contextBasis ?? 'current',
     contextMode: 'reorganize',
     expanderMode: 'reorganize',
   });
@@ -58,6 +62,7 @@ export async function runReorganizeGraph(params: {
     description: result.description!,
     introduction: result.introduction!,
     retentionIssues: result.retentionIssues,
+    contextDraftIds: result.contextPackage?.contextDraftIds ?? [],
     tokensIn: result.tokensIn,
     tokensOut: result.tokensOut,
   };

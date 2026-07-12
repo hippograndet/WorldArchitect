@@ -1,5 +1,6 @@
 import { Annotation } from '@langchain/langgraph';
 import type { ContextDepth, ContextPackage } from '../../services/archivist.js';
+import type { DraftContextBasis } from '../../services/draftsService.js';
 import type { AutonomyMode, CommitPolicy, MasContract, MasIntent, MasLocation, ReviewPolicy } from './masContract.js';
 import type { WorldContext } from '../director.js';
 import type { ResearchBrief } from '../scribe.js';
@@ -42,6 +43,7 @@ export const ForgeAnnotation = Annotation.Root({
   /** Fetched once in startForgeRun and reused for every article — world-level metadata can't change mid-run. */
   worldContext: Annotation<WorldContext | undefined>({ reducer: replace, default: () => undefined }),
   contextDepth: Annotation<ContextDepth>({ reducer: replace, default: () => 'mid' }),
+  contextBasis: Annotation<DraftContextBasis>({ reducer: replace, default: () => 'current' }),
   branchingMode: Annotation<'specific' | 'conceptual'>({ reducer: replace, default: () => 'conceptual' }),
   forgeMode: Annotation<'breadth' | 'depth'>({ reducer: replace, default: () => 'breadth' }),
   forgeMaxDepth: Annotation<number>({ reducer: replace, default: () => 2 }),

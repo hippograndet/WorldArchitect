@@ -82,6 +82,7 @@ export interface RunEstimateRequest {
   maxDepth?: number;
   maxChildren?: number;
   contextDepth?: ContextDepth;
+  contextBasis?: DraftContextBasis;
   coherenceCheckLevel?: number;
   safetyNet?: boolean;
   runStyleWarden?: boolean;
@@ -95,6 +96,9 @@ export interface RunEstimateResponse {
   estimatedTokens?: number;
   notes: string[];
 }
+
+export type DraftContextBasis = 'current' | 'latest_draft' | 'published';
+export type DraftStatusFilter = 'pending' | 'accepted' | 'discarded' | 'all';
 
 function parseDownloadFilename(contentDisposition: string | null): string | null {
   if (!contentDisposition) return null;
@@ -168,9 +172,17 @@ export const api = {
 
     draft: {
       get:     (wid: string, aid: string)              => get<PendingDraft | null>(`/worlds/${wid}/articles/${aid}/draft`),
+      list:    (wid: string, aid: string, status: DraftStatusFilter = 'pending') =>
+        get<PendingDraft[]>(`/worlds/${wid}/articles/${aid}/drafts?status=${encodeURIComponent(status)}`),
+      getById: (wid: string, aid: string, draftId: string) =>
+        get<PendingDraft>(`/worlds/${wid}/articles/${aid}/drafts/${draftId}`),
       accept:  (wid: string, aid: string, input?: { descriptionOverride?: string; introductionOverride?: string }) =>
         post<AcceptDraftResult>(`/worlds/${wid}/articles/${aid}/accept`, input ?? {}),
+      acceptById: (wid: string, aid: string, draftId: string, input?: { descriptionOverride?: string; introductionOverride?: string }) =>
+        post<AcceptDraftResult>(`/worlds/${wid}/articles/${aid}/drafts/${draftId}/accept`, input ?? {}),
       discard: (wid: string, aid: string)              => del(`/worlds/${wid}/articles/${aid}/draft`),
+      discardById: (wid: string, aid: string, draftId: string) =>
+        post<void>(`/worlds/${wid}/articles/${aid}/drafts/${draftId}/discard`, {}),
     },
 
     batch: (wid: string, input: {
@@ -213,16 +225,18 @@ export const api = {
       post<{ estimatedTokens: number }>(`/worlds/${wid}/agents/estimate`, extra ?? {}),
     propose: (wid: string, input: {
       articleId: string; pipelineType: string; userSpec?: string;
-      autoSelect?: boolean; contextDepth?: ContextDepth;
+      autoSelect?: boolean; contextDepth?: ContextDepth; contextBasis?: DraftContextBasis;
     }) => post<{
       ideas: IdeaItem[];
       autoSelectedIndices?: number[];
       autoSelectRationale?: string;
+      contextDraftIds?: string[];
     }>(`/worlds/${wid}/agents/propose`, input),
     expand: (wid: string, input: {
       articleId: string; pipelineType: string;
       selectedIdeas?: IdeaItem[];
       userSpec?: string; contextDepth?: ContextDepth;
+      contextBasis?: DraftContextBasis;
       runStyleWarden?: boolean;
       coherenceCheckLevel?: number;
       safetyNet?: boolean;
@@ -232,20 +246,23 @@ export const api = {
       introduction?: string;
       parentUpdate?: { appendText: string };
       styleCheck?: StyleWardenResult;
+      draft?: PendingDraft;
     }>(`/worlds/${wid}/agents/expand`, input),
     proposeChildren: (wid: string, input: {
       articleId: string; contextDepth?: ContextDepth; userSpec?: string;
+      contextBasis?: DraftContextBasis;
       coherenceCheckLevel?: number; safetyNet?: boolean;
     }) =>
       post<{ proposals: import('../types/agent.ts').ChildProposal[] }>(`/worlds/${wid}/agents/propose-children`, input),
     summarize: (wid: string, input: { articleId: string; mode?: import('../types/agent.ts').SummarizerMode }) =>
       post<{ introduction: string }>(`/worlds/${wid}/agents/summarize`, input),
-    reorganize: (wid: string, input: { articleId: string; userSpec?: string; contextDepth?: ContextDepth }) =>
+    reorganize: (wid: string, input: { articleId: string; userSpec?: string; contextDepth?: ContextDepth; contextBasis?: DraftContextBasis }) =>
       post<{
         description: string; introduction: string;
         retentionIssues: { description: string; severity: 'warning' | 'critical' }[];
+        draft?: PendingDraft;
       }>(`/worlds/${wid}/agents/reorganize`, input),
-    cohere: (wid: string, input: { articleId: string; contextDepth?: ContextDepth }) =>
+    cohere: (wid: string, input: { articleId: string; contextDepth?: ContextDepth; contextBasis?: DraftContextBasis }) =>
       post<{
         warnings: CoherenceWarning[];
         suggestedLinks: { targetArticleTitle: string; targetArticleId: string | null }[];

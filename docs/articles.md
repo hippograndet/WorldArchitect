@@ -12,7 +12,7 @@ An **article version** is a saved content revision for one article. Versions sto
 
 A **current version** is the version pointed to by `articles.current_version_id`. Normal reads and agent context use the current version today.
 
-A **pending draft** is a temporary generated draft waiting for user review. Pending drafts are not canonical article content. Accepting a draft creates article versions and then deletes the pending draft.
+A **draft bundle** is a generated review unit for one article. Multiple pending bundles can exist when the user reruns Expand before accepting earlier output. Accepted and discarded bundles remain in draft history, but only pending bundles can be accepted.
 
 A **World Bible entry** is a concise summary used for context and continuity. It is updated when article introductions or summaries change.
 
@@ -36,20 +36,28 @@ Today, the app mostly treats `current_version_id` as the active working state. P
 
 ## Draft Acceptance
 
-Accepting a pending draft is a controlled write:
+Accepting a draft bundle is a controlled write:
 
 - The generated draft payload is validated.
 - A new article version is created for normal article expansion.
 - For `create_child`, a child article and child version are created.
 - Optional parent append text creates a new parent version.
 - Suggested links, warnings, and World Bible updates are written. Inferred concept mentions are handled later through Consolidate scans.
-- The pending draft is deleted after a successful accept.
+- The accepted bundle is marked as history after a successful accept; other pending bundles for the article are left alone.
 - Sync rules run after the commit.
 
 The public accept endpoint remains:
 
 ```text
 POST /api/worlds/:wid/articles/:aid/accept
+```
+
+New draft-id routes are used by the app for deterministic review:
+
+```text
+GET  /api/worlds/:wid/articles/:aid/drafts?status=pending|accepted|discarded|all
+POST /api/worlds/:wid/articles/:aid/drafts/:draftId/accept
+POST /api/worlds/:wid/articles/:aid/drafts/:draftId/discard
 ```
 
 Normal accept returns:

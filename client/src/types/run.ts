@@ -16,6 +16,7 @@ export interface RunConfig {
   startStep?: 'inception' | 'expansion' | 'branching';
   budgetLimit?: number;
   contextDepth?: 'shallow' | 'mid' | 'deep';
+  contextBasis?: 'current' | 'latest_draft' | 'published';
   branchingMode?: 'conceptual' | 'specific';
   forgeMode?: 'breadth' | 'depth';
   forgeMaxDepth?: number;

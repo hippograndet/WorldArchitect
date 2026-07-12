@@ -5,6 +5,7 @@ import { articleContract, contractState } from '../masContract.js';
 import { fetchWorldContextNode, buildContextPackageNode } from '../nodes/shared.js';
 import { cartographerNode } from '../nodes/expand/branching.js';
 import type { ContextDepth } from '../../../services/archivist.js';
+import type { DraftContextBasis } from '../../../services/draftsService.js';
 import type { ChildProposalItem } from '../../cartographer.js';
 import type { DedupCheckOutput } from '../../dedupCheck.js';
 import type { WorldContext } from '../../director.js';
@@ -26,6 +27,7 @@ export async function runProposeChildrenGraph(params: {
   articleId: string;
   userSpec?: string;
   contextDepth?: ContextDepth;
+  contextBasis?: DraftContextBasis;
   coherenceCheckLevel?: number;
   safetyNet?: boolean;
   pipelineRunId?: string;
@@ -51,6 +53,7 @@ export async function runProposeChildrenGraph(params: {
     })),
     userSpec: params.userSpec,
     contextDepth: params.contextDepth ?? 'mid',
+    contextBasis: params.contextBasis ?? 'current',
     contextMode: 'propose_children',
     coherenceCheckLevel: params.coherenceCheckLevel ?? 0,
     safetyNet: params.safetyNet ?? false,
