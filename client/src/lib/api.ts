@@ -56,6 +56,47 @@ export interface ProviderSettingsResponse {
   ollama: { url: string; urlSource: 'app' | 'env' | 'unset'; model: string };
 }
 
+export interface AgentCostProfile {
+  agentType: string;
+  tools: string[];
+  toolCategory: 'none' | 'lookup' | 'narrow' | 'full';
+  maxIterations: number;
+  outputMode: 'tool' | 'text';
+  maxTokens: number;
+  callRange: { min: number; max: number };
+  note: string;
+}
+
+export interface PipelineCostTemplate {
+  pipeline: string;
+  steps: Array<{ agentType: string; min: number; max: number; optional?: boolean }>;
+  notes: string[];
+}
+
+export interface RunEstimateRequest {
+  articleId?: string;
+  startStep: 'inception' | 'expansion' | 'branching';
+  continuationMode: 'one_step' | 'finish_document' | 'recursive';
+  validationLevel: 'manual' | 'assisted' | 'autopilot';
+  maxDepth?: number;
+  maxChildren?: number;
+  contextDepth?: ContextDepth;
+  runOracle?: boolean;
+  runContinuityEditor?: boolean;
+  runGroundingCheck?: boolean;
+  runDedupCheck?: boolean;
+  runStyleWarden?: boolean;
+}
+
+export interface RunEstimateResponse {
+  documents: number;
+  queueItems: number;
+  calls: { min: number; max: number };
+  byAgent: Array<{ agentType: string; min: number; max: number }>;
+  estimatedTokens?: number;
+  notes: string[];
+}
+
 function parseDownloadFilename(contentDisposition: string | null): string | null {
   if (!contentDisposition) return null;
   const match = contentDisposition.match(/filename="([^"]+)"/i) ?? contentDisposition.match(/filename=([^;]+)/i);
@@ -162,6 +203,10 @@ export const api = {
   },
 
   agents: {
+    costProfile: (wid: string) =>
+      get<{ agents: AgentCostProfile[]; pipelines: PipelineCostTemplate[] }>(`/worlds/${wid}/agents/cost-profile`),
+    estimateRun: (wid: string, input: RunEstimateRequest) =>
+      post<RunEstimateResponse>(`/worlds/${wid}/agents/estimate-run`, input),
     estimate: (wid: string, extra?: { extraText?: string }) =>
       post<{ estimatedTokens: number }>(`/worlds/${wid}/agents/estimate`, extra ?? {}),
     propose: (wid: string, input: {

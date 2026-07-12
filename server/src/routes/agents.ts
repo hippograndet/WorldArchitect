@@ -10,6 +10,7 @@ import { requireTenantContext } from '../tenant.js';
 import { recordArticleIssues, recordWorldIssues, recordProposedLinks } from '../services/issueRecorder.js';
 import { assertArticleUnlocked } from '../services/runsService.js';
 import { savePendingDraft } from '../services/draftsService.js';
+import { getAgentCostProfiles, getPipelineTemplates, estimateRun, RunEstimateRequestSchema } from '../agents/costModel.js';
 import type { Request, Response, NextFunction } from 'express';
 
 const router = Router({ mergeParams: true });
@@ -30,6 +31,27 @@ const checkCap = asyncHandler(async (req: Request, res: Response, next: NextFunc
   }
   next();
 });
+
+// ---------------------------------------------------------------------------
+// GET /api/worlds/:wid/agents/cost-profile
+// ---------------------------------------------------------------------------
+
+router.get('/cost-profile', asyncHandler(async (_req, res) => {
+  res.json({
+    agents: getAgentCostProfiles(),
+    pipelines: getPipelineTemplates(),
+  });
+}));
+
+// ---------------------------------------------------------------------------
+// POST /api/worlds/:wid/agents/estimate-run
+// ---------------------------------------------------------------------------
+
+router.post('/estimate-run', asyncHandler(async (req, res) => {
+  const parse = RunEstimateRequestSchema.safeParse(req.body ?? {});
+  if (!parse.success) throw new AppError(400, 'VALIDATION_ERROR', 'Invalid request', parse.error.flatten().fieldErrors);
+  res.json(estimateRun(parse.data));
+}));
 
 // ---------------------------------------------------------------------------
 // POST /api/worlds/:wid/agents/estimate

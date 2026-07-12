@@ -53,6 +53,14 @@ function providerErrorMessage(err: unknown): string {
 
 const MAX_ITERATIONS = 10;
 
+export interface AgentRuntimeCostProfile {
+  agentType: string;
+  tools: string[];
+  maxIterations: number;
+  outputMode: 'tool' | 'text';
+  maxTokens: number;
+}
+
 /**
  * Optional, structured data an agent may leave alongside its main output —
  * dependencies it noticed, metadata changes it wants to propose, coherence
@@ -114,6 +122,16 @@ export abstract class BaseAgent<TInput, TOutput> {
 
   /** Override for long-form prose agents that should finish from assistant text. */
   protected getOutputMode(): 'tool' | 'text' { return 'tool'; }
+
+  describeCostProfile(): AgentRuntimeCostProfile {
+    return {
+      agentType: this.agentType,
+      tools: this.getContextTools().map((tool) => tool.name),
+      maxIterations: this.getMaxIterations(),
+      outputMode: this.getOutputMode(),
+      maxTokens: this.getMaxTokens(),
+    };
+  }
 
   /** Override when getOutputMode() returns 'text'. */
   protected parseTextOutput(content: string): TOutput {

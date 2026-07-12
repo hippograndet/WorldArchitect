@@ -3,6 +3,7 @@ import { ArrowUp, Code2, GitBranch, PanelRightClose, PanelRightOpen, Play, Rotat
 import { useParams, useSearchParams } from 'react-router-dom';
 import { useStore } from '../stores/index.ts';
 import { api } from '../lib/api.ts';
+import type { RunEstimateResponse } from '../lib/api.ts';
 import type { TreeNode } from '../lib/tree.ts';
 import type { PipelineType } from '../stores/agentSlice.ts';
 import type { Run, RunAgentCall, RunConfig, RunLlmTrace, RunReviewItem, RunWithEvents } from '../types/run.ts';
@@ -168,15 +169,6 @@ function flattenTree(nodes: TreeNode[]): FlatNode[] {
   };
   walk(nodes);
   return out;
-}
-
-function estimateRecursiveScope(maxChildren: number, maxDepth: number): number {
-  const branchFactor = maxChildren > 0 ? maxChildren : 5;
-  let total = 1;
-  for (let depth = 1; depth <= maxDepth; depth += 1) {
-    total += Math.pow(branchFactor, depth);
-  }
-  return total;
 }
 
 function countWords(text: string): number {
@@ -812,6 +804,7 @@ export default function ExpandPage() {
   const [clearingRuns, setClearingRuns] = useState(false);
   const [autoSelectRuns, setAutoSelectRuns] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(true);
+  const [runEstimate, setRunEstimate] = useState<RunEstimateResponse | null>(null);
   const startArticleId = searchParams.get('start');
 
   useEffect(() => {
@@ -926,19 +919,58 @@ export default function ExpandPage() {
 
   const activeRun = runs.find((run) => run.status === 'running' || run.status === 'pending' || run.status === 'needs_input' || run.status === 'paused') ?? null;
   const oracleEnabled = isForgeRun && validationLevel !== 'manual';
-  const mandatoryQualityChecks = isForgeRun ? 3 : 0;
-  const qualityChecks = mandatoryQualityChecks + (oracleEnabled ? 1 : 0);
   const runDepth = isRecursive ? agentParams.forgeMaxDepth : 1;
-  const effectiveScopeArticles = isRecursive
-    ? estimateRecursiveScope(agentParams.forgeMaxChildren, runDepth)
-    : 1;
-  const callsPerDocument = selectedSteps.reduce((total, step) => (
-    total + (step === 'expansion' ? 3 : 1)
-  ), 0);
-  const estimatedCalls = Math.max(1, effectiveScopeArticles * (callsPerDocument + qualityChecks));
-  const estimatedTokensK = Math.max(1, Math.round(estimatedCalls * (agentParams.contextDepth === 'deep' ? 1.6 : agentParams.contextDepth === 'mid' ? 1.1 : 0.7)));
-  const estimatedDocuments = effectiveScopeArticles;
-  const estimatedQueueItems = effectiveScopeArticles;
+  const estimatedDocuments = runEstimate?.documents ?? 1;
+  const estimatedQueueItems = runEstimate?.queueItems ?? 1;
+  const estimatedCallsLabel = runEstimate
+    ? runEstimate.calls.min === runEstimate.calls.max
+      ? `~${runEstimate.calls.max.toLocaleString()}`
+      : `${runEstimate.calls.min.toLocaleString()}-${runEstimate.calls.max.toLocaleString()}`
+    : '...';
+  const estimatedTokensK = runEstimate?.estimatedTokens
+    ? Math.max(1, Math.round(runEstimate.estimatedTokens / 1000))
+    : null;
+
+  useEffect(() => {
+    if (!wid || !selectedNode) {
+      setRunEstimate(null);
+      return;
+    }
+    let cancelled = false;
+    api.agents.estimateRun(wid, {
+      articleId: selectedNode.id,
+      startStep,
+      continuationMode,
+      validationLevel,
+      maxDepth: runDepth,
+      maxChildren: agentParams.forgeMaxChildren,
+      contextDepth: agentParams.contextDepth,
+      runOracle: oracleEnabled,
+      runContinuityEditor: isForgeRun,
+      runGroundingCheck: isForgeRun,
+      runDedupCheck: isForgeRun,
+      runStyleWarden: false,
+    })
+      .then((estimate) => {
+        if (!cancelled) setRunEstimate(estimate);
+      })
+      .catch((err) => {
+        console.error(err);
+        if (!cancelled) setRunEstimate(null);
+      });
+    return () => { cancelled = true; };
+  }, [
+    wid,
+    selectedNode,
+    startStep,
+    continuationMode,
+    validationLevel,
+    runDepth,
+    agentParams.forgeMaxChildren,
+    agentParams.contextDepth,
+    oracleEnabled,
+    isForgeRun,
+  ]);
 
   const handleStart = async () => {
     if (!wid || !selectedNode) return;
@@ -1719,11 +1751,11 @@ export default function ExpandPage() {
               </div>
               <div className="rounded-lg border border-gray-200 bg-gray-50 p-2">
                 <p className="text-[10px] uppercase tracking-wide text-gray-400">Calls</p>
-                <p className="text-sm font-semibold text-gray-900 mt-0.5">~{estimatedCalls.toLocaleString()}</p>
+                <p className="text-sm font-semibold text-gray-900 mt-0.5">{estimatedCallsLabel}</p>
               </div>
               <div className="rounded-lg border border-gray-200 bg-gray-50 p-2">
                 <p className="text-[10px] uppercase tracking-wide text-gray-400">Tokens</p>
-                <p className="text-sm font-semibold text-gray-900 mt-0.5">~{estimatedTokensK}k</p>
+                <p className="text-sm font-semibold text-gray-900 mt-0.5">{estimatedTokensK ? `~${estimatedTokensK}k` : '...'}</p>
               </div>
             </div>
           </div>

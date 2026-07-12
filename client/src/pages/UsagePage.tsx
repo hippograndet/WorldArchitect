@@ -2,8 +2,7 @@ import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useStore } from '../stores/index.ts';
 import { api } from '../lib/api.ts';
-import type { ProviderSettingsResponse } from '../lib/api.ts';
-import { AGENT_COST_MODEL } from '../lib/agentCostModel.ts';
+import type { AgentCostProfile, ProviderSettingsResponse } from '../lib/api.ts';
 
 interface CallLogEntry {
   id: string;
@@ -53,6 +52,7 @@ export default function UsagePage() {
   const [thresholdInput, setThresholdInput] = useState('');
   const [saving, setSaving]       = useState(false);
   const [providerSettings, setProviderSettings] = useState<ProviderSettingsResponse | null>(null);
+  const [agentProfiles, setAgentProfiles] = useState<Record<string, AgentCostProfile>>({});
 
   const [agentSummary, setAgentSummary] = useState<AgentSummaryRow[]>([]);
   const [runs, setRuns]                 = useState<PipelineRunRow[]>([]);
@@ -84,6 +84,9 @@ export default function UsagePage() {
   useEffect(() => {
     if (!wid) return;
     api.callLog.summary(wid).then((res) => setAgentSummary(res.agents)).catch(console.error);
+    api.agents.costProfile(wid)
+      .then((res) => setAgentProfiles(Object.fromEntries(res.agents.map((profile) => [profile.agentType, profile]))))
+      .catch(console.error);
   }, [wid]);
 
   useEffect(() => {
@@ -212,7 +215,12 @@ export default function UsagePage() {
               </thead>
               <tbody>
                 {agentSummary.map((a) => {
-                  const profile = AGENT_COST_MODEL[a.agentType];
+                  const profile = agentProfiles[a.agentType];
+                  const callLabel = profile
+                    ? profile.callRange.min === profile.callRange.max
+                      ? `${profile.callRange.min} turns`
+                      : `${profile.callRange.min}-${profile.callRange.max} turns`
+                    : '—';
                   return (
                     <tr key={a.agentType} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
                       <td className="px-4 py-2.5 text-gray-700">{a.agentType}</td>
@@ -221,7 +229,7 @@ export default function UsagePage() {
                       <td className="px-4 py-2.5 text-right text-gray-500">{a.avgTokensOut?.toLocaleString() ?? '—'}</td>
                       <td className="px-4 py-2.5 text-right text-gray-500">{a.avgIterations ?? '—'}</td>
                       <td className="px-4 py-2.5 text-gray-400" title={profile?.note}>
-                        {profile ? `${profile.calls} calls` : '—'}
+                        {callLabel}
                       </td>
                     </tr>
                   );
