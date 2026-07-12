@@ -21,6 +21,18 @@ npm run dev:server        # server only
 npm run dev:client        # client only
 ```
 
+Targeted commands:
+
+```bash
+npm run typecheck -w server
+npm run typecheck -w client
+npm test -w server
+npm test -w client
+npm run test:postgres -w server
+```
+
+Use `npm run test:postgres -w server` when changing tenant-owned server behavior, migrations, RLS policies, restricted-role behavior, or Postgres-specific query semantics. It expects the local Postgres service to be running; `npm run db:up` starts it.
+
 The app runs in local mode (`APP_MODE=local`, no login, local Postgres) by default — this is the setup almost all contributions should be developed and tested against. See [DEPLOY.md](DEPLOY.md) only if your change specifically touches hosted mode (`APP_MODE=hosted`, Clerk auth).
 
 ### Verifying UI changes
@@ -37,6 +49,7 @@ npx playwright-cli close
 ## Before opening a pull request
 
 - Run `npm run typecheck` and `npm test` — both must pass.
+- For server/security/database changes, also run the narrowest relevant server tests first, then `npm test -w server`; run `npm run test:postgres -w server` for tenant-affecting or migration/RLS work.
 - Keep changes scoped to what the PR describes. Avoid drive-by refactors mixed into a bug fix or feature PR.
 - Match the existing code style: no comments unless they explain a non-obvious *why*, no new abstractions for a single call site, prefer the patterns already used in the file you're editing over introducing new ones.
 - If you're touching the World layer (`articles`, `article_versions`, `world_bible_entries`) or the database schema, see `dev-docs/engineering/practices.md`'s safe-expansion principles first — this layer is intentionally conservative.

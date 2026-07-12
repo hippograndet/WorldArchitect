@@ -2,10 +2,19 @@
 
 Read this before making non-trivial changes to WorldArchitect. The app is local-first by default, with an opt-in hosted multi-tenant mode backed by Postgres and Clerk.
 
+## Code Placement
+
+Before adding new files, moving logic, or touching an unfamiliar area, read:
+
+- `dev-docs/engineering/code-map.md` for where code belongs and which existing files own common responsibilities.
+- `dev-docs/engineering/practices.md` for safe-expansion principles, folder boundaries, and structural technical debt.
+- `dev-docs/system_layers.md` for the current app map.
+
 ## Server And Security Changes
 
 For server routes, services, background jobs, database migrations, or tests, read these first:
 
+- `dev-docs/engineering/code-map.md` for route/service/db/agent ownership boundaries.
 - `docs/security.md` for tenant-isolation and secret-handling rules.
 - `DEPLOY.md` for hosted-mode database roles, environment variables, and production checks.
 - `server/src/routes/index.ts` for the route ownership boundary.
