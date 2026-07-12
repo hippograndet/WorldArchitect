@@ -19,7 +19,7 @@ An Expand run is configured by:
 - **Existing-content behavior** - create only if empty, improve current content, replace, or skip existing content.
 - **Quality checks** - grounding, continuity, deduplication, and style checks where applicable.
 
-Older parts of the code and screenshots may still use the names Spark and Forge. In the current product model, those are not separate systems. They are policies over Expand:
+Older screenshots and a few internal names still use Spark and Forge. In the current product model, those are not separate systems. They are policies over Expand:
 
 - **Manual Expand** pauses at each meaningful review gate so the user can edit, accept, or reject generated introductions, proposals, ideas, drafts, and child-article plans.
 - **Assisted Expand** can auto-select low-risk directions or ideas while still pausing before important article-changing outputs are committed.
@@ -93,10 +93,11 @@ WorldArchitect uses specialized agents for different jobs:
 - **Style Warden** reviews tone and prose fit.
 - **Linter** finds article issues after saves.
 - **Fixer** helps resolve individual issues.
-- **Chronicler** writes chronology sections.
 - **Auditor** reviews the world graph.
 - **Condenser** shortens overly long World Bible entries.
 - **Stylist** expands world style notes into more useful writing guidance.
+
+Chronology is currently a manual data feature, not an agent workflow.
 
 ## Cost And Safety Controls
 

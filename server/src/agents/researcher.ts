@@ -14,9 +14,7 @@ import type { ResearchBrief } from './scribe.js';
 // ---------------------------------------------------------------------------
 
 const SubmitResearchBriefSchema = z.object({
-  keyFacts:        z.array(z.string()).min(1).max(10),
-  warnings:        z.array(z.string()).max(3).default([]),
-  suggestedAngles: z.array(z.string()).min(1).max(3),
+  brief: z.string().min(100).max(1200),
 });
 
 export type ResearcherOutput = ResearchBrief;
@@ -53,11 +51,6 @@ export class ResearcherAgent extends BaseAgent<ResearcherInput, ResearcherOutput
   }
 
   protected parseOutput(input: Record<string, unknown>): ResearcherOutput {
-    const parsed = SubmitResearchBriefSchema.parse(input);
-    return {
-      keyFacts:        parsed.keyFacts,
-      warnings:        parsed.warnings,
-      suggestedAngles: parsed.suggestedAngles,
-    };
+    return SubmitResearchBriefSchema.parse(input).brief;
   }
 }

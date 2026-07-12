@@ -27,6 +27,7 @@ export interface ResearchGraphOutput {
 
 export async function runResearchGraph(params: {
   worldId: string;
+  ownerId?: string;
   articleId: string;
   contextDepth?: ContextDepth;
   pipelineRunId?: string;
@@ -34,6 +35,7 @@ export async function runResearchGraph(params: {
 }): Promise<ResearchGraphOutput> {
   const result = await graph.invoke({
     worldId: params.worldId,
+    ownerId: params.ownerId,
     articleId: params.articleId,
     pipelineRunId: params.pipelineRunId ?? nanoid(),
     pipelineType: 'research',

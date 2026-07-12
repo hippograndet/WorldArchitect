@@ -37,6 +37,7 @@ const sum = (a: number, b: number): number => a + b;
 export const OrchestrationAnnotation = Annotation.Root({
   // --- Core, used by nearly every pipeline ---
   worldId: Annotation<string>(),
+  ownerId: Annotation<string | undefined>({ reducer: replace, default: () => undefined }),
   articleId: Annotation<string | undefined>({ reducer: replace, default: () => undefined }),
   worldContext: Annotation<WorldContext | undefined>({ reducer: replace, default: () => undefined }),
   contextPackage: Annotation<ContextPackage | undefined>({ reducer: replace, default: () => undefined }),

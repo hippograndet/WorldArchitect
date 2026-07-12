@@ -74,9 +74,11 @@ describe('ScribeAgent free-text output', () => {
     completeMock.mockResolvedValueOnce(textResult('A clean description paragraph.'));
 
     const result = await new ScribeAgent().run('world-1', {
-      contextPackage,
       worldContext,
       mode: 'expand_description',
+      articleTitle: contextPackage.targetTitle,
+      templateType: contextPackage.targetTemplateType,
+      currentIntroduction: contextPackage.targetIntroduction,
       selectedProposal: { title: 'Stormlands', direction: 'Develop the storm-touched wilderness.' },
     });
 
@@ -84,7 +86,7 @@ describe('ScribeAgent free-text output', () => {
     expect(completeMock).toHaveBeenCalledWith(
       expect.any(Array),
       expect.not.objectContaining({ toolChoice: 'required' }),
-      expect.arrayContaining([expect.objectContaining({ name: 'search_articles' })]),
+      expect.arrayContaining([expect.objectContaining({ name: 'lookup_names' })]),
     );
   });
 
@@ -92,9 +94,10 @@ describe('ScribeAgent free-text output', () => {
     completeMock.mockResolvedValueOnce(textResult('   '));
 
     await expect(new ScribeAgent().run('world-1', {
-      contextPackage,
       worldContext,
       mode: 'expand_description',
+      articleTitle: contextPackage.targetTitle,
+      templateType: contextPackage.targetTemplateType,
     })).rejects.toThrow('Scribe returned an empty description');
   });
 
@@ -102,21 +105,23 @@ describe('ScribeAgent free-text output', () => {
     completeMock.mockResolvedValueOnce(textResult('## Description\n\nA headed draft.'));
 
     await expect(new ScribeAgent().run('world-1', {
-      contextPackage,
       worldContext,
       mode: 'reorganize',
+      articleTitle: contextPackage.targetTitle,
+      templateType: contextPackage.targetTemplateType,
     })).rejects.toThrow('Description heading');
   });
 
   it('can use a context tool before returning prose', async () => {
     completeMock
-      .mockResolvedValueOnce(toolUseResult('search_articles', { query: 'storm' }))
+      .mockResolvedValueOnce(toolUseResult('lookup_names', {}))
       .mockResolvedValueOnce(textResult('A description after checking context.'));
 
     const result = await new ScribeAgent().run('world-1', {
-      contextPackage,
       worldContext,
       mode: 'expand_description',
+      articleTitle: contextPackage.targetTitle,
+      templateType: contextPackage.targetTemplateType,
     });
 
     expect(result.output).toMatchObject({ description: 'A description after checking context.' });

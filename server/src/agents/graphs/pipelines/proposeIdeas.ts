@@ -21,6 +21,7 @@ const graph = new StateGraph(OrchestrationAnnotation)
 
 export async function runProposeIdeasGraph(params: {
   worldId: string;
+  ownerId?: string;
   articleId: string;
   introduction: string;
   selectedProposal: ProposalItem;
@@ -33,6 +34,7 @@ export async function runProposeIdeasGraph(params: {
 }): Promise<{ ideas: IdeaItem[]; tokensIn: number; tokensOut: number }> {
   const result = await graph.invoke({
     worldId: params.worldId,
+    ownerId: params.ownerId,
     articleId: params.articleId,
     pipelineRunId: params.pipelineRunId ?? nanoid(),
     pipelineType: 'propose_ideas',

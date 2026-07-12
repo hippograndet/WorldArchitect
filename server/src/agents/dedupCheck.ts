@@ -3,7 +3,6 @@ import { BaseAgent } from './base.js';
 import { OUTPUT_TOOLS } from '../tools/output.js';
 import { buildDedupCheckSystemPrompt, buildDedupCheckUserMessage } from '../prompts/dedupCheck.js';
 import type { WorldContext } from './director.js';
-import type { ContextPackage } from '../services/archivist.js';
 import type { ChildProposalItem } from './cartographer.js';
 import { GET_ARTICLE_TOOL, SEARCH_ARTICLES_TOOL } from '../tools/context.js';
 import type { ChatMessage } from '../providers/types.js';
@@ -33,10 +32,12 @@ export interface DedupCheckOutput {
   duplicates: DuplicateFlag[];
 }
 
+/** No contextPackage — checks proposals against a bounded, structural existingChildren list, not the raw neighborhood tiers. */
 export interface DedupCheckInput {
-  contextPackage: ContextPackage;
-  worldContext:   WorldContext;
-  proposals:      ChildProposalItem[];
+  worldContext:      WorldContext;
+  articleTitle:      string;
+  existingChildren?: Array<{ title: string; summary: string }>;
+  proposals:         ChildProposalItem[];
 }
 
 // ---------------------------------------------------------------------------
@@ -65,7 +66,7 @@ export class DedupCheckAgent extends BaseAgent<DedupCheckInput, DedupCheckOutput
   protected buildMessages(_worldId: string, input: DedupCheckInput): ChatMessage[] {
     return [
       { role: 'system', content: buildDedupCheckSystemPrompt(input.worldContext) },
-      { role: 'user', content: buildDedupCheckUserMessage(input.contextPackage, input.proposals) },
+      { role: 'user', content: buildDedupCheckUserMessage(input.articleTitle, input.existingChildren, input.proposals) },
     ];
   }
 

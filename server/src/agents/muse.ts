@@ -7,7 +7,6 @@ import {
   type ProposalMode,
 } from '../prompts/proposal.js';
 import type { WorldContext } from './director.js';
-import type { ContextPackage } from '../services/archivist.js';
 import type { ResearchBrief } from './scribe.js';
 import { LOOKUP_NAMES_TOOL } from '../tools/context.js';
 import type { ChatMessage } from '../providers/types.js';
@@ -29,10 +28,13 @@ const SubmitProposalsSchema = z.object({
 export type ProposalItem = z.infer<typeof ProposalItemSchema>;
 export type MuseOutput = { proposals: ProposalItem[] };
 
+/** No contextPackage — Muse writes from the article's own identity + Researcher's brief, not the raw neighborhood tiers. */
 export interface MuseInput {
-  contextPackage: ContextPackage;
   worldContext: WorldContext;
   mode: ProposalMode;
+  articleTitle: string;
+  templateType: string;
+  currentIntroduction?: string;
   userSpec?: string;
   researchBrief?: ResearchBrief;
 }
@@ -54,7 +56,7 @@ export class MuseAgent extends BaseAgent<MuseInput, MuseOutput> {
       },
       {
         role: 'user',
-        content: buildProposalUserMessage(input.contextPackage, input.userSpec, input.researchBrief),
+        content: buildProposalUserMessage(input.articleTitle, input.templateType, input.currentIntroduction, input.userSpec, input.researchBrief),
       },
     ];
   }

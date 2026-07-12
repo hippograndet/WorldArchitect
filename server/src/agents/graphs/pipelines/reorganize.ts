@@ -36,12 +36,14 @@ export interface ReorganizeGraphOutput {
 
 export async function runReorganizeGraph(params: {
   worldId: string;
+  ownerId?: string;
   articleId: string;
   contextDepth?: ContextDepth;
   pipelineRunId?: string;
 }): Promise<ReorganizeGraphOutput> {
   const result = await graph.invoke({
     worldId: params.worldId,
+    ownerId: params.ownerId,
     articleId: params.articleId,
     pipelineRunId: params.pipelineRunId ?? nanoid(),
     pipelineType: 'reorganize',

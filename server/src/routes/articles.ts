@@ -1,6 +1,5 @@
 import { Router } from 'express';
 import type { Response } from 'express';
-import { nanoid } from 'nanoid';
 import { z } from 'zod';
 import { getDbClient } from '../db/client.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
@@ -8,7 +7,6 @@ import { requireTenantContext } from '../tenant.js';
 import { GeneratedDraftContentSchema } from '../services/articlesSchemas.js';
 import {
   parseArticle,
-  parseDraft,
   parseVersion,
   requireArticleForTenant,
   type DbRow,
@@ -21,6 +19,7 @@ import {
   revertArticleVersion,
   updateArticle,
 } from '../services/articlesService.js';
+import { discardPendingDraft, DraftServiceError, getPendingDraft, savePendingDraft } from '../services/draftsService.js';
 import articleGraphRoutes from './articleGraph.js';
 import articleIssuesRoutes from './articleIssues.js';
 import articleMetadataRoutes from './articleMetadata.js';
@@ -289,18 +288,15 @@ router.post('/:aid/revert/:vid', asyncHandler(async (req, res) => {
 // GET /api/worlds/:wid/articles/:aid/draft — crash recovery
 router.get('/:aid/draft', asyncHandler(async (req, res) => {
   const tenant = requireTenantContext(req);
-  const exec = getDbClient();
-  const article = await requireArticleForTenant(exec, tenant, (req.params as Record<string, string>).aid);
-  if (!article) { res.status(404).json({ error: 'Article not found' }); return; }
-
-  const row = await exec.get<DbRow>(
-    'SELECT * FROM pending_drafts WHERE article_id = ? AND owner_id = ?',
-    [(req.params as Record<string, string>).aid, tenant.ownerId],
-  );
-
-  if (!row) { res.status(404).json({ error: 'No pending draft' }); return; }
-
-  res.json(parseDraft(row));
+  try {
+    res.json(await getPendingDraft({ ...tenant, articleId: (req.params as Record<string, string>).aid }));
+  } catch (err) {
+    if (err instanceof DraftServiceError) {
+      res.status(err.status).json({ error: err.message, ...(err.code ? { code: err.code } : {}) });
+      return;
+    }
+    throw err;
+  }
 }));
 
 // POST /api/worlds/:wid/articles/:aid/draft — save / update draft
@@ -312,79 +308,34 @@ router.post('/:aid/draft', asyncHandler(async (req, res) => {
   }
 
   const tenant = requireTenantContext(req);
-  const exec = getDbClient();
-  const article = await requireArticleForTenant(exec, tenant, (req.params as Record<string, string>).aid);
-  if (!article) { res.status(404).json({ error: 'Article not found' }); return; }
-
-  const now = Date.now();
-  const {
-    selectedProposal, pipelineType, autoSelect, expansionParams,
-    phase, contextPackage, concepts, parentUpdate, draftContent,
-  } = parse.data;
-
-  const selectedProposalJson = selectedProposal ? JSON.stringify(selectedProposal) : '{}';
-
-  const existing = await exec.get<DbRow>(
-    'SELECT id FROM pending_drafts WHERE article_id = ? AND owner_id = ?',
-    [(req.params as Record<string, string>).aid, tenant.ownerId],
-  );
-
-  if (existing) {
-    await exec.run(`
-      UPDATE pending_drafts
-      SET selected_proposal = ?, draft_content = ?, expansion_params = ?,
-          phase = ?, pipeline_type = ?, auto_select = ?,
-          context_package = ?, concepts = ?, parent_update = ?, updated_at = ?
-      WHERE article_id = ? AND owner_id = ?
-    `, [
-      selectedProposalJson,
-      draftContent ? JSON.stringify(draftContent) : null,
-      JSON.stringify(expansionParams),
-      phase, pipelineType, autoSelect ? 1 : 0,
-      contextPackage ? JSON.stringify(contextPackage) : null,
-      concepts ? JSON.stringify(concepts) : null,
-      parentUpdate ? JSON.stringify(parentUpdate) : null,
-      now,
-      (req.params as Record<string, string>).aid,
-      tenant.ownerId,
-    ]);
-  } else {
-    await exec.run(`
-      INSERT INTO pending_drafts
-        (id, article_id, owner_id, selected_proposal, draft_content, expansion_params,
-         phase, pipeline_type, auto_select, context_package, concepts, parent_update,
-         created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `, [
-      nanoid(), (req.params as Record<string, string>).aid, tenant.ownerId,
-      selectedProposalJson,
-      draftContent ? JSON.stringify(draftContent) : null,
-      JSON.stringify(expansionParams),
-      phase, pipelineType, autoSelect ? 1 : 0,
-      contextPackage ? JSON.stringify(contextPackage) : null,
-      concepts ? JSON.stringify(concepts) : null,
-      parentUpdate ? JSON.stringify(parentUpdate) : null,
-      now, now,
-    ]);
+  try {
+    res.json(await savePendingDraft({
+      ...tenant,
+      articleId: (req.params as Record<string, string>).aid,
+      ...parse.data,
+    }));
+  } catch (err) {
+    if (err instanceof DraftServiceError) {
+      res.status(err.status).json({ error: err.message, ...(err.code ? { code: err.code } : {}) });
+      return;
+    }
+    throw err;
   }
-
-  const row = await exec.get<DbRow>(
-    'SELECT * FROM pending_drafts WHERE article_id = ? AND owner_id = ?',
-    [(req.params as Record<string, string>).aid, tenant.ownerId],
-  );
-
-  res.json(parseDraft(row!));
 }));
 
 // DELETE /api/worlds/:wid/articles/:aid/draft — discard draft
 router.delete('/:aid/draft', asyncHandler(async (req, res) => {
   const tenant = requireTenantContext(req);
-  const exec = getDbClient();
-  const article = await requireArticleForTenant(exec, tenant, (req.params as Record<string, string>).aid);
-  if (!article) { res.status(404).json({ error: 'Article not found' }); return; }
-
-  await exec.run('DELETE FROM pending_drafts WHERE article_id = ? AND owner_id = ?', [(req.params as Record<string, string>).aid, tenant.ownerId]);
-  res.status(204).send();
+  try {
+    await discardPendingDraft({ ...tenant, articleId: (req.params as Record<string, string>).aid });
+    res.status(204).send();
+  } catch (err) {
+    if (err instanceof DraftServiceError) {
+      res.status(err.status).json({ error: err.message, ...(err.code ? { code: err.code } : {}) });
+      return;
+    }
+    throw err;
+  }
 }));
 
 // POST /api/worlds/:wid/articles/:aid/accept — commit draft as new version

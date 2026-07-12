@@ -1,5 +1,4 @@
 import type { WorldContext } from '../agents/director.js';
-import type { ContextPackage } from '../services/archivist.js';
 import type { ChildProposalItem } from '../agents/cartographer.js';
 import { buildWorldHeader } from './shared.js';
 
@@ -19,14 +18,18 @@ If you find no duplicates, submit an empty list.
 Call submit_dedup_check with your assessment.`;
 }
 
-export function buildDedupCheckUserMessage(pkg: ContextPackage, proposals: ChildProposalItem[]): string {
+export function buildDedupCheckUserMessage(
+  articleTitle: string,
+  existingChildren: Array<{ title: string; summary: string }> | undefined,
+  proposals: ChildProposalItem[],
+): string {
   const parts: string[] = [
-    `## Parent Article: ${pkg.targetTitle}`,
+    `## Parent Article: ${articleTitle}`,
   ];
 
-  if (pkg.children.length > 0) {
+  if (existingChildren && existingChildren.length > 0) {
     parts.push('## Existing Sibling Articles\n' +
-      pkg.children.map(c => `- **${c.title}**: ${c.summary}`).join('\n'));
+      existingChildren.map(c => `- **${c.title}**: ${c.summary}`).join('\n'));
   } else {
     parts.push('## Existing Sibling Articles\n(none yet)');
   }

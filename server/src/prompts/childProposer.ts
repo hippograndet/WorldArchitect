@@ -1,5 +1,4 @@
 import type { WorldContext } from '../agents/director.js';
-import type { ContextPackage } from '../services/archivist.js';
 import type { ResearchBrief } from '../agents/scribe.js';
 import { buildWorldHeader } from './shared.js';
 
@@ -26,40 +25,34 @@ Call submit_child_proposals when ready.`;
 }
 
 export function buildChildProposerUserMessage(
-  pkg: ContextPackage,
+  articleTitle: string,
+  templateType: string,
+  currentIntroduction?: string,
+  currentDescription?: string,
+  existingChildren?: Array<{ title: string; summary: string }>,
   userSpec?: string,
   researchBrief?: ResearchBrief,
 ): string {
   const parts: string[] = [
-    `## Parent Article: ${pkg.targetTitle}`,
-    `Template type: ${pkg.targetTemplateType}`,
+    `## Parent Article: ${articleTitle}`,
+    `Template type: ${templateType}`,
   ];
 
-  if (pkg.targetIntroduction) {
-    parts.push(`Introduction:\n${pkg.targetIntroduction}`);
+  if (currentIntroduction) {
+    parts.push(`Introduction:\n${currentIntroduction}`);
   }
 
-  if (pkg.targetDescription) {
-    parts.push(`## Description\n${pkg.targetDescription}`);
+  if (currentDescription) {
+    parts.push(`## Description\n${currentDescription}`);
   }
 
   if (researchBrief) {
-    const briefParts: string[] = [];
-    if (researchBrief.keyFacts.length > 0) {
-      briefParts.push(`**Established facts to respect:**\n${researchBrief.keyFacts.map(f => `- ${f}`).join('\n')}`);
-    }
-    if (researchBrief.warnings.length > 0) {
-      briefParts.push(`**Watch out for:**\n${researchBrief.warnings.map(w => `- ${w}`).join('\n')}`);
-    }
-    if (researchBrief.suggestedAngles.length > 0) {
-      briefParts.push(`**Angles worth developing:**\n${researchBrief.suggestedAngles.map(a => `- ${a}`).join('\n')}`);
-    }
-    if (briefParts.length > 0) parts.push(`## Research Brief\n${briefParts.join('\n\n')}`);
+    parts.push(`## Research Brief\n${researchBrief}`);
   }
 
-  if (pkg.children.length > 0) {
+  if (existingChildren && existingChildren.length > 0) {
     parts.push('## Existing Sub-Articles (do not duplicate)\n' +
-      pkg.children.map(c => `- **${c.title}**: ${c.summary}`).join('\n'));
+      existingChildren.map(c => `- **${c.title}**: ${c.summary}`).join('\n'));
   }
 
   if (userSpec) {

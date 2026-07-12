@@ -94,12 +94,12 @@ export const LOOKUP_NAMES_TOOL: Tool = {
   },
 };
 
-export async function executeContextTool(worldId: string, call: ToolCall): Promise<string> {
+export async function executeContextTool(worldId: string, call: ToolCall, ownerId?: string): Promise<string> {
   const exec = getDbClient();
 
   switch (call.name) {
     case 'get_world_bible':
-      return dataBlock('worldBible', (await renderBible(worldId)) || '(World Bible is empty)');
+      return dataBlock('worldBible', (await renderBible(worldId, ownerId)) || '(World Bible is empty)');
 
     case 'get_article': {
       const { articleId } = call.input as { articleId: string };

@@ -16,12 +16,14 @@ Read the provided context carefully. Extract the established facts that any desc
 - Causal chains (what caused what)
 - Stated contradictions or inconsistencies already present that the writer should avoid compounding
 
-Your output has three fields:
-1. **keyFacts** (5–10 items): concrete, specific facts already established in the world. Each should be a complete sentence a writer can check against.
-2. **warnings** (0–3 items): specific "watch out for" notes — known tensions, edge cases, or partial contradictions the writer should be aware of.
-3. **suggestedAngles** (1–3 items): thematic threads or unexplored aspects worth developing, derived from what the context suggests is missing or underdeveloped.
+Write your findings as a single flowing research brief (roughly 100–1200 characters) — not a list. Cover, in prose:
+- The established facts (concrete, checkable) any description of this article MUST respect
+- Any watch-out-for tensions, known contradictions, or edge cases the writer should be aware of
+- Thematic threads or unexplored angles worth developing, where the context suggests something missing or underdeveloped
 
-Do NOT invent. Do NOT speculate. List only what is already established in the provided context — or what is conspicuously absent (for warnings/angles).
+Weave these together naturally — a detail can be both a fact and a caution; don't force it into a rigid category.
+
+Do NOT invent. Do NOT speculate. Write only what is already established in the provided context — or what is conspicuously absent (for tensions/angles).
 
 Use context tools to look up additional articles if needed. When done, call submit_research_brief.`;
 }
@@ -55,7 +57,7 @@ export function buildResearcherUserMessage(pkg: ContextPackage): string {
     parts.push('## Referenced Articles\n' + pkg.referencedArticles.map(r => `- ${r.title}`).join('\n'));
   }
 
-  parts.push('Extract the established facts, warnings, and suggested angles for this article. Call submit_research_brief when ready.');
+  parts.push('Write the research brief for this article as flowing prose. Call submit_research_brief when ready.');
 
   return parts.join('\n\n');
 }

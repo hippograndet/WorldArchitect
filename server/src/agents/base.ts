@@ -123,7 +123,7 @@ export abstract class BaseAgent<TInput, TOutput> {
   async run(
     worldId: string,
     input: TInput,
-    callCtx?: { pipelineRunId?: string; pipelineType?: string; articleId?: string },
+    callCtx?: { pipelineRunId?: string; pipelineType?: string; articleId?: string; ownerId?: string },
   ): Promise<AgentResult<TOutput>> {
     const provider = await getProvider();
     const messages: ChatMessage[] = await this.buildMessages(worldId, input);
@@ -230,7 +230,7 @@ export abstract class BaseAgent<TInput, TOutput> {
               messages.push({ role: 'tool', content: `Tool call rejected: ${msg}. Please revise and call the tool again.`, toolCallId: call.id });
             }
           } else if (contextTools.some((tool) => tool.name === call.name)) {
-            const content = await executeContextTool(worldId, call);
+            const content = await executeContextTool(worldId, call, callCtx?.ownerId);
             messages.push({ role: 'tool', content, toolCallId: call.id });
           } else {
             messages.push({ role: 'tool', content: `Tool call rejected: ${call.name} is not available.`, toolCallId: call.id });
@@ -279,7 +279,7 @@ export abstract class BaseAgent<TInput, TOutput> {
   }
 
   /** Convenience for subclasses that need to call a context tool manually. */
-  protected async callContextTool(worldId: string, call: ToolCall): Promise<string> {
-    return executeContextTool(worldId, call);
+  protected async callContextTool(worldId: string, call: ToolCall, ownerId?: string): Promise<string> {
+    return executeContextTool(worldId, call, ownerId);
   }
 }

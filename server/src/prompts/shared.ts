@@ -1,5 +1,4 @@
 import type { WorldContext } from '../agents/director.js';
-import type { ContextPackage } from '../services/archivist.js';
 
 export function dataBlock(label: string, content: unknown): string {
   const text = typeof content === 'string' ? content : JSON.stringify(content, null, 2);
@@ -45,23 +44,4 @@ export function buildWorldHeader(world: WorldContext): string {
   }
 
   return lines.join('\n');
-}
-
-/**
- * Renders a ContextPackage's parent-article and fixed-point summaries as
- * markdown sections, one array entry per non-empty section — shared by any
- * prompt that needs to ground a draft against established facts (Grounding
- * Check, Summarizer/Lorekeeper).
- */
-export function buildParentAndFixedPointBlocks(pkg: ContextPackage): string[] {
-  const blocks: string[] = [];
-
-  if (pkg.parents.length > 0) {
-    blocks.push('## Parent Articles\n' + pkg.parents.map(p => `### ${p.title}\n${p.summary}`).join('\n\n'));
-  }
-  if (pkg.fixedPoints.length > 0) {
-    blocks.push('## Fixed Points\n' + pkg.fixedPoints.map(f => `### ${f.title}\n${f.summary}`).join('\n\n'));
-  }
-
-  return blocks;
 }

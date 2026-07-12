@@ -1,41 +1,10 @@
 import type { WorldContext } from '../agents/director.js';
-import type { ContextPackage } from '../services/archivist.js';
 import type { ProposalItem } from '../agents/muse.js';
 import type { IdeaItem } from '../agents/oracle.js';
 import type { ResearchBrief } from '../agents/scribe.js';
 import { buildWorldHeader, dataBlock } from './shared.js';
 
 export type ExpanderMode = 'expand_description' | 'create_root' | 'create_child' | 'reorganize';
-
-function renderContextPackage(pkg: ContextPackage, mode: ExpanderMode): string {
-  const parts: string[] = [];
-
-  if (mode === 'reorganize') {
-    if (pkg.targetDescription) parts.push(`## Current Description (read-only constraint)\n${dataBlock('target.description', pkg.targetDescription)}`);
-    if (pkg.targetChronology)  parts.push(`## Current Chronology (read-only constraint)\n${dataBlock('target.chronology', pkg.targetChronology)}`);
-  }
-
-  if (pkg.parents.length > 0) {
-    parts.push('## Parent Articles\n' + dataBlock('context.parents', pkg.parents));
-  }
-  if (pkg.siblings.length > 0) {
-    parts.push('## Sibling Articles\n' + dataBlock('context.siblings', pkg.siblings));
-  }
-  if (pkg.children.length > 0) {
-    parts.push('## Existing Sub-Articles\n' + dataBlock('context.children', pkg.children));
-  }
-  if (pkg.fixedPoints.length > 0) {
-    parts.push('## Fixed Points (World Constants)\n' + dataBlock('context.fixedPoints', pkg.fixedPoints));
-  }
-  if (pkg.temporalNeighbors.length > 0) {
-    parts.push('## Temporal Neighbours\n' + dataBlock('context.temporalNeighbors', pkg.temporalNeighbors));
-  }
-  if (pkg.referencedArticles.length > 0) {
-    parts.push('## Referenced Articles\n' + pkg.referencedArticles.map(r => `- ${r.title}`).join('\n'));
-  }
-
-  return parts.join('\n\n');
-}
 
 export function buildExpanderSystemPrompt(worldContext: WorldContext, mode: ExpanderMode, wordCountPreset: 'short' | 'medium' | 'long' = 'medium'): string {
   const LENGTH_GUIDANCE: Record<string, string> = {
@@ -96,20 +65,29 @@ ${outputInstruction}`;
 }
 
 export function buildExpanderUserMessage(
-  pkg: ContextPackage,
+  articleTitle: string,
+  templateType: string,
   mode: ExpanderMode,
+  currentIntroduction?: string,
+  currentDescription?: string,
+  currentChronology?: string,
   selectedProposal?: ProposalItem,
   userSpec?: string,
   selectedIdeas?: IdeaItem[],
   researchBrief?: ResearchBrief,
 ): string {
   const parts: string[] = [
-    `## Article: ${pkg.targetTitle}`,
-    `Template type: ${pkg.targetTemplateType}`,
+    `## Article: ${articleTitle}`,
+    `Template type: ${templateType}`,
   ];
 
-  if (pkg.targetIntroduction) {
-    parts.push(`Current Introduction:\n${dataBlock('target.introduction', pkg.targetIntroduction)}`);
+  if (currentIntroduction) {
+    parts.push(`Current Introduction:\n${dataBlock('target.introduction', currentIntroduction)}`);
+  }
+
+  if (mode === 'reorganize') {
+    if (currentDescription) parts.push(`## Current Description (read-only constraint)\n${dataBlock('target.description', currentDescription)}`);
+    if (currentChronology)  parts.push(`## Current Chronology (read-only constraint)\n${dataBlock('target.chronology', currentChronology)}`);
   }
 
   if (selectedProposal) {
@@ -121,25 +99,12 @@ export function buildExpanderUserMessage(
   }
 
   if (researchBrief) {
-    const briefParts: string[] = [];
-    if (researchBrief.keyFacts.length > 0) {
-      briefParts.push(`**Established facts to respect:**\n${researchBrief.keyFacts.map(f => `- ${f}`).join('\n')}`);
-    }
-    if (researchBrief.warnings.length > 0) {
-      briefParts.push(`**Watch out for:**\n${researchBrief.warnings.map(w => `- ${w}`).join('\n')}`);
-    }
-    if (researchBrief.suggestedAngles.length > 0) {
-      briefParts.push(`**Angles worth developing:**\n${researchBrief.suggestedAngles.map(a => `- ${a}`).join('\n')}`);
-    }
-    if (briefParts.length > 0) parts.push(`## Research Brief\n${briefParts.join('\n\n')}`);
+    parts.push(`## Research Brief\n${researchBrief}`);
   }
 
   if (userSpec) {
     parts.push(`## User Specification\n${dataBlock('userSpec', userSpec)}`);
   }
-
-  const context = renderContextPackage(pkg, mode);
-  if (context) parts.push(`## World Context\n${context}`);
 
   const actionMap: Record<ExpanderMode, string> = {
     expand_description: 'Write the ## Description section for this article.',

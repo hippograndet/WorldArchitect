@@ -160,8 +160,7 @@ describe('forgeGraph context caching', () => {
 
       completeMock
         .mockResolvedValueOnce(toolUseResult('submit_research_brief', {
-          keyFacts: ['Fact one about the article.'],
-          suggestedAngles: ['An angle to explore.'],
+          brief: 'Fact one about the article, established firmly in the surrounding world context and setting. An angle worth exploring further in future drafts.',
         }))
         .mockResolvedValueOnce(toolUseResult('submit_introduction', {
           introduction: 'A long and detailed introduction paragraph with plenty of descriptive words to pass the minimum word count check easily.',
@@ -251,8 +250,7 @@ describe('forgeGraph context caching', () => {
 
       completeMock
         .mockResolvedValueOnce(toolUseResult('submit_research_brief', {
-          keyFacts: ['Fact one about the article.'],
-          suggestedAngles: ['An angle to explore.'],
+          brief: 'Fact one about the article, established firmly in the surrounding world context and setting. An angle worth exploring further in future drafts.',
         }))
         .mockResolvedValueOnce(toolUseResult('submit_proposals', {
           proposals: [{ title: 'A Proposal', direction: 'Explore a bold new direction for this article.' }],

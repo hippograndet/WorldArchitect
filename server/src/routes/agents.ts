@@ -1,6 +1,5 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { nanoid } from 'nanoid';
 import { requireLLM, isLLMConfigured, getProvider } from '../providers/index.js';
 import { renderBible, getBibleMeta } from '../services/worldBible.js';
 import { checkDailyCap } from '../services/callLogger.js';
@@ -10,6 +9,7 @@ import { getDbClient } from '../db/client.js';
 import { requireTenantContext } from '../tenant.js';
 import { recordArticleIssues, recordWorldIssues, recordProposedLinks } from '../services/issueRecorder.js';
 import { assertArticleUnlocked } from '../services/runsService.js';
+import { savePendingDraft } from '../services/draftsService.js';
 import type { Request, Response, NextFunction } from 'express';
 
 const router = Router({ mergeParams: true });
@@ -40,7 +40,7 @@ router.post('/estimate', asyncHandler(async (req, res) => {
   if (!parse.success) throw new AppError(400, 'VALIDATION_ERROR', 'Invalid request', parse.error.flatten().fieldErrors);
 
   const { worldId, ownerId } = requireTenantContext(req);
-  const bibleText = await renderBible(worldId);
+  const bibleText = await renderBible(worldId, ownerId);
   const combined = parse.data.extraText ? `${bibleText}\n\n${parse.data.extraText}` : bibleText;
 
   let estimatedTokens: number;
@@ -68,7 +68,7 @@ router.post('/skeleton', requireLLM, checkCap, asyncHandler(async (req, res) => 
   if (!world) throw new AppError(404, 'NOT_FOUND', 'World not found');
 
   const result = await coordinator.createWorld(worldId, parse.data.seedText);
-  const { tokenCount } = await getBibleMeta(worldId);
+  const { tokenCount } = await getBibleMeta(worldId, ownerId);
   res.json({ stubs: result.stubs, worldBibleTokenCount: tokenCount });
 }));
 
@@ -140,35 +140,21 @@ router.post('/expand', requireLLM, checkCap, asyncHandler(async (req, res) => {
   const result = await coordinator.expand(worldId, articleId, pipelineType, selectedProposal, userSpec, contextDepth, selectedIdeas, runStyleWarden, runContinuityEditor, wordCountPreset);
 
   // Persist draft so POST /accept can commit it
-  const exec = getDbClient();
   const draftContent = pipelineType === 'create_child'
     ? { childDescription: result.description, introduction: result.introduction }
     : { description: result.description };
 
-  const parentUpdateJson = result.parentUpdate
-    ? JSON.stringify({ articleId, appendText: result.parentUpdate.appendText })
-    : null;
-
-  const now = Date.now();
-  const existing = await exec.get(
-    'SELECT id FROM pending_drafts WHERE article_id = ? AND owner_id = ? AND pipeline_type = ?',
-    [articleId, ownerId, pipelineType],
-  );
-  if (existing) {
-    await exec.run(
-      `UPDATE pending_drafts
-       SET draft_content = ?, parent_update = ?, selected_proposal = ?, updated_at = ?
-       WHERE article_id = ? AND owner_id = ? AND pipeline_type = ?`,
-      [JSON.stringify(draftContent), parentUpdateJson, JSON.stringify(selectedProposal), now, articleId, ownerId, pipelineType],
-    );
-  } else {
-    await exec.run(
-      `INSERT INTO pending_drafts
-         (id, owner_id, article_id, draft_content, pipeline_type, parent_update, selected_proposal, expansion_params, phase, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, '{}', 'done', ?, ?)`,
-      [nanoid(), ownerId, articleId, JSON.stringify(draftContent), pipelineType, parentUpdateJson, JSON.stringify(selectedProposal), now, now],
-    );
-  }
+  await savePendingDraft({
+    worldId,
+    ownerId,
+    articleId,
+    pipelineType,
+    phase: 'done',
+    selectedProposal: selectedProposal as unknown as Record<string, unknown>,
+    draftContent,
+    parentUpdate: result.parentUpdate ? { articleId, appendText: result.parentUpdate.appendText } : undefined,
+    matchPipelineType: true,
+  });
 
   res.json(result);
 }));
@@ -228,26 +214,16 @@ router.post('/reorganize', requireLLM, checkCap, asyncHandler(async (req, res) =
 
   // Persist draft so POST /accept can commit it — mirrors /expand's persistence
   // (same table/shape), just without a selectedProposal (reorganize has none).
-  const exec = getDbClient();
   const draftContent = { description: result.description, retentionIssues: result.retentionIssues };
-  const now = Date.now();
-  const existing = await exec.get(
-    'SELECT id FROM pending_drafts WHERE article_id = ? AND owner_id = ? AND pipeline_type = ?',
-    [articleId, ownerId, 'reorganize'],
-  );
-  if (existing) {
-    await exec.run(
-      `UPDATE pending_drafts SET draft_content = ?, updated_at = ? WHERE article_id = ? AND owner_id = ? AND pipeline_type = ?`,
-      [JSON.stringify(draftContent), now, articleId, ownerId, 'reorganize'],
-    );
-  } else {
-    await exec.run(
-      `INSERT INTO pending_drafts
-         (id, owner_id, article_id, draft_content, pipeline_type, expansion_params, phase, created_at, updated_at)
-       VALUES (?, ?, ?, ?, 'reorganize', '{}', 'done', ?, ?)`,
-      [nanoid(), ownerId, articleId, JSON.stringify(draftContent), now, now],
-    );
-  }
+  await savePendingDraft({
+    worldId,
+    ownerId,
+    articleId,
+    pipelineType: 'reorganize',
+    phase: 'done',
+    draftContent,
+    matchPipelineType: true,
+  });
 
   res.json(result);
 }));
@@ -268,20 +244,19 @@ router.post('/cohere', requireLLM, checkCap, asyncHandler(async (req, res) => {
   await assertArticleUnlocked(worldId, ownerId, articleId);
   const result = await coordinator.cohere(worldId, articleId, parse.data.contextDepth);
 
-  // Persist Warden warnings to article_issues (replacing previous warden issues for this article)
-  if (result.warnings.length > 0) {
-    await recordArticleIssues(getDbClient(), {
-      worldId,
-      ownerId,
-      articleId,
-      source: 'warden',
-      issues: result.warnings.map((w) => ({
-        severity: w.severity === 'conflict' ? 'blocking' : 'warning',
-        code: 'COHERENCE_WARNING',
-        explanation: w.description,
-      })),
-    });
-  }
+  // Persist Warden warnings to article_issues, replacing prior Warden results.
+  // An empty clean run must still clear stale Warden issues.
+  await recordArticleIssues(getDbClient(), {
+    worldId,
+    ownerId,
+    articleId,
+    source: 'warden',
+    issues: result.warnings.map((w) => ({
+      severity: w.severity === 'conflict' ? 'blocking' : 'warning',
+      code: 'COHERENCE_WARNING',
+      explanation: w.description,
+    })),
+  });
 
   res.json({ warnings: result.warnings, suggestedLinks: result.suggestedLinks });
 }));

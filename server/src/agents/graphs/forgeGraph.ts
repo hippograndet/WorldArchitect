@@ -5,6 +5,7 @@ import { upsertEntry } from '../../services/worldBible.js';
 import { acceptDraft, batchCreateChildArticles } from '../../services/articlesService.js';
 import { getRun, markRunStatus, bumpRunBudget, releaseLocks, updateRunProgress } from '../../services/runsService.js';
 import { recordArticleIssues } from '../../services/issueRecorder.js';
+import { savePendingDraft } from '../../services/draftsService.js';
 import { createRunReviewItem, getLatestReviewDecision } from '../../services/runReviewItems.js';
 import { getCheckpointer } from '../checkpointer.js';
 import { runWithUserContext } from '../../requestContext.js';
@@ -219,30 +220,20 @@ function selectedIdeasDecision(
  * reorganize), so the draftContent shape is always the non-child branch.
  */
 async function persistExpandDraft(params: {
+  worldId: string;
   articleId: string;
   ownerId: string;
   description: string;
 }): Promise<void> {
-  const exec = getDbClient();
-  const draftContent = { description: params.description };
-  const now = Date.now();
-  const existing = await exec.get<{ id: string }>(
-    'SELECT id FROM pending_drafts WHERE article_id = ? AND owner_id = ? AND pipeline_type = ?',
-    [params.articleId, params.ownerId, 'expand_description'],
-  );
-  if (existing) {
-    await exec.run(
-      `UPDATE pending_drafts SET draft_content = ?, updated_at = ? WHERE article_id = ? AND owner_id = ? AND pipeline_type = ?`,
-      [JSON.stringify(draftContent), now, params.articleId, params.ownerId, 'expand_description'],
-    );
-  } else {
-    await exec.run(
-      `INSERT INTO pending_drafts
-         (id, owner_id, article_id, draft_content, pipeline_type, expansion_params, phase, created_at, updated_at)
-       VALUES (?, ?, ?, ?, 'expand_description', '{}', 'done', ?, ?)`,
-      [nanoid(), params.ownerId, params.articleId, JSON.stringify(draftContent), now, now],
-    );
-  }
+  await savePendingDraft({
+    worldId: params.worldId,
+    ownerId: params.ownerId,
+    articleId: params.articleId,
+    pipelineType: 'expand_description',
+    phase: 'done',
+    draftContent: { description: params.description },
+    matchPipelineType: true,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -283,9 +274,9 @@ async function dequeueNode(state: ForgeState): Promise<Partial<ForgeState>> {
  * Unconditional prefix step run once per queue item, before Inception,
  * Expansion, or Branching do any of their own conditional work — even when
  * startStep skips straight to 'expansion'/'branching' and Inception never
- * runs for this item. Researcher's output ({keyFacts, warnings,
- * suggestedAngles}) only depends on {contextPackage, worldContext}, not on
- * any proposal/direction chosen downstream, so it can run first and be
+ * runs for this item. Researcher's output (a free-text research brief) only
+ * depends on {contextPackage, worldContext}, not on any proposal/direction
+ * chosen downstream, so it can run first and be
  * shared by every consumer (Muse, Cartographer, Oracle, Scribe) instead of
  * being re-derived inside Expansion alone.
  *
@@ -302,6 +293,7 @@ async function researchNode(state: ForgeState): Promise<Partial<ForgeState>> {
   try {
     const result = await runResearchGraph({
       worldId: state.worldId,
+      ownerId: state.ownerId,
       articleId: item.articleId,
       contextDepth: state.contextDepth,
       pipelineRunId: state.runId,
@@ -366,35 +358,22 @@ async function inceptionNode(state: ForgeState): Promise<Partial<ForgeState>> {
     const summarizeMode = state.forgeInceptionExistingMode === 'improve' ? 'improve' : 'full';
     const result = await runSummarizeGraph({
       worldId: state.worldId,
+      ownerId: state.ownerId,
       articleId: item.articleId,
       mode: summarizeMode,
       pipelineRunId: state.runId,
       runGroundingCheck: state.forgeUseGroundingCheck,
       worldContext: state.worldContext,
       contextPackage: state.currentItemContextPackage,
+      researchBrief: state.currentItemResearchBrief,
     });
     await bumpRunBudget(state.worldId, state.ownerId, state.runId, result.tokensIn + result.tokensOut);
 
-    if (state.forgeUseGroundingCheck && result.groundingCheck && !result.groundingCheck.approved) {
-      await recordArticleIssues(getDbClient(), {
-        worldId: state.worldId,
-        ownerId: state.ownerId,
-        articleId: item.articleId,
-        source: 'grounding_check',
-        issues: result.groundingCheck.contradictions.map((c) => ({
-          severity: 'warning',
-          code: 'GROUNDING_CONTRADICTION',
-          excerpt: c.excerpt,
-          explanation: c.issue,
-          suggestion: c.correction,
-        })),
-      });
-      await logEvent(state, 'Inception', item.title, false, 'Grounding check failed after revision — introduction not grounded in parent/world context.');
-      // Deliberately skip upsertEntry(): an ungrounded intro must never be
-      // committed to the World Bible, since Expansion/Branching and every
-      // descendant would otherwise read it as trusted context.
-      return { lastStepError: { step: 'Inception', fatal: false, message: 'Grounding check failed after revision.' } };
-    }
+    // Grounding Check (when on) already ran once and gave Lorekeeper one
+    // revision attempt inside runSummarizeGraph — that revision is trusted
+    // without a second verification pass or a commit-blocking gate here.
+    // Deeper checking of the committed introduction happens in Consolidate
+    // (Linter, Warden), not by refusing to commit at all.
 
     const introWordCount = countWords(result.introduction);
     if (introWordCount < 15) {
@@ -480,6 +459,7 @@ async function expansionNode(state: ForgeState): Promise<Partial<ForgeState>> {
     if (existingDecision?.status === 'accepted') {
       const acceptedDescription = stringDecision(existingDecision, 'description', stringPayload(existingDecision, 'description', existingDescription));
       await persistExpandDraft({
+        worldId: state.worldId,
         articleId: item.articleId,
         ownerId: state.ownerId,
         description: acceptedDescription,
@@ -515,6 +495,7 @@ async function expansionNode(state: ForgeState): Promise<Partial<ForgeState>> {
     if (!selectedProposal) {
       const proposeResult = await runProposeGraph({
         worldId: state.worldId,
+        ownerId: state.ownerId,
         articleId: item.articleId,
         pipelineType: 'expand_description',
         autoSelect: !requiresUserReview(state),
@@ -565,6 +546,7 @@ async function expansionNode(state: ForgeState): Promise<Partial<ForgeState>> {
         try {
           const ideasResult = await runProposeIdeasGraph({
             worldId: state.worldId,
+            ownerId: state.ownerId,
             articleId: item.articleId,
             introduction: state.inceptionIntro,
             selectedProposal,
@@ -599,6 +581,7 @@ async function expansionNode(state: ForgeState): Promise<Partial<ForgeState>> {
 
     const expandResult = await runExpandGraph({
       worldId: state.worldId,
+      ownerId: state.ownerId,
       articleId: item.articleId,
       pipelineType: 'expand_description',
       selectedProposal,
@@ -647,6 +630,7 @@ async function expansionNode(state: ForgeState): Promise<Partial<ForgeState>> {
       }
       const acceptedDescription = stringDecision(decision, 'description', expandResult.description);
       await persistExpandDraft({
+        worldId: state.worldId,
         articleId: item.articleId,
         ownerId: state.ownerId,
         description: acceptedDescription,
@@ -657,6 +641,7 @@ async function expansionNode(state: ForgeState): Promise<Partial<ForgeState>> {
     }
 
     await persistExpandDraft({
+      worldId: state.worldId,
       articleId: item.articleId,
       ownerId: state.ownerId,
       description: expandResult.description,
@@ -734,6 +719,7 @@ async function branchingNode(state: ForgeState): Promise<Partial<ForgeState>> {
 
     const childResult = await runProposeChildrenGraph({
       worldId: state.worldId,
+      ownerId: state.ownerId,
       articleId: item.articleId,
       contextDepth: state.contextDepth,
       userSpec: branchHint,

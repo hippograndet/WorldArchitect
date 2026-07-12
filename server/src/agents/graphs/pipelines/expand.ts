@@ -47,6 +47,7 @@ export interface ExpandGraphOutput {
 
 export async function runExpandGraph(params: {
   worldId: string;
+  ownerId?: string;
   articleId: string;
   pipelineType: ExpanderMode;
   selectedProposal: ProposalItem;
@@ -72,6 +73,7 @@ export async function runExpandGraph(params: {
 
   const result = await graph.invoke({
     worldId: params.worldId,
+    ownerId: params.ownerId,
     articleId: params.articleId,
     pipelineRunId: params.pipelineRunId ?? nanoid(),
     pipelineType: 'expand',

@@ -1,5 +1,4 @@
 import type { WorldContext } from '../agents/director.js';
-import type { ContextPackage } from '../services/archivist.js';
 import type { ResearchBrief } from '../agents/scribe.js';
 import { buildWorldHeader } from './shared.js';
 
@@ -28,34 +27,16 @@ Call submit_continuity_check with your assessment.`;
 }
 
 export function buildContinuityEditorUserMessage(
-  pkg: ContextPackage,
+  articleTitle: string,
   draft: string,
   researchBrief: ResearchBrief,
 ): string {
   const parts: string[] = [
-    `## Article: ${pkg.targetTitle}`,
+    `## Article: ${articleTitle}`,
+    `## Research Brief\n${researchBrief}`,
+    `## Draft Description to Review\n${draft}`,
+    'Check the draft for factual contradictions against the research brief. Call submit_continuity_check.',
   ];
-
-  const briefParts: string[] = [];
-  if (researchBrief.keyFacts.length > 0) {
-    briefParts.push(`**Established facts:**\n${researchBrief.keyFacts.map(f => `- ${f}`).join('\n')}`);
-  }
-  if (researchBrief.warnings.length > 0) {
-    briefParts.push(`**Known tensions:**\n${researchBrief.warnings.map(w => `- ${w}`).join('\n')}`);
-  }
-  if (briefParts.length > 0) {
-    parts.push(`## Research Brief\n${briefParts.join('\n\n')}`);
-  }
-
-  if (pkg.parents.length > 0) {
-    parts.push('## Parent Articles\n' + pkg.parents.map(p => `### ${p.title}\n${p.summary}`).join('\n\n'));
-  }
-  if (pkg.fixedPoints.length > 0) {
-    parts.push('## Fixed Points\n' + pkg.fixedPoints.map(f => `### ${f.title}\n${f.summary}`).join('\n\n'));
-  }
-
-  parts.push(`## Draft Description to Review\n${draft}`);
-  parts.push('Check the draft for factual contradictions against the research brief and context. Call submit_continuity_check.');
 
   return parts.join('\n\n');
 }

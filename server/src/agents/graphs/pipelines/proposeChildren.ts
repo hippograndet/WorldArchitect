@@ -21,6 +21,7 @@ const graph = new StateGraph(OrchestrationAnnotation)
 
 export async function runProposeChildrenGraph(params: {
   worldId: string;
+  ownerId?: string;
   articleId: string;
   userSpec?: string;
   contextDepth?: ContextDepth;
@@ -36,6 +37,7 @@ export async function runProposeChildrenGraph(params: {
 }): Promise<{ proposals: ChildProposalItem[]; dedupCheck?: DedupCheckOutput; tokensIn: number; tokensOut: number }> {
   const result = await graph.invoke({
     worldId: params.worldId,
+    ownerId: params.ownerId,
     articleId: params.articleId,
     pipelineRunId: params.pipelineRunId ?? nanoid(),
     pipelineType: 'propose_children',

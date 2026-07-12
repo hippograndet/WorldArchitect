@@ -4,7 +4,6 @@ import { BaseAgent } from './base.js';
 import { OUTPUT_TOOLS } from '../tools/output.js';
 import { buildOracleSystemPrompt, buildOracleUserMessage } from '../prompts/oracle.js';
 import type { WorldContext } from './director.js';
-import type { ContextPackage } from '../services/archivist.js';
 import type { ProposalItem } from './muse.js';
 import type { ResearchBrief } from './scribe.js';
 import { LOOKUP_NAMES_TOOL } from '../tools/context.js';
@@ -33,7 +32,6 @@ export interface IdeaItem {
 export type OracleOutput = { ideas: IdeaItem[] };
 
 export interface OracleInput {
-  contextPackage: ContextPackage;
   worldContext: WorldContext;
   articleTitle: string;
   introduction: string;
@@ -60,7 +58,6 @@ export class OracleAgent extends BaseAgent<OracleInput, OracleOutput> {
       {
         role: 'user',
         content: buildOracleUserMessage(
-          input.contextPackage,
           input.articleTitle,
           input.introduction,
           input.selectedProposal,

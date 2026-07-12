@@ -12,7 +12,8 @@ export interface BibleEntry {
   sortOrder: number;
 }
 
-async function getEntriesWithExecutor(exec: QueryExecutor, worldId: string): Promise<BibleEntry[]> {
+async function getEntriesWithExecutor(exec: QueryExecutor, worldId: string, ownerId?: string): Promise<BibleEntry[]> {
+  const ownerClause = ownerId ? 'AND wbe.owner_id = ? AND a.owner_id = ?' : '';
   const rows = await exec.all<Record<string, unknown>>(`
     SELECT wbe.id, wbe.article_id, wbe.summary, wbe.updated_at, wbe.sort_order,
            a.title AS article_title, c.name AS category_name
@@ -20,8 +21,9 @@ async function getEntriesWithExecutor(exec: QueryExecutor, worldId: string): Pro
     JOIN articles a ON a.id = wbe.article_id
     LEFT JOIN categories c ON c.id = a.category_id
     WHERE wbe.world_id = ?
+      ${ownerClause}
     ORDER BY wbe.sort_order, c.name, a.title
-  `, [worldId]);
+  `, ownerId ? [worldId, ownerId, ownerId] : [worldId]);
 
   return rows.map((r) => ({
     id:           r.id as string,
@@ -34,8 +36,8 @@ async function getEntriesWithExecutor(exec: QueryExecutor, worldId: string): Pro
   }));
 }
 
-async function renderBibleWithExecutor(exec: QueryExecutor, worldId: string): Promise<string> {
-  const entries = await getEntriesWithExecutor(exec, worldId);
+async function renderBibleWithExecutor(exec: QueryExecutor, worldId: string, ownerId?: string): Promise<string> {
+  const entries = await getEntriesWithExecutor(exec, worldId, ownerId);
   if (entries.length === 0) return '';
 
   const parts: string[] = [];
@@ -50,14 +52,14 @@ async function renderBibleWithExecutor(exec: QueryExecutor, worldId: string): Pr
   return parts.join('\n\n');
 }
 
-async function refreshTokenCountWithExecutor(exec: QueryExecutor, worldId: string): Promise<number> {
-  const rendered = await renderBibleWithExecutor(exec, worldId);
+async function refreshTokenCountWithExecutor(exec: QueryExecutor, worldId: string, ownerId?: string): Promise<number> {
+  const rendered = await renderBibleWithExecutor(exec, worldId, ownerId);
   const tokenCount = Math.ceil(rendered.length / 4);
   const now = Date.now();
 
   await exec.run(
-    'UPDATE world_bible_meta SET token_count = ?, updated_at = ? WHERE world_id = ?',
-    [tokenCount, now, worldId],
+    `UPDATE world_bible_meta SET token_count = ?, updated_at = ? WHERE world_id = ?${ownerId ? ' AND owner_id = ?' : ''}`,
+    ownerId ? [tokenCount, now, worldId, ownerId] : [tokenCount, now, worldId],
   );
 
   return tokenCount;
@@ -96,35 +98,35 @@ export async function upsertEntry(
       updated_at = excluded.updated_at
   `, [nanoid(), worldId, article.owner_id, articleId, summary, article.sort_order, now]);
 
-  await refreshTokenCountWithExecutor(exec, worldId);
+  await refreshTokenCountWithExecutor(exec, worldId, article.owner_id);
 }
 
 /**
  * Return all Bible entries for a world, sorted alphabetically by article title.
  */
-export async function getEntries(worldId: string): Promise<BibleEntry[]> {
-  return getEntriesWithExecutor(getDbClient(), worldId);
+export async function getEntries(worldId: string, ownerId?: string): Promise<BibleEntry[]> {
+  return getEntriesWithExecutor(getDbClient(), worldId, ownerId);
 }
 
 /**
  * Render the World Bible as markdown for LLM context.
  * Format: ### Article Title\nsummary\n\n...
  */
-export async function renderBible(worldId: string): Promise<string> {
-  return renderBibleWithExecutor(getDbClient(), worldId);
+export async function renderBible(worldId: string, ownerId?: string): Promise<string> {
+  return renderBibleWithExecutor(getDbClient(), worldId, ownerId);
 }
 
-export async function getBibleMeta(worldId: string): Promise<{ tokenCount: number; threshold: number }> {
+export async function getBibleMeta(worldId: string, ownerId?: string): Promise<{ tokenCount: number; threshold: number }> {
   const exec = getDbClient();
 
   const meta = await exec.get<{ token_count: number }>(
-    'SELECT token_count FROM world_bible_meta WHERE world_id = ?',
-    [worldId],
+    `SELECT token_count FROM world_bible_meta WHERE world_id = ?${ownerId ? ' AND owner_id = ?' : ''}`,
+    ownerId ? [worldId, ownerId] : [worldId],
   );
 
   const settings = await exec.get<{ bible_threshold: number }>(
-    'SELECT bible_threshold FROM cost_settings WHERE world_id = ?',
-    [worldId],
+    `SELECT bible_threshold FROM cost_settings WHERE world_id = ?${ownerId ? ' AND owner_id = ?' : ''}`,
+    ownerId ? [worldId, ownerId] : [worldId],
   );
 
   return {
@@ -133,6 +135,6 @@ export async function getBibleMeta(worldId: string): Promise<{ tokenCount: numbe
   };
 }
 
-export async function refreshTokenCount(worldId: string): Promise<number> {
-  return refreshTokenCountWithExecutor(getDbClient(), worldId);
+export async function refreshTokenCount(worldId: string, ownerId?: string): Promise<number> {
+  return refreshTokenCountWithExecutor(getDbClient(), worldId, ownerId);
 }

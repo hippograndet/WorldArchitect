@@ -204,20 +204,20 @@ export class PipelineCoordinator {
     seedText: string,
   ): Promise<{ stubs: Stub[]; tokensIn: number; tokensOut: number }> {
     const exec = getDbClient();
+    const ownerId = await ownerIdForWorld(exec, worldId);
 
     const categories = await exec.all<{ id: string; name: string }>(
-      'SELECT id, name FROM categories WHERE world_id = ? ORDER BY sort_order',
-      [worldId],
+      'SELECT id, name FROM categories WHERE world_id = ? AND owner_id = ? ORDER BY sort_order',
+      [worldId, ownerId],
     );
 
     if (categories.length === 0) throw new Error('World has no categories');
 
-    const result = await runCreateWorldGraph({ worldId, seedText, categories });
+    const result = await runCreateWorldGraph({ worldId, ownerId, seedText, categories });
     const { stubs } = result;
 
     const categoryMap = new Map(categories.map((c) => [c.name.toLowerCase(), c.id]));
     const now = Date.now();
-    const ownerId = await ownerIdForWorld(exec, worldId);
     const createdArticleIds: string[] = [];
 
     await exec.transaction(async (tx) => {
@@ -272,7 +272,8 @@ export class PipelineCoordinator {
     autoSelect = false,
     contextDepth: ContextDepth = 'mid',
   ): Promise<ProposeOutput> {
-    return runProposeGraph({ worldId, articleId, pipelineType, userSpec, autoSelect, contextDepth });
+    const ownerId = await ownerIdForWorld(getDbClient(), worldId);
+    return runProposeGraph({ worldId, ownerId, articleId, pipelineType, userSpec, autoSelect, contextDepth });
   }
 
   // ---------------------------------------------------------------------------
@@ -287,7 +288,8 @@ export class PipelineCoordinator {
     userSpec?: string,
     contextDepth: ContextDepth = 'mid',
   ): Promise<ProposeIdeasOutput> {
-    return runProposeIdeasGraph({ worldId, articleId, introduction, selectedProposal, userSpec, contextDepth });
+    const ownerId = await ownerIdForWorld(getDbClient(), worldId);
+    return runProposeIdeasGraph({ worldId, ownerId, articleId, introduction, selectedProposal, userSpec, contextDepth });
   }
 
   // ---------------------------------------------------------------------------
@@ -306,8 +308,9 @@ export class PipelineCoordinator {
     runContinuityEditor = false,
     wordCountPreset: 'short' | 'medium' | 'long' = 'medium',
   ): Promise<ExpandOutput> {
+    const ownerId = await ownerIdForWorld(getDbClient(), worldId);
     return runExpandGraph({
-      worldId, articleId, pipelineType, selectedProposal, userSpec, contextDepth,
+      worldId, ownerId, articleId, pipelineType, selectedProposal, userSpec, contextDepth,
       selectedIdeas, runStyleWarden, runContinuityEditor, wordCountPreset,
     });
   }
@@ -321,7 +324,8 @@ export class PipelineCoordinator {
     articleId: string,
     mode: 'full' | 'improve' = 'full',
   ): Promise<SummarizeOutput> {
-    return runSummarizeGraph({ worldId, articleId, mode });
+    const ownerId = await ownerIdForWorld(getDbClient(), worldId);
+    return runSummarizeGraph({ worldId, ownerId, articleId, mode });
   }
 
   // ---------------------------------------------------------------------------
@@ -334,7 +338,8 @@ export class PipelineCoordinator {
     userSpec?: string,
     contextDepth: ContextDepth = 'mid',
   ): Promise<ProposeChildrenOutput> {
-    return runProposeChildrenGraph({ worldId, articleId, userSpec, contextDepth });
+    const ownerId = await ownerIdForWorld(getDbClient(), worldId);
+    return runProposeChildrenGraph({ worldId, ownerId, articleId, userSpec, contextDepth });
   }
 
   // ---------------------------------------------------------------------------
@@ -346,7 +351,8 @@ export class PipelineCoordinator {
     articleId: string,
     contextDepth: ContextDepth = 'mid',
   ): Promise<ReorganizeOutput> {
-    return runReorganizeGraph({ worldId, articleId, contextDepth });
+    const ownerId = await ownerIdForWorld(getDbClient(), worldId);
+    return runReorganizeGraph({ worldId, ownerId, articleId, contextDepth });
   }
 
   // ---------------------------------------------------------------------------
@@ -358,7 +364,8 @@ export class PipelineCoordinator {
     articleId: string,
     contextDepth: ContextDepth = 'mid',
   ): Promise<{ warnings: CoherenceWarning[]; suggestedLinks: SuggestedLink[]; tokensIn: number; tokensOut: number }> {
-    return runCohereGraph({ worldId, articleId, contextDepth });
+    const ownerId = await ownerIdForWorld(getDbClient(), worldId);
+    return runCohereGraph({ worldId, ownerId, articleId, contextDepth });
   }
 
   // ---------------------------------------------------------------------------
@@ -366,7 +373,8 @@ export class PipelineCoordinator {
   // ---------------------------------------------------------------------------
 
   async compress(worldId: string): Promise<CompressOutput> {
-    return runCompressGraph({ worldId });
+    const ownerId = await ownerIdForWorld(getDbClient(), worldId);
+    return runCompressGraph({ worldId, ownerId });
   }
 
   // ---------------------------------------------------------------------------
@@ -374,6 +382,7 @@ export class PipelineCoordinator {
   // ---------------------------------------------------------------------------
 
   async audit(worldId: string, sampleSize?: number, focus: 'all' | 'recent' = 'all'): Promise<AuditOutput> {
-    return runAuditGraph({ worldId, sampleSize, focus });
+    const ownerId = await ownerIdForWorld(getDbClient(), worldId);
+    return runAuditGraph({ worldId, ownerId, sampleSize, focus });
   }
 }

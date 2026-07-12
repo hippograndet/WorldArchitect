@@ -3,8 +3,8 @@ import { BaseAgent } from './base.js';
 import { OUTPUT_TOOLS } from '../tools/output.js';
 import { buildGroundingCheckSystemPrompt, buildGroundingCheckUserMessage } from '../prompts/groundingCheck.js';
 import type { WorldContext } from './director.js';
-import type { ContextPackage } from '../services/archivist.js';
 import type { Contradiction } from './continuityEditor.js';
+import type { ResearchBrief } from './scribe.js';
 import { GET_ARTICLE_TOOL, SEARCH_ARTICLES_TOOL } from '../tools/context.js';
 import type { ChatMessage } from '../providers/types.js';
 import type { Tool } from '../tools/types.js';
@@ -31,10 +31,12 @@ export interface GroundingCheckOutput {
   contradictions: Contradiction[];
 }
 
+/** No contextPackage — checks the draft against Researcher's brief, not the raw neighborhood tiers. */
 export interface GroundingCheckInput {
-  contextPackage: ContextPackage;
   worldContext:   WorldContext;
+  articleTitle:   string;
   draft:          string;
+  researchBrief?: ResearchBrief;
 }
 
 // ---------------------------------------------------------------------------
@@ -42,10 +44,11 @@ export interface GroundingCheckInput {
 // ---------------------------------------------------------------------------
 
 /**
- * Inception-stage critic: checks Lorekeeper's introduction against parent
- * articles/fixed points for contradictions, before it is committed to the
- * World Bible. Narrower input than ContinuityEditor (no researchBrief) since
- * Inception runs before Researcher, which is Expansion-only.
+ * Inception-stage critic: checks Lorekeeper's introduction against
+ * Researcher's brief for contradictions, before the introduction is
+ * committed to the World Bible. Runs once, with at most one revision
+ * attempt afterward — it does not re-verify the revision; deeper checking
+ * happens in Consolidate (Linter, Warden).
  */
 export class GroundingCheckAgent extends BaseAgent<GroundingCheckInput, GroundingCheckOutput> {
   readonly agentType = 'grounding_check';
@@ -62,7 +65,7 @@ export class GroundingCheckAgent extends BaseAgent<GroundingCheckInput, Groundin
   protected buildMessages(_worldId: string, input: GroundingCheckInput): ChatMessage[] {
     return [
       { role: 'system', content: buildGroundingCheckSystemPrompt(input.worldContext) },
-      { role: 'user', content: buildGroundingCheckUserMessage(input.contextPackage, input.draft) },
+      { role: 'user', content: buildGroundingCheckUserMessage(input.articleTitle, input.draft, input.researchBrief) },
     ];
   }
 

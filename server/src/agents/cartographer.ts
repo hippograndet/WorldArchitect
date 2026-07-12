@@ -3,9 +3,8 @@ import { BaseAgent } from './base.js';
 import { OUTPUT_TOOLS } from '../tools/output.js';
 import { buildChildProposerSystemPrompt, buildChildProposerUserMessage } from '../prompts/childProposer.js';
 import type { WorldContext } from './director.js';
-import type { ContextPackage } from '../services/archivist.js';
 import type { ResearchBrief } from './scribe.js';
-import { LOOKUP_NAMES_TOOL, SEARCH_ARTICLES_TOOL } from '../tools/context.js';
+import { LOOKUP_NAMES_TOOL } from '../tools/context.js';
 import type { ChatMessage } from '../providers/types.js';
 import type { Tool } from '../tools/types.js';
 
@@ -28,9 +27,20 @@ const SubmitChildProposalsSchema = z.object({
 export type ChildProposalItem = z.infer<typeof ChildProposalItemSchema>;
 export type CartographerOutput = { proposals: ChildProposalItem[] };
 
+/**
+ * No contextPackage — Cartographer writes from the parent article's own
+ * identity/content + Researcher's brief, not the raw neighborhood tiers.
+ * existingChildren is the one deliberate exception: a bounded, structural
+ * list (this article's own direct children only, never world-wide) needed
+ * to self-avoid an obvious duplicate — not a "fact" the brief would carry.
+ */
 export interface CartographerInput {
-  contextPackage: ContextPackage;
   worldContext: WorldContext;
+  articleTitle: string;
+  templateType: string;
+  currentIntroduction?: string;
+  currentDescription?: string;
+  existingChildren?: Array<{ title: string; summary: string }>;
   userSpec?: string;
   researchBrief?: ResearchBrief;
 }
@@ -52,7 +62,15 @@ export class CartographerAgent extends BaseAgent<CartographerInput, Cartographer
       },
       {
         role: 'user',
-        content: buildChildProposerUserMessage(input.contextPackage, input.userSpec, input.researchBrief),
+        content: buildChildProposerUserMessage(
+          input.articleTitle,
+          input.templateType,
+          input.currentIntroduction,
+          input.currentDescription,
+          input.existingChildren,
+          input.userSpec,
+          input.researchBrief,
+        ),
       },
     ];
   }
@@ -63,9 +81,21 @@ export class CartographerAgent extends BaseAgent<CartographerInput, Cartographer
 
   protected getMaxTokens(): number { return 1500; }
 
-  /** lookup_names + search_articles (v8) — search_articles lets Cartographer self-avoid proposing a child that duplicates an existing article, before Dedup Check ever has to filter one out. */
+  /**
+   * lookup_names only (v9) — Cartographer is a generator: it gets the
+   * curated ContextPackage + Researcher's brief but no independent
+   * world-context retrieval tools. It previously also carried
+   * search_articles as a self-check, but that duplicated Dedup Check's own
+   * search_articles access on the same duplicate-detection question; that
+   * capability now lives exclusively on Dedup Check. Note: when
+   * forgeUseDedupCheck/runDedupCheck is off, Branching has no duplicate
+   * protection beyond Sync Rules' literal-title match — an accepted
+   * trade-off for a clean generator/checker split, not an oversight.
+   * lookup_names is kept since it's a Name Bank utility, not world-context
+   * retrieval.
+   */
   protected getContextTools(): Tool[] {
-    return [LOOKUP_NAMES_TOOL, SEARCH_ARTICLES_TOOL];
+    return [LOOKUP_NAMES_TOOL];
   }
 
   protected parseOutput(input: Record<string, unknown>): CartographerOutput {

@@ -15,12 +15,14 @@ const graph = new StateGraph(OrchestrationAnnotation)
 
 export async function runCreateWorldGraph(params: {
   worldId: string;
+  ownerId?: string;
   seedText: string;
   categories: Array<{ id: string; name: string }>;
   pipelineRunId?: string;
 }): Promise<{ stubs: Stub[]; tokensIn: number; tokensOut: number }> {
   const result = await graph.invoke({
     worldId: params.worldId,
+    ownerId: params.ownerId,
     pipelineRunId: params.pipelineRunId ?? nanoid(),
     pipelineType: 'create_world',
     ...contractState(worldContract('create_world')),

@@ -7,10 +7,9 @@ import {
   type ExpanderMode,
 } from '../prompts/expander.js';
 import type { WorldContext } from './director.js';
-import type { ContextPackage } from '../services/archivist.js';
 import type { ProposalItem } from './muse.js';
 import type { IdeaItem } from './oracle.js';
-import { SEARCH_ARTICLES_TOOL, LOOKUP_NAMES_TOOL } from '../tools/context.js';
+import { LOOKUP_NAMES_TOOL } from '../tools/context.js';
 import type { ChatMessage } from '../providers/types.js';
 import type { Tool } from '../tools/types.js';
 
@@ -41,10 +40,21 @@ export type ScribeOutput =
   | { mode: 'single'; description: string; mentions?: MentionItem[] }
   | { mode: 'child'; childDescription: string; parentAppend: string; mentions?: MentionItem[] };
 
+/**
+ * No contextPackage — Scribe writes from the article's own identity/prior
+ * content + Researcher's brief, not the raw neighborhood tiers. currentDescription
+ * and currentChronology are only meaningful in 'reorganize' mode, where they're
+ * the read-only content being reorganized (Scribe's own prior output, not
+ * neighborhood data — that's why they survive here specifically).
+ */
 export interface ScribeInput {
-  contextPackage: ContextPackage;
   worldContext: WorldContext;
   mode: ExpanderMode;
+  articleTitle: string;
+  templateType: string;
+  currentIntroduction?: string;
+  currentDescription?: string;
+  currentChronology?: string;
   selectedProposal?: ProposalItem;
   selectedIdeas?: IdeaItem[];
   userSpec?: string;
@@ -52,11 +62,8 @@ export interface ScribeInput {
   wordCountPreset?: 'short' | 'medium' | 'long';
 }
 
-export interface ResearchBrief {
-  keyFacts: string[];
-  warnings: string[];
-  suggestedAngles: string[];
-}
+/** A flowing prose brief — not a rigid struct — covering established facts, watch-out-for tensions, and unexplored angles for one article. */
+export type ResearchBrief = string;
 
 // ---------------------------------------------------------------------------
 // Agent
@@ -78,16 +85,27 @@ export class ScribeAgent extends BaseAgent<ScribeInput, ScribeOutput> {
     return this._mode === 'create_child' ? 'tool' : 'text';
   }
 
-  /** search_articles + lookup_names (v8) — narrowed from the full context-tool set since Scribe already receives the curated ContextPackage + Researcher's brief; search_articles remains as a narrow double-check capability. */
+  /**
+   * lookup_names only (v9) — Scribe is a generator: it gets the curated
+   * ContextPackage + Researcher's brief but no independent world-context
+   * retrieval tools. Researcher is now the single upstream retrieval step
+   * for Expand, so a generator re-querying the world independently was
+   * redundant. lookup_names is kept since it's a Name Bank utility, not
+   * world-context retrieval.
+   */
   protected getContextTools(): Tool[] {
-    return [SEARCH_ARTICLES_TOOL, LOOKUP_NAMES_TOOL];
+    return [LOOKUP_NAMES_TOOL];
   }
 
   protected buildMessages(_worldId: string, input: ScribeInput): ChatMessage[] {
     this._mode = input.mode;
     const userContent = buildExpanderUserMessage(
-      input.contextPackage,
+      input.articleTitle,
+      input.templateType,
       input.mode,
+      input.currentIntroduction,
+      input.currentDescription,
+      input.currentChronology,
       input.selectedProposal,
       input.userSpec,
       input.selectedIdeas,

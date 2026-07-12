@@ -7,9 +7,9 @@ import {
   type SummarizerPromptMode,
 } from '../prompts/summarizer.js';
 import type { WorldContext } from './director.js';
-import type { ContextPackage } from '../services/archivist.js';
 import type { ChatMessage, CompletionOptions } from '../providers/types.js';
 import type { Tool } from '../tools/types.js';
+import type { ResearchBrief } from './scribe.js';
 
 // ---------------------------------------------------------------------------
 // I/O types
@@ -22,14 +22,21 @@ const SubmitIntroductionSchema = z.object({
 export type LorekeepOutput = { introduction: string };
 export type LorekeepMode = 'full' | 'improve';
 
+/**
+ * No `description` field — distilling a Description into an intro is not
+ * Lorekeeper's job structurally (see nodes.ts's lorekeeperSummarizeAfterExpandNode,
+ * which uses Scribe's own childDescription output directly instead of routing
+ * it through Lorekeeper). No `contextPackage` either — Lorekeeper writes from
+ * researchBrief + worldContext + (optionally) its own prior introduction, not
+ * from the raw neighborhood tiers Researcher already distilled.
+ */
 export interface LorekeepInput {
   articleTitle: string;
-  description: string;
   worldContext: WorldContext;
-  contextPackage: ContextPackage;
   mode?: LorekeepMode;
   existingIntro?: string;
   revisionNotes?: string;
+  researchBrief?: ResearchBrief;
 }
 
 // ---------------------------------------------------------------------------
@@ -60,11 +67,10 @@ export class LorekeepAgent extends BaseAgent<LorekeepInput, LorekeepOutput> {
         role: 'user',
         content: buildSummarizerUserMessage(
           input.articleTitle,
-          input.description,
-          input.contextPackage,
           promptMode,
           input.existingIntro,
           input.revisionNotes,
+          input.researchBrief,
         ),
       },
     ];

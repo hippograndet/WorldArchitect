@@ -496,27 +496,16 @@ export const OUTPUT_TOOLS: Record<string, Tool> = {
   // Researcher: constraint brief before Scribe writes
   submit_research_brief: {
     name: 'submit_research_brief',
-    description: 'Submit the research brief: key established facts and constraints for this article.',
+    description: 'Submit the research brief: a prose summary of established facts, watch-out-for tensions, and suggested angles for this article.',
     inputSchema: {
       type: 'object',
       properties: {
-        keyFacts: {
-          type: 'array',
-          items: { type: 'string' },
-          description: '5–10 established facts about this article and its context that the description MUST respect',
-        },
-        warnings: {
-          type: 'array',
-          items: { type: 'string' },
-          description: '0–3 potential contradictions or constraints to watch out for',
-        },
-        suggestedAngles: {
-          type: 'array',
-          items: { type: 'string' },
-          description: '1–3 thematic threads worth developing in the description',
+        brief: {
+          type: 'string',
+          description: 'A flowing prose research brief (roughly 100–1200 characters) covering established facts the writer must respect, any known tensions/contradictions to watch for, and unexplored angles worth developing. Weave these together naturally rather than forcing a rigid list.',
         },
       },
-      required: ['keyFacts', 'warnings', 'suggestedAngles'],
+      required: ['brief'],
     },
   },
 

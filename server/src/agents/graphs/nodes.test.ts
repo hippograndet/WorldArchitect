@@ -253,19 +253,18 @@ describe('buildContextPackageNode caching guard', () => {
 describe('researcherNode caching guard', () => {
   it('runs Researcher and returns a researchBrief when none is cached', async () => {
     completeMock.mockResolvedValueOnce(genericToolUseResult('submit_research_brief', {
-      keyFacts: ['A fact about the article.'],
-      suggestedAngles: ['An angle to explore.'],
+      brief: 'A fact about the article, established in the world context. An angle worth exploring further in the description.',
     }));
 
     const result = await researcherNode(scribeState({ researchBrief: undefined }));
 
     expect(completeMock).toHaveBeenCalledTimes(1);
-    expect(result.researchBrief).toMatchObject({ keyFacts: ['A fact about the article.'] });
+    expect(result.researchBrief).toContain('A fact about the article');
   });
 
   it('skips the LLM call when researchBrief was already supplied externally', async () => {
     const result = await researcherNode(scribeState({
-      researchBrief: { keyFacts: ['Already known.'], warnings: [], suggestedAngles: ['Already known angle.'] },
+      researchBrief: 'Already known facts and an already known angle worth exploring.',
     }));
 
     expect(completeMock).not.toHaveBeenCalled();
@@ -284,26 +283,25 @@ describe('scribeNode free-text drafting', () => {
     expect(completeMock).toHaveBeenCalledTimes(1);
   });
 
-  it('reruns Scribe in free-text mode for continuity corrections', async () => {
+  it('gives Scribe one revision attempt when Continuity Editor flags a contradiction, without re-checking the revision', async () => {
     completeMock
       .mockResolvedValueOnce(textResult('A draft with a contradiction.'))
       .mockResolvedValueOnce(genericToolUseResult('submit_continuity_check', {
         approved: false,
         contradictions: [{ excerpt: 'contradiction', issue: 'Wrong fact', correction: 'Correct it' }],
       }))
-      .mockResolvedValueOnce(textResult('A corrected draft.'))
-      .mockResolvedValueOnce(genericToolUseResult('submit_continuity_check', {
-        approved: true,
-        contradictions: [],
-      }));
+      .mockResolvedValueOnce(textResult('A corrected draft.'));
 
     const result = await scribeNode(scribeState({
       runContinuityEditor: true,
-      researchBrief: { keyFacts: ['A fact.'], warnings: [], suggestedAngles: [] },
+      researchBrief: 'A fact established in the world context that the draft must respect.',
     }));
 
+    // The revision is trusted without a second Continuity Editor call —
+    // continuityCheck still reflects the one check that ran (which flagged
+    // the original draft), even though `description` is the revised text.
     expect(result.description).toBe('A corrected draft.');
-    expect(result.continuityCheck).toMatchObject({ approved: true });
-    expect(completeMock).toHaveBeenCalledTimes(4);
+    expect(result.continuityCheck).toMatchObject({ approved: false });
+    expect(completeMock).toHaveBeenCalledTimes(3);
   });
 });

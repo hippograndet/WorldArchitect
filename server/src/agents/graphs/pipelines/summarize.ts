@@ -7,6 +7,7 @@ import type { LorekeepMode } from '../../lorekeeper.js';
 import type { GroundingCheckOutput } from '../../groundingCheck.js';
 import type { ContextDepth, ContextPackage } from '../../../services/archivist.js';
 import type { WorldContext } from '../../director.js';
+import type { ResearchBrief } from '../../scribe.js';
 
 const graph = new StateGraph(OrchestrationAnnotation)
   .addNode('fetchWorldContext', fetchWorldContextNode)
@@ -29,6 +30,7 @@ export interface SummarizeGraphOutput {
 
 export async function runSummarizeGraph(params: {
   worldId: string;
+  ownerId?: string;
   articleId: string;
   mode?: LorekeepMode;
   contextDepth?: ContextDepth;
@@ -36,9 +38,11 @@ export async function runSummarizeGraph(params: {
   pipelineRunId?: string;
   worldContext?: WorldContext;
   contextPackage?: ContextPackage;
+  researchBrief?: ResearchBrief;
 }): Promise<SummarizeGraphOutput> {
   const result = await graph.invoke({
     worldId: params.worldId,
+    ownerId: params.ownerId,
     articleId: params.articleId,
     pipelineRunId: params.pipelineRunId ?? nanoid(),
     pipelineType: 'summarize',
@@ -53,6 +57,7 @@ export async function runSummarizeGraph(params: {
     runGroundingCheck: params.runGroundingCheck ?? false,
     ...(params.worldContext ? { worldContext: params.worldContext } : {}),
     ...(params.contextPackage ? { contextPackage: params.contextPackage } : {}),
+    ...(params.researchBrief ? { researchBrief: params.researchBrief } : {}),
   });
   return {
     introduction: result.introduction!,

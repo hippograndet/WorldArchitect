@@ -23,19 +23,20 @@ import type { OrchestrationState } from './state.js';
 type Partial_ = Partial<OrchestrationState>;
 
 /** Shared call_log correlation context passed as every agent.run()'s third argument below. */
-function callCtx(state: OrchestrationState): { pipelineRunId: string; pipelineType: string; articleId?: string } {
+function callCtx(state: OrchestrationState): { pipelineRunId: string; pipelineType: string; articleId?: string; ownerId?: string } {
   return {
     pipelineRunId: state.pipelineRunId,
     pipelineType: state.pipelineType,
     articleId: state.articleId,
+    ownerId: state.ownerId,
   };
 }
 
 /** Returns true if the world bible has enough entries for a coherence check to be meaningful. */
-export async function hasSufficientBibleContent(worldId: string): Promise<boolean> {
+export async function hasSufficientBibleContent(worldId: string, ownerId?: string): Promise<boolean> {
   const row = await getDbClient().get<{ n: number }>(
-    "SELECT COUNT(*) AS n FROM world_bible_entries WHERE world_id = ? AND summary != ''",
-    [worldId],
+    `SELECT COUNT(*) AS n FROM world_bible_entries WHERE world_id = ?${ownerId ? ' AND owner_id = ?' : ''} AND summary != ''`,
+    ownerId ? [worldId, ownerId] : [worldId],
   );
   return row!.n >= 5;
 }
@@ -68,6 +69,13 @@ export async function fetchWorldContextNode(state: OrchestrationState): Promise<
  * Research→Inception→Expansion cascade — expansionNode reuses its cached
  * package (see forgeGraph.ts's resolveItemContextPackage) instead of this
  * node rebuilding it a second time.
+ *
+ * The full package is still built here (Researcher genuinely needs its
+ * neighborhood tiers), but as of v10 it's no longer *passed whole* to any
+ * other Expand agent — every other node below extracts only the specific
+ * fields (targetTitle, targetIntroduction, etc.) its agent actually needs
+ * from `state.contextPackage`, relying on Researcher's brief for grounding
+ * instead of re-rendering the raw parents/siblings/fixedPoints tiers.
  */
 export async function buildContextPackageNode(state: OrchestrationState): Promise<Partial_> {
   if (state.contextPackage) return {};
@@ -97,11 +105,14 @@ export async function architectNode(state: OrchestrationState): Promise<Partial_
 // ---------------------------------------------------------------------------
 
 export async function museProposeNode(state: OrchestrationState): Promise<Partial_> {
+  const pkg = state.contextPackage!;
   const agent = new MuseAgent();
   const result = await agent.run(state.worldId, {
-    contextPackage: state.contextPackage!,
     worldContext: state.worldContext!,
     mode: state.proposalMode!,
+    articleTitle: pkg.targetTitle,
+    templateType: pkg.targetTemplateType,
+    currentIntroduction: pkg.targetIntroduction || undefined,
     userSpec: state.userSpec,
     researchBrief: state.researchBrief,
   }, callCtx(state));
@@ -146,7 +157,6 @@ export async function oracleNode(state: OrchestrationState): Promise<Partial_> {
 
   const agent = new OracleAgent();
   const result = await agent.run(state.worldId, {
-    contextPackage: state.contextPackage!,
     worldContext: state.worldContext!,
     articleTitle: article?.title ?? state.contextPackage!.targetTitle,
     introduction: state.introduction!,
@@ -176,22 +186,33 @@ export async function researcherNode(state: OrchestrationState): Promise<Partial
 
 /**
  * Scribe's draft plus, when runContinuityEditor is on and mode isn't
- * 'reorganize', up to 2 self-correction passes — kept as one node (not split
+ * 'reorganize', a single self-correction pass — kept as one node (not split
  * into separate graph nodes/edges) since it's a tight, bounded, single-purpose
- * retry loop internal to producing one draft, not a multi-step pipeline stage
- * in its own right. Near-verbatim port of director.ts's expand() body.
+ * loop internal to producing one draft, not a multi-step pipeline stage in
+ * its own right. Continuity Editor checks once; if it flags a contradiction,
+ * Scribe gets one revision attempt and that revision is trusted without a
+ * second check — deeper verification happens in Consolidate (Linter, Warden),
+ * not here.
  */
 export async function scribeNode(state: OrchestrationState): Promise<Partial_> {
+  const pkg = state.contextPackage!;
   const scribeAgent = new ScribeAgent();
-  const expandResult = await scribeAgent.run(state.worldId, {
-    contextPackage: state.contextPackage!,
+  const scribeFields = {
     worldContext: state.worldContext!,
     mode: state.expanderMode!,
+    articleTitle: pkg.targetTitle,
+    templateType: pkg.targetTemplateType,
+    currentIntroduction: pkg.targetIntroduction || undefined,
+    currentDescription: pkg.targetDescription || undefined,
+    currentChronology: pkg.targetChronology || undefined,
     selectedProposal: state.selectedProposal,
-    userSpec: state.userSpec,
     selectedIdeas: state.selectedIdeas,
     researchBrief: state.researchBrief,
     wordCountPreset: state.wordCountPreset,
+  };
+  const expandResult = await scribeAgent.run(state.worldId, {
+    ...scribeFields,
+    userSpec: state.userSpec,
   }, callCtx(state));
   let tokensIn = expandResult.tokensIn;
   let tokensOut = expandResult.tokensOut;
@@ -199,40 +220,30 @@ export async function scribeNode(state: OrchestrationState): Promise<Partial_> {
 
   let continuityCheck: Partial_['continuityCheck'];
   if (state.runContinuityEditor && state.expanderMode !== 'reorganize') {
-    for (let pass = 0; pass < 2; pass++) {
-      const currentDesc = scribeOutput.mode === 'child' ? scribeOutput.childDescription : scribeOutput.description;
-      const ceAgent = new ContinuityEditorAgent();
-      const ceResult = await ceAgent.run(state.worldId, {
-        contextPackage: state.contextPackage!,
-        worldContext: state.worldContext!,
-        draft: currentDesc,
-        researchBrief: state.researchBrief!,
+    const currentDesc = scribeOutput.mode === 'child' ? scribeOutput.childDescription : scribeOutput.description;
+    const ceAgent = new ContinuityEditorAgent();
+    const ceResult = await ceAgent.run(state.worldId, {
+      worldContext: state.worldContext!,
+      articleTitle: pkg.targetTitle,
+      draft: currentDesc,
+      researchBrief: state.researchBrief!,
+    }, callCtx(state));
+    tokensIn += ceResult.tokensIn;
+    tokensOut += ceResult.tokensOut;
+    continuityCheck = ceResult.output;
+
+    if (!continuityCheck.approved && continuityCheck.contradictions.length > 0) {
+      const correctionNote = continuityCheck.contradictions
+        .map((c) => `- Excerpt: "${c.excerpt}"\n  Issue: ${c.issue}\n  Fix: ${c.correction}`)
+        .join('\n');
+      const revisionResult = await scribeAgent.run(state.worldId, {
+        ...scribeFields,
+        userSpec: [state.userSpec, `\n\n## Revision Required\nPlease correct the following contradictions:\n${correctionNote}`]
+          .filter(Boolean).join(''),
       }, callCtx(state));
-      tokensIn += ceResult.tokensIn;
-      tokensOut += ceResult.tokensOut;
-      continuityCheck = ceResult.output;
-
-      if (continuityCheck.approved || continuityCheck.contradictions.length === 0) break;
-
-      if (pass < 1) {
-        const correctionNote = continuityCheck.contradictions
-          .map((c) => `- Excerpt: "${c.excerpt}"\n  Issue: ${c.issue}\n  Fix: ${c.correction}`)
-          .join('\n');
-        const revisionResult = await scribeAgent.run(state.worldId, {
-          contextPackage: state.contextPackage!,
-          worldContext: state.worldContext!,
-          mode: state.expanderMode!,
-          selectedProposal: state.selectedProposal,
-          userSpec: [state.userSpec, `\n\n## Revision Required\nPlease correct the following contradictions:\n${correctionNote}`]
-            .filter(Boolean).join(''),
-          selectedIdeas: state.selectedIdeas,
-          researchBrief: state.researchBrief,
-          wordCountPreset: state.wordCountPreset,
-        }, callCtx(state));
-        tokensIn += revisionResult.tokensIn;
-        tokensOut += revisionResult.tokensOut;
-        scribeOutput = revisionResult.output;
-      }
+      tokensIn += revisionResult.tokensIn;
+      tokensOut += revisionResult.tokensOut;
+      scribeOutput = revisionResult.output;
     }
   }
 
@@ -250,20 +261,28 @@ export async function scribeNode(state: OrchestrationState): Promise<Partial_> {
   };
 }
 
-/** Only runs for pipelineType === 'create_child' — mirrors director.ts's expand() guard. */
+/**
+ * Only runs for pipelineType === 'create_child' — mirrors director.ts's
+ * expand() guard. Scribe's childDescription is already intro-shaped (~80
+ * words, explicitly written to become the Introduction — see expander.ts's
+ * create_child system prompt), so this uses it directly instead of routing
+ * it through Lorekeeper: distilling a Description isn't Lorekeeper's job,
+ * and Scribe already wrote something intro-shaped with full context. Zero
+ * extra LLM call versus the previous "Scribe writes childDescription, then
+ * Lorekeeper re-summarizes it" shape.
+ */
 export async function lorekeeperSummarizeAfterExpandNode(state: OrchestrationState): Promise<Partial_> {
   if (state.expanderMode !== 'create_child') return {};
-  return lorekeeperSummarizeUnconditionalNode(state);
+  return { introduction: state.description! };
 }
 
-/** Always runs, no mode gate — used by reorganize(), which summarizes on every call. */
+/** Always runs, no mode gate — used by reorganize(), which refreshes the introduction on every call from researchBrief/worldContext, not from the reorganized Description (outside Lorekeeper's scope). */
 export async function lorekeeperSummarizeUnconditionalNode(state: OrchestrationState): Promise<Partial_> {
   const agent = new LorekeepAgent();
   const result = await agent.run(state.worldId, {
     articleTitle: state.contextPackage!.targetTitle,
-    description: state.description!,
     worldContext: state.worldContext!,
-    contextPackage: state.contextPackage!,
+    researchBrief: state.researchBrief,
   }, callCtx(state));
   return { introduction: result.output.introduction, tokensIn: result.tokensIn, tokensOut: result.tokensOut };
 }
@@ -290,15 +309,16 @@ export async function styleWardenNode(state: OrchestrationState): Promise<Partia
 // ---------------------------------------------------------------------------
 
 /**
- * Lorekeeper's introduction plus, when runGroundingCheck is on, up to 2
- * Grounding Check self-correction passes — same bounded-retry shape as
- * scribeNode's Continuity Editor loop. Always returns the (possibly still
- * unapproved) introduction; the caller (forgeGraph.ts's inceptionNode)
- * decides whether to commit it to the World Bible based on groundingCheck.
+ * Lorekeeper's introduction plus, when runGroundingCheck is on, a single
+ * Grounding Check self-correction pass — same bounded shape as scribeNode's
+ * Continuity Editor pass. Grounding Check runs once; if it flags a
+ * contradiction, Lorekeeper gets one revision attempt and that revision is
+ * trusted without a second check or a commit-blocking gate — deeper
+ * verification happens in Consolidate (Linter, Warden), not here.
  */
 export async function lorekeeperSummarizeNode(state: OrchestrationState): Promise<Partial_> {
-  const article = await getDbClient().get<{ title: string; description: string; introduction: string }>(
-    `SELECT a.title, av.description, av.introduction
+  const article = await getDbClient().get<{ title: string; introduction: string }>(
+    `SELECT a.title, av.introduction
      FROM articles a
      LEFT JOIN article_versions av ON av.id = a.current_version_id
      WHERE a.id = ? AND a.world_id = ?`,
@@ -306,18 +326,16 @@ export async function lorekeeperSummarizeNode(state: OrchestrationState): Promis
   );
   if (!article) throw new Error(`Article ${state.articleId} not found`);
 
-  const description = article.description ?? '';
   const existingIntro = article.introduction ?? '';
   const effectiveMode = state.lorekeeperMode === 'improve' && existingIntro.trim().length === 0 ? 'full' : state.lorekeeperMode;
 
   const lorekeeperAgent = new LorekeepAgent();
   const lorekeeperResult = await lorekeeperAgent.run(state.worldId, {
     articleTitle: article.title,
-    description,
     worldContext: state.worldContext!,
-    contextPackage: state.contextPackage!,
     mode: effectiveMode,
     existingIntro: effectiveMode === 'improve' ? existingIntro : undefined,
+    researchBrief: state.researchBrief,
   }, callCtx(state));
   let tokensIn = lorekeeperResult.tokensIn;
   let tokensOut = lorekeeperResult.tokensOut;
@@ -325,36 +343,32 @@ export async function lorekeeperSummarizeNode(state: OrchestrationState): Promis
 
   let groundingCheck: Partial_['groundingCheck'];
   if (state.runGroundingCheck) {
-    for (let pass = 0; pass < 2; pass++) {
-      const gcAgent = new GroundingCheckAgent();
-      const gcResult = await gcAgent.run(state.worldId, {
-        contextPackage: state.contextPackage!,
+    const gcAgent = new GroundingCheckAgent();
+    const gcResult = await gcAgent.run(state.worldId, {
+      worldContext: state.worldContext!,
+      articleTitle: article.title,
+      draft: introduction,
+      researchBrief: state.researchBrief,
+    }, callCtx(state));
+    tokensIn += gcResult.tokensIn;
+    tokensOut += gcResult.tokensOut;
+    groundingCheck = gcResult.output;
+
+    if (!groundingCheck.approved && groundingCheck.contradictions.length > 0) {
+      const correctionNote = groundingCheck.contradictions
+        .map((c) => `- Excerpt: "${c.excerpt}"\n  Issue: ${c.issue}\n  Fix: ${c.correction}`)
+        .join('\n');
+      const revisionResult = await lorekeeperAgent.run(state.worldId, {
+        articleTitle: article.title,
         worldContext: state.worldContext!,
-        draft: introduction,
+        mode: effectiveMode,
+        existingIntro: effectiveMode === 'improve' ? existingIntro : undefined,
+        revisionNotes: correctionNote,
+        researchBrief: state.researchBrief,
       }, callCtx(state));
-      tokensIn += gcResult.tokensIn;
-      tokensOut += gcResult.tokensOut;
-      groundingCheck = gcResult.output;
-
-      if (groundingCheck.approved || groundingCheck.contradictions.length === 0) break;
-
-      if (pass < 1) {
-        const correctionNote = groundingCheck.contradictions
-          .map((c) => `- Excerpt: "${c.excerpt}"\n  Issue: ${c.issue}\n  Fix: ${c.correction}`)
-          .join('\n');
-        const revisionResult = await lorekeeperAgent.run(state.worldId, {
-          articleTitle: article.title,
-          description,
-          worldContext: state.worldContext!,
-          contextPackage: state.contextPackage!,
-          mode: effectiveMode,
-          existingIntro: effectiveMode === 'improve' ? existingIntro : undefined,
-          revisionNotes: correctionNote,
-        }, callCtx(state));
-        tokensIn += revisionResult.tokensIn;
-        tokensOut += revisionResult.tokensOut;
-        introduction = revisionResult.output.introduction;
-      }
+      tokensIn += revisionResult.tokensIn;
+      tokensOut += revisionResult.tokensOut;
+      introduction = revisionResult.output.introduction;
     }
   }
 
@@ -378,10 +392,17 @@ export async function lorekeeperSummarizeNode(state: OrchestrationState): Promis
  * implementation.
  */
 export async function cartographerNode(state: OrchestrationState): Promise<Partial_> {
+  const pkg = state.contextPackage!;
+  const existingChildren = pkg.children.map((c) => ({ title: c.title, summary: c.summary }));
+
   const agent = new CartographerAgent();
   const result = await agent.run(state.worldId, {
-    contextPackage: state.contextPackage!,
     worldContext: state.worldContext!,
+    articleTitle: pkg.targetTitle,
+    templateType: pkg.targetTemplateType,
+    currentIntroduction: pkg.targetIntroduction || undefined,
+    currentDescription: pkg.targetDescription || undefined,
+    existingChildren,
     userSpec: state.userSpec,
     researchBrief: state.researchBrief,
   }, callCtx(state));
@@ -393,8 +414,9 @@ export async function cartographerNode(state: OrchestrationState): Promise<Parti
   if (state.runDedupCheck && childProposals.length > 0) {
     const dedupAgent = new DedupCheckAgent();
     const dedupResult = await dedupAgent.run(state.worldId, {
-      contextPackage: state.contextPackage!,
       worldContext: state.worldContext!,
+      articleTitle: pkg.targetTitle,
+      existingChildren,
       proposals: childProposals,
     }, callCtx(state));
     tokensIn += dedupResult.tokensIn;
@@ -440,7 +462,7 @@ export async function sentinelNode(state: OrchestrationState): Promise<Partial_>
  * guard director.ts's cohere() already has.
  */
 export async function wardenNode(state: OrchestrationState): Promise<Partial_> {
-  if (!(await hasSufficientBibleContent(state.worldId))) return { warnings: [], suggestedLinks: [] };
+  if (!(await hasSufficientBibleContent(state.worldId, state.ownerId))) return { warnings: [], suggestedLinks: [] };
 
   const newContent = state.contextPackage!.targetDescription;
   const contentLabel = 'Article Body';
@@ -460,7 +482,7 @@ export async function wardenNode(state: OrchestrationState): Promise<Partial_> {
 // ---------------------------------------------------------------------------
 
 export async function loadBibleEntriesNode(state: OrchestrationState): Promise<Partial_> {
-  const bibleEntries = await getEntries(state.worldId);
+  const bibleEntries = await getEntries(state.worldId, state.ownerId);
   return {
     bibleEntries: bibleEntries.map((e) => ({ articleId: e.articleId, title: e.articleTitle, summary: e.summary })),
   };
@@ -482,19 +504,30 @@ export async function loadAuditSummariesNode(state: OrchestrationState): Promise
   let lastAuditTs = 0;
   if (state.focus === 'recent') {
     const lastRow = await exec.get<{ ts: number | null }>(
-      `SELECT MAX(created_at) AS ts FROM world_issues WHERE world_id = ?`,
-      [state.worldId],
+      `SELECT MAX(created_at) AS ts FROM world_issues WHERE world_id = ?${state.ownerId ? ' AND owner_id = ?' : ''}`,
+      state.ownerId ? [state.worldId, state.ownerId] : [state.worldId],
     );
     lastAuditTs = lastRow?.ts ?? 0;
+  }
+
+  const articleFilters = [`a.world_id = ?`];
+  const articleParams: unknown[] = [state.worldId];
+  if (state.ownerId) {
+    articleFilters.push(`a.owner_id = ?`);
+    articleParams.push(state.ownerId);
+  }
+  if (state.focus === 'recent' && lastAuditTs > 0) {
+    articleFilters.push(`a.updated_at > ?`);
+    articleParams.push(lastAuditTs);
   }
 
   const rows = await exec.all<{ id: string; title: string; summary: string | null }>(
     `SELECT a.id, a.title, wbe.summary
      FROM articles a
      LEFT JOIN world_bible_entries wbe ON wbe.article_id = a.id
-     WHERE a.world_id = ? ${state.focus === 'recent' && lastAuditTs > 0 ? 'AND a.updated_at > ?' : ''}
+     WHERE ${articleFilters.join(' AND ')}
      ORDER BY a.depth ASC, a.title ASC`,
-    [state.worldId, ...(state.focus === 'recent' && lastAuditTs > 0 ? [lastAuditTs] : [])],
+    articleParams,
   );
 
   const linkRows = await exec.all<{
@@ -506,8 +539,11 @@ export async function loadAuditSummariesNode(state: OrchestrationState): Promise
     `SELECT al.source_article_id, al.target_article_id, al.link_type, a.title AS target_title
      FROM article_links al
      JOIN articles a ON a.id = al.target_article_id
-     WHERE al.source_article_id IN (SELECT id FROM articles WHERE world_id = ?)`,
-    [state.worldId],
+     WHERE al.source_article_id IN (
+       SELECT id FROM articles WHERE world_id = ?${state.ownerId ? ' AND owner_id = ?' : ''}
+     )
+       ${state.ownerId ? 'AND al.owner_id = ? AND a.owner_id = ?' : ''}`,
+    state.ownerId ? [state.worldId, state.ownerId, state.ownerId, state.ownerId] : [state.worldId],
   );
 
   const linkMap = new Map<string, Array<{ targetId: string; targetTitle: string; linkType: string }>>();

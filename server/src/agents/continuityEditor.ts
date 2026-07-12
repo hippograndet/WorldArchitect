@@ -3,7 +3,6 @@ import { BaseAgent } from './base.js';
 import { OUTPUT_TOOLS } from '../tools/output.js';
 import { buildContinuityEditorSystemPrompt, buildContinuityEditorUserMessage } from '../prompts/continuityEditor.js';
 import type { WorldContext } from './director.js';
-import type { ContextPackage } from '../services/archivist.js';
 import type { ResearchBrief } from './scribe.js';
 import type { ChatMessage } from '../providers/types.js';
 import type { Tool } from '../tools/types.js';
@@ -34,11 +33,12 @@ export interface ContinuityEditorOutput {
   contradictions: Contradiction[];
 }
 
+/** No contextPackage — CE checks the draft against Researcher's brief it's already given, not the raw neighborhood tiers. */
 export interface ContinuityEditorInput {
-  contextPackage: ContextPackage;
-  worldContext:   WorldContext;
-  draft:          string;
-  researchBrief:  ResearchBrief;
+  worldContext:  WorldContext;
+  articleTitle:  string;
+  draft:         string;
+  researchBrief: ResearchBrief;
 }
 
 // ---------------------------------------------------------------------------
@@ -67,7 +67,7 @@ export class ContinuityEditorAgent extends BaseAgent<ContinuityEditorInput, Cont
       {
         role: 'user',
         content: buildContinuityEditorUserMessage(
-          input.contextPackage,
+          input.articleTitle,
           input.draft,
           input.researchBrief,
         ),

@@ -17,10 +17,12 @@ const graph = new StateGraph(OrchestrationAnnotation)
 
 export async function runCompressGraph(params: {
   worldId: string;
+  ownerId?: string;
   pipelineRunId?: string;
 }): Promise<{ entries: CompressionEntry[]; tokensIn: number; tokensOut: number }> {
   const result = await graph.invoke({
     worldId: params.worldId,
+    ownerId: params.ownerId,
     pipelineRunId: params.pipelineRunId ?? nanoid(),
     pipelineType: 'compress',
     ...contractState(worldContract('compress')),
