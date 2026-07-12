@@ -6,7 +6,7 @@ This document describes the current article lifecycle and versioning behavior.
 
 ## Core Objects
 
-An **article** is the stable identity of a world entry. It owns the title, category, template type, status, hierarchy depth, and `current_version_id`.
+An **article** is the stable identity of a world entry. It owns the title, internal seed group, article type, status, hierarchy depth, and `current_version_id`.
 
 An **article version** is a saved content revision for one article. Versions store introduction, description, word count, created time, and optional metadata such as whether the version was created by a revert.
 
@@ -17,6 +17,8 @@ A **pending draft** is a temporary generated draft waiting for user review. Pend
 A **World Bible entry** is a concise summary used for context and continuity. It is updated when article introductions or summaries change.
 
 An **entity mention** is a Consolidate concept candidate found in accepted article prose. Pending mentions do not change the article graph. When the user accepts one, the app creates or reuses a same-depth article stub and adds a reference edge from the source article.
+
+An **article type** is a predefined concept hint such as General, Person / Character, Location, Organization / Faction, or Event. It guides the small infobox-style Details fields on the article page.
 
 ## Current Lifecycle
 

@@ -1,15 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useStore } from '../../stores/index.ts';
 import { api } from '../../lib/api.ts';
 import type { TemplateType } from '../../types/article.ts';
-
-const TEMPLATE_TYPES: { value: TemplateType; label: string }[] = [
-  { value: 'general',          label: 'General' },
-  { value: 'character',        label: 'Person / Character' },
-  { value: 'location',         label: 'Location' },
-  { value: 'faction',          label: 'Organization / Faction' },
-  { value: 'historical_event', label: 'Event' },
-];
+import { ARTICLE_TYPES, type ArticleTypeDefinition } from '../../lib/articleTypes.ts';
 
 interface Props {
   worldId: string;
@@ -23,7 +16,20 @@ export default function AddSubsectionDialog({ worldId, parentArticleId, onClose 
   const [title, setTitle]        = useState('');
   const [introduction, setIntro] = useState('');
   const [templateType, setTemplate] = useState<TemplateType>('general');
+  const [articleTypes, setArticleTypes] = useState<ArticleTypeDefinition[]>(ARTICLE_TYPES);
   const [saving, setSaving]      = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.articleTypes.list(worldId)
+      .then((res) => {
+        if (!cancelled) setArticleTypes(res.articleTypes);
+      })
+      .catch(() => {
+        if (!cancelled) setArticleTypes(ARTICLE_TYPES);
+      });
+    return () => { cancelled = true; };
+  }, [worldId]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -77,8 +83,8 @@ export default function AddSubsectionDialog({ worldId, parentArticleId, onClose 
             <textarea
               value={introduction}
               onChange={(e) => setIntro(e.target.value)}
-              rows={3}
-              placeholder="One-paragraph introduction…"
+              rows={2}
+              placeholder="One sentence introducing this subject…"
               className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-300"
             />
           </div>
@@ -90,8 +96,8 @@ export default function AddSubsectionDialog({ worldId, parentArticleId, onClose 
               onChange={(e) => setTemplate(e.target.value as TemplateType)}
               className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 bg-white"
             >
-              {TEMPLATE_TYPES.map(({ value, label }) => (
-                <option key={value} value={value}>{label}</option>
+              {articleTypes.map(({ id, label }) => (
+                <option key={id} value={id}>{label}</option>
               ))}
             </select>
           </div>

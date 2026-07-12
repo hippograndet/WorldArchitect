@@ -48,7 +48,6 @@ describe('MAS cost model', () => {
       'audit',
       'branching',
       'cohere',
-      'compress',
       'expansion',
       'inception',
       'reorganize',

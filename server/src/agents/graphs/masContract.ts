@@ -15,7 +15,6 @@ export type MasIntent =
   | 'branch'
   | 'reorganize'
   | 'cohere'
-  | 'compress'
   | 'audit'
   | 'research';
 
@@ -65,7 +64,7 @@ export function articleContract(params: {
   };
 }
 
-export function worldContract(intent: Extract<MasIntent, 'create_world' | 'audit' | 'compress'>): MasContract {
+export function worldContract(intent: Extract<MasIntent, 'create_world' | 'audit'>): MasContract {
   return {
     location: { type: 'world' },
     intent,

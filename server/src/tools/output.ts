@@ -403,31 +403,6 @@ export const OUTPUT_TOOLS: Record<string, Tool> = {
     },
   },
 
-  // Condenser: bulk preview of compressed World Bible entries
-  submit_compression: {
-    name: 'submit_compression',
-    description: 'Submit compressed World Bible entries (preview only — not applied automatically).',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        entries: {
-          type: 'array',
-          items: {
-            type: 'object',
-            properties: {
-              articleId: { type: 'string', description: 'Article ID' },
-              compressedSummary: { type: 'string', description: 'New compressed Introduction' },
-              tokensBefore: { type: 'number', description: 'Token count before compression' },
-              tokensAfter: { type: 'number', description: 'Token count after compression' },
-            },
-            required: ['articleId', 'compressedSummary', 'tokensBefore', 'tokensAfter'],
-          },
-        },
-      },
-      required: ['entries'],
-    },
-  },
-
   // Muse: 5–10 thematic ideas grounded in world context + the article's own identity
   submit_ideas: {
     name: 'submit_ideas',

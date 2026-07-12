@@ -9,7 +9,7 @@ The app gives each world its own local encyclopedia. Worlds start with a root ar
 ## The Main Surfaces
 
 - **World list** - create and reopen local worlds.
-- **World creation wizard** - define a world premise, categories, and writing style.
+- **World creation wizard** - define a world premise and writing style.
 - **World overview** - see article counts, World Bible status, and world-level tools.
 - **Article page** - read, edit, organize, and review a document.
 - **Expand** - configure MAS generation runs that incept, expand, branch, and optionally recurse through part of the world.
@@ -25,7 +25,8 @@ The app gives each world its own local encyclopedia. Worlds start with a root ar
 
 Each article is more than a text file. It can carry:
 
-- A title and category
+- A title and predefined article type
+- Infobox-style details
 - A publication status
 - A short introduction used by the World Bible
 - A longer description

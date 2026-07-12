@@ -11,7 +11,6 @@ import type { ChildProposalItem } from './cartographer.js';
 import type { CoherenceWarning, SuggestedLink, WardenOutput } from './warden.js';
 import type { RetentionIssue, SentinelOutput } from './sentinel.js';
 import type { AgentSideChannel } from './base.js';
-import type { CompressionEntry } from './condenser.js';
 import type { IdeaItem } from './muse.js';
 import type { StyleWardenOutput } from './styleWarden.js';
 import type { ContinuityEditorOutput } from './continuityEditor.js';
@@ -26,7 +25,6 @@ import { runSummarizeGraph } from './graphs/pipelines/summarize.js';
 import { runProposeChildrenGraph } from './graphs/pipelines/proposeChildren.js';
 import { runReorganizeGraph } from './graphs/pipelines/reorganize.js';
 import { runCohereGraph } from './graphs/pipelines/cohere.js';
-import { runCompressGraph } from './graphs/pipelines/compress.js';
 import { runAuditGraph } from './graphs/pipelines/audit.js';
 
 // ---------------------------------------------------------------------------
@@ -156,12 +154,6 @@ export interface ReorganizeOutput {
   description: string;
   introduction: string;
   retentionIssues: RetentionIssue[];
-  tokensIn: number;
-  tokensOut: number;
-}
-
-export interface CompressOutput {
-  entries: CompressionEntry[];
   tokensIn: number;
   tokensOut: number;
 }
@@ -344,15 +336,6 @@ export class PipelineCoordinator {
   ): Promise<{ warnings: CoherenceWarning[]; suggestedLinks: SuggestedLink[]; tokensIn: number; tokensOut: number }> {
     const ownerId = await ownerIdForWorld(getDbClient(), worldId);
     return runCohereGraph({ worldId, ownerId, articleId, contextDepth });
-  }
-
-  // ---------------------------------------------------------------------------
-  // compress — Condenser (preview only)
-  // ---------------------------------------------------------------------------
-
-  async compress(worldId: string): Promise<CompressOutput> {
-    const ownerId = await ownerIdForWorld(getDbClient(), worldId);
-    return runCompressGraph({ worldId, ownerId });
   }
 
   // ---------------------------------------------------------------------------

@@ -14,7 +14,6 @@ import type { StyleWardenOutput } from '../styleWarden.js';
 import type { MentionItem, ScribeOutput, ResearchBrief } from '../scribe.js';
 import type { LorekeepMode } from '../lorekeeper.js';
 import type { EdgeProposal, GlobalWarning } from '../auditor.js';
-import type { CompressionEntry } from '../condenser.js';
 import type { GroundingCheckOutput } from '../groundingCheck.js';
 import type { DedupCheckOutput } from '../dedupCheck.js';
 import type { AutonomyMode, CommitPolicy, MasContract, MasIntent, MasLocation, ReviewPolicy } from './masContract.js';
@@ -111,10 +110,6 @@ export const OrchestrationAnnotation = Annotation.Root({
   // --- cohere (Warden) ---
   warnings: Annotation<CoherenceWarning[]>({ reducer: replace, default: () => [] }),
   suggestedLinks: Annotation<SuggestedLink[]>({ reducer: replace, default: () => [] }),
-
-  // --- compress (Condenser) ---
-  bibleEntries: Annotation<Array<{ articleId: string; title: string; summary: string }>>({ reducer: replace, default: () => [] }),
-  compressedEntries: Annotation<CompressionEntry[]>({ reducer: replace, default: () => [] }),
 
   // --- audit (Auditor) ---
   sampleSize: Annotation<number | undefined>({ reducer: replace, default: () => undefined }),

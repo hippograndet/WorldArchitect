@@ -17,6 +17,7 @@ import publishRoutes from './publish.js';
 import worldIssueRoutes from './worldIssues.js';
 import consolidationRoutes from './consolidation.js';
 import runRoutes from './runs.js';
+import articleTypeRoutes from './articleTypes.js';
 
 export function registerRoutes(app: express.Express): void {
   app.get('/health', asyncHandler(async (_req, res) => {
@@ -30,6 +31,7 @@ export function registerRoutes(app: express.Express): void {
 
   app.use('/api/worlds', worldRoutes);
   app.use('/api/worlds/:wid/articles', requireWorldTenant, articleRoutes);
+  app.use('/api/worlds/:wid/article-types', requireWorldTenant, articleTypeRoutes);
   app.use('/api/worlds/:wid/bible', requireWorldTenant, bibleRoutes);
   app.use('/api/worlds/:wid/settings', requireWorldTenant, worldSettingsRouter);
   app.use('/api/worlds/:wid/call-log', requireWorldTenant, callLogRoutes);

@@ -21,6 +21,7 @@ export default defineConfig({
       'src/prompts/promptSecurity.test.ts',
       'src/providers/anthropic.test.ts',
       'src/providers/safety.test.ts',
+      'src/routes/articleTypes.test.ts',
       'src/routes/agents.cost.test.ts',
       'src/routes/postgresRoutes.test.ts',
       'src/services/postgresCore.test.ts',

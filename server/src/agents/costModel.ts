@@ -16,7 +16,6 @@ import { StyleWardenAgent } from './styleWarden.js';
 import { LinterAgent } from './linter.js';
 import { FixerAgent } from './fixer.js';
 import { AuditorAgent } from './auditor.js';
-import { CondenserAgent } from './condenser.js';
 import { StylistAgent } from './stylist.js';
 import type { BaseAgent } from './base.js';
 
@@ -102,7 +101,6 @@ function allAgentInstances(): AnyAgent[] {
     new LinterAgent(),
     new FixerAgent(),
     new AuditorAgent(),
-    new CondenserAgent(),
     new StylistAgent(),
   ] as AnyAgent[];
 }
@@ -227,7 +225,6 @@ function estimateStandalone(pipeline: string): Map<string, { agentType: string; 
     addAgent(out, 'lorekeeper');
   } else if (pipeline === 'cohere') addAgent(out, 'warden');
   else if (pipeline === 'audit') addAgent(out, 'auditor');
-  else if (pipeline === 'compress') addAgent(out, 'condenser');
   return out;
 }
 
@@ -279,6 +276,5 @@ export function getPipelineTemplates(): PipelineTemplate[] {
     { pipeline: 'reorganize', steps: [...estimateStandalone('reorganize').values()], notes: [] },
     { pipeline: 'cohere', steps: [...estimateStandalone('cohere').values()], notes: ['Sparse worlds can skip the Warden call at runtime.'] },
     { pipeline: 'audit', steps: [...estimateStandalone('audit').values()], notes: [] },
-    { pipeline: 'compress', steps: [...estimateStandalone('compress').values()], notes: [] },
   ];
 }

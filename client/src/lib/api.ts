@@ -4,6 +4,7 @@ import type { PipelineType } from '../stores/agentSlice.ts';
 import type { FlatArticle } from './tree.ts';
 import type { Article, ArticleDetail, ArticleGraph, ArticleGraphEdge, ArticleVersion, PendingDraft, CoherenceWarning, AcceptDraftResult } from '../types/article.ts';
 import type { ContextDepth, IdeaItem, EdgeProposal, GlobalWarning, StyleWardenResult } from '../types/agent.ts';
+import type { ArticleMetadataFieldDefinition, ArticleTypeDefinition } from './articleTypes.ts';
 import { getAuthToken } from './authToken.ts';
 
 const BASE = '/api';
@@ -178,6 +179,11 @@ export const api = {
     }) => post<{ created: { id: string; title: string }[] }>(`/worlds/${wid}/articles/batch`, input),
   },
 
+  articleTypes: {
+    list: (wid: string) =>
+      get<{ generalMetadataFields: ArticleMetadataFieldDefinition[]; articleTypes: ArticleTypeDefinition[] }>(`/worlds/${wid}/article-types`),
+  },
+
   bible: {
     getMeta:     (wid: string)                        => get<BibleMeta>(`/worlds/${wid}/bible`),
     updateEntry: (wid: string, aid: string, summary: string) =>
@@ -244,10 +250,6 @@ export const api = {
         warnings: CoherenceWarning[];
         suggestedLinks: { targetArticleTitle: string; targetArticleId: string | null }[];
       }>(`/worlds/${wid}/agents/cohere`, input),
-    compress: (wid: string) =>
-      post<{ entries: { articleId: string; compressedSummary: string; tokensBefore: number; tokensAfter: number }[] }>(
-        `/worlds/${wid}/agents/compress`,
-      ),
     audit: (wid: string, input?: { sampleSize?: number; focus?: 'all' | 'recent' }) =>
       post<{ edgeProposals: EdgeProposal[]; globalWarnings: GlobalWarning[] }>(
         `/worlds/${wid}/agents/audit`, input ?? {},

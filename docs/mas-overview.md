@@ -93,7 +93,6 @@ WorldArchitect uses specialized agents for different jobs:
 - **Linter** finds article issues after saves.
 - **Fixer** helps resolve individual issues.
 - **Auditor** reviews the world graph.
-- **Condenser** shortens overly long World Bible entries.
 - **Stylist** expands world style notes into more useful writing guidance.
 
 ## Cost And Safety Controls

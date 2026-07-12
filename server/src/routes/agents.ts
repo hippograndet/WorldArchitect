@@ -291,17 +291,6 @@ router.post('/cohere', requireLLM, checkCap, asyncHandler(async (req, res) => {
 }));
 
 // ---------------------------------------------------------------------------
-// POST /api/worlds/:wid/agents/compress
-// Condenser (preview only — no DB writes)
-// ---------------------------------------------------------------------------
-
-router.post('/compress', requireLLM, checkCap, asyncHandler(async (req, res) => {
-  const { worldId } = requireTenantContext(req);
-  const result = await coordinator.compress(worldId);
-  res.json({ entries: result.entries });
-}));
-
-// ---------------------------------------------------------------------------
 // POST /api/worlds/:wid/agents/audit  — Auditor (world-wide coherence scan)
 // GET  /api/worlds/:wid/agents/audit/proposals  — list pending edge proposals
 // POST /api/worlds/:wid/agents/audit/accept-edge — accept a proposed edge
