@@ -5,7 +5,7 @@ const forgeGraph = vi.hoisted(() => ({
   startForgeRun: vi.fn().mockResolvedValue(undefined),
   resumeForgeRun: vi.fn().mockResolvedValue(undefined),
 }));
-vi.mock('../agents/graphs/forgeGraph.js', () => forgeGraph);
+vi.mock('../agents/graphs/forgeGraph/index.js', () => forgeGraph);
 
 import { createApp } from '../app.js';
 import { getDbClient } from '../db/client.js';

@@ -1,7 +1,8 @@
 import { StateGraph } from '@langchain/langgraph';
 import { nanoid } from 'nanoid';
 import { OrchestrationAnnotation } from '../state.js';
-import { fetchWorldContextNode, buildContextPackageNode, museProposeNode, curatorAutoSelectNode } from '../nodes.js';
+import { fetchWorldContextNode, buildContextPackageNode } from '../nodes/shared.js';
+import { museProposeNode, curatorAutoSelectNode } from '../nodes/expand/propose.js';
 import { articleContract, contractState, proposalIntent } from '../masContract.js';
 import type { ContextDepth, ContextPackage } from '../../../services/archivist.js';
 import type { ProposalMode } from '../../../prompts/proposal.js';

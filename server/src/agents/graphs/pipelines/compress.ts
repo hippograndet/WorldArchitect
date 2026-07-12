@@ -2,7 +2,8 @@ import { StateGraph } from '@langchain/langgraph';
 import { nanoid } from 'nanoid';
 import { OrchestrationAnnotation } from '../state.js';
 import { contractState, worldContract } from '../masContract.js';
-import { fetchWorldContextNode, loadBibleEntriesNode, condenserNode } from '../nodes.js';
+import { fetchWorldContextNode } from '../nodes/shared.js';
+import { loadBibleEntriesNode, condenserNode } from '../nodes/consolidate/compress.js';
 import type { CompressionEntry } from '../../condenser.js';
 
 const graph = new StateGraph(OrchestrationAnnotation)

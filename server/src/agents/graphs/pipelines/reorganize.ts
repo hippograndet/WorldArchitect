@@ -2,13 +2,9 @@ import { StateGraph } from '@langchain/langgraph';
 import { nanoid } from 'nanoid';
 import { OrchestrationAnnotation } from '../state.js';
 import { articleContract, contractState } from '../masContract.js';
-import {
-  fetchWorldContextNode,
-  buildContextPackageNode,
-  scribeNode,
-  sentinelNode,
-  lorekeeperSummarizeUnconditionalNode,
-} from '../nodes.js';
+import { fetchWorldContextNode, buildContextPackageNode } from '../nodes/shared.js';
+import { scribeNode } from '../nodes/expand/draft.js';
+import { sentinelNode, lorekeeperSummarizeUnconditionalNode } from '../nodes/consolidate/reorganize.js';
 import type { ContextDepth } from '../../../services/archivist.js';
 import type { RetentionIssue } from '../../sentinel.js';
 

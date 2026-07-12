@@ -16,9 +16,12 @@ vi.mock('../../services/callLogger.js', () => ({
 }));
 
 // Import after the mocks above are registered, and after the harness sets
-// APP_MODE/DATABASE_URL — nodes.js only touches getDbClient() lazily inside
-// each function call, so a static import here is safe.
-import { wardenNode, fetchWorldContextNode, buildContextPackageNode, researcherNode, scribeNode } from './nodes.js';
+// APP_MODE/DATABASE_URL — these node modules only touch getDbClient() lazily
+// inside each function call, so a static import here is safe.
+import { wardenNode } from './nodes/consolidate/cohere.js';
+import { fetchWorldContextNode, buildContextPackageNode } from './nodes/shared.js';
+import { researcherNode } from './nodes/expand/research.js';
+import { scribeNode } from './nodes/expand/draft.js';
 
 const OWNER_ID = 'owner-warden-node-test';
 

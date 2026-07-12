@@ -7,7 +7,7 @@ import { getDbClient } from '../db/client.js';
 import { createRun, getRun, listRuns, cancelRun, markRunStatus, listRunEvents, listRunAgentCalls, clearTerminalRunHistory, RunConflictError } from '../services/runsService.js';
 import { isLlmTraceEnabled, listRunLlmTraces } from '../services/llmTraceService.js';
 import { decideRunReviewItem, listRunReviewItems } from '../services/runReviewItems.js';
-import { startForgeRun, resumeForgeRun } from '../agents/graphs/forgeGraph.js';
+import { startForgeRun, resumeForgeRun } from '../agents/graphs/forgeGraph/index.js';
 import type { AutonomyMode, CommitPolicy, ReviewPolicy } from '../agents/graphs/masContract.js';
 
 const router = Router({ mergeParams: true });

@@ -2,7 +2,8 @@ import { StateGraph } from '@langchain/langgraph';
 import { nanoid } from 'nanoid';
 import { OrchestrationAnnotation } from '../state.js';
 import { contractState, worldContract } from '../masContract.js';
-import { fetchWorldContextNode, loadAuditSummariesNode, auditorNode } from '../nodes.js';
+import { fetchWorldContextNode } from '../nodes/shared.js';
+import { loadAuditSummariesNode, auditorNode } from '../nodes/worldTools/audit.js';
 import type { EdgeProposal, GlobalWarning } from '../../auditor.js';
 
 const graph = new StateGraph(OrchestrationAnnotation)

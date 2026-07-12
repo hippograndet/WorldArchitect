@@ -44,7 +44,8 @@ vi.mock('../director.js', async (importOriginal) => {
 });
 
 // Import after the mocks above are registered.
-import { dequeueNode, researchNode, inceptionNode, expansionNode, routeAfterExpansion } from './forgeGraph.js';
+import { dequeueNode, researchNode, inceptionNode, expansionNode } from './forgeGraph/nodes.js';
+import { routeAfterExpansion } from './forgeGraph/routing.js';
 
 const OWNER_ID = 'owner-forge-graph-test';
 

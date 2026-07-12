@@ -1,14 +1,9 @@
 import { StateGraph } from '@langchain/langgraph';
 import { nanoid } from 'nanoid';
 import { OrchestrationAnnotation } from '../state.js';
-import {
-  fetchWorldContextNode,
-  buildContextPackageNode,
-  researcherNode,
-  scribeNode,
-  lorekeeperSummarizeAfterExpandNode,
-  styleWardenNode,
-} from '../nodes.js';
+import { fetchWorldContextNode, buildContextPackageNode } from '../nodes/shared.js';
+import { researcherNode } from '../nodes/expand/research.js';
+import { scribeNode, lorekeeperSummarizeAfterExpandNode, styleWardenNode } from '../nodes/expand/draft.js';
 import { articleContract, contractState, expanderIntent } from '../masContract.js';
 import type { ContextDepth, ArchivistMode, ContextPackage } from '../../../services/archivist.js';
 import type { ExpanderMode } from '../../../prompts/expander.js';

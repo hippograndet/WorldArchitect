@@ -2,7 +2,8 @@ import { StateGraph } from '@langchain/langgraph';
 import { nanoid } from 'nanoid';
 import { OrchestrationAnnotation } from '../state.js';
 import { articleContract, contractState } from '../masContract.js';
-import { fetchWorldContextNode, buildContextPackageNode, wardenNode } from '../nodes.js';
+import { fetchWorldContextNode, buildContextPackageNode } from '../nodes/shared.js';
+import { wardenNode } from '../nodes/consolidate/cohere.js';
 import type { ContextDepth } from '../../../services/archivist.js';
 import type { CoherenceWarning, SuggestedLink } from '../../warden.js';
 
