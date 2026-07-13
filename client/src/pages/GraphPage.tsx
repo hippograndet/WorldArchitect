@@ -23,6 +23,10 @@ const linkStyles: Record<LinkType, { stroke: string; dash?: string; label: strin
   references:   { stroke: 'var(--graph-edge-reference)', dash: '6 5', label: 'Reference' },
 };
 
+function graphLinkStyle(linkType: ArticleGraphEdge['linkType'] | string | null | undefined) {
+  return linkType === 'hierarchical' ? linkStyles.hierarchical : linkStyles.references;
+}
+
 function edgePoint(from: PositionedNode, to: PositionedNode) {
   const dx = to.x - from.x;
   const dy = to.y - from.y;
@@ -373,7 +377,7 @@ export default function GraphPage() {
                 const target = nodeById.get(edge.target);
                 if (!source || !target) return null;
                 const selectedEdge = selectedId === edge.source || selectedId === edge.target;
-                const style = linkStyles[edge.linkType];
+                const style = graphLinkStyle(edge.linkType);
                 const start = edgePoint(source, target);
                 const end = edgePoint(target, source);
 
@@ -562,6 +566,7 @@ function EdgeList({
             const otherId = title === 'Outgoing' ? edge.target : edge.source;
             const node = nodes.get(otherId);
             if (!node) return null;
+            const style = graphLinkStyle(edge.linkType);
             return (
               <Link
                 key={`${edge.source}-${edge.target}`}
@@ -569,7 +574,7 @@ function EdgeList({
                 className="flex items-center justify-between gap-2 rounded-md border border-gray-200 px-2 py-1.5 text-xs text-gray-600 hover:border-gray-300 hover:bg-gray-50"
               >
                 <span className="truncate">{node.title}</span>
-                <span className="shrink-0 text-[10px] uppercase text-gray-400">{edge.linkType}</span>
+                <span className="shrink-0 text-[10px] uppercase text-gray-400">{style.label}</span>
               </Link>
             );
           })}
