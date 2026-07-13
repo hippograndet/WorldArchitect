@@ -8,6 +8,7 @@ Before adding new files, moving logic, or touching an unfamiliar area, read:
 
 - `dev-docs/engineering/code-map.md` for where code belongs and which existing files own common responsibilities.
 - `dev-docs/engineering/practices.md` for safe-expansion principles, folder boundaries, and structural technical debt.
+- `dev-docs/engineering/testing.md` for choosing the right verification commands and known test harness gotchas.
 - `dev-docs/system_layers.md` for the current app map.
 
 ## Server And Security Changes

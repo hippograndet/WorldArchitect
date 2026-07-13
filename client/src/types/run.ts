@@ -12,7 +12,8 @@ export interface RunEvent {
 export interface RunConfig {
   articleIds?: string[];
   rootArticleId?: string;
-  pipelineType?: 'expand_description' | 'create_child' | 'propose_children' | 'reorganize' | 'summarize' | 'improve_intro' | 'cohere' | 'forge_expand' | 'audit';
+  pipelineType?: 'expand_description' | 'create_child' | 'propose_children' | 'reorganize' | 'summarize' | 'improve_intro' | 'cohere' | 'forge_expand' | 'audit' | 'concept_scan' | 'fix_issue';
+  graphType?: 'expand' | 'consolidate';
   startStep?: 'inception' | 'expansion' | 'branching';
   budgetLimit?: number;
   contextDepth?: 'shallow' | 'mid' | 'deep';

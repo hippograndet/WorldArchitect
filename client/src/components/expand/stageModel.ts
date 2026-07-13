@@ -14,10 +14,15 @@ export interface AgentStage {
   status: AgentStageStatus;
   call?: RunAgentCall;
   detail?: string;
+  /** Set on checker stages (grounding_check/continuity_editor/dedup_check): the generator agent it can send back to for revision. */
+  retryGeneratorAgentType?: string;
+  /** Max check→revise cycles configured for this run (run.config.coherenceCheckLevel). */
+  retryMax?: number;
+  /** How many times the generator was actually re-invoked this run. */
+  retryActual?: number;
 }
 
 export const AGENT_LABELS: Record<string, string> = {
-  context_assembly: 'Context Assembly',
   lorekeeper: 'Lorekeeper',
   grounding_check: 'Grounding Check',
   muse: 'Muse',
@@ -30,7 +35,6 @@ export const AGENT_LABELS: Record<string, string> = {
 };
 
 export const AGENT_TASKS: Record<string, string> = {
-  context_assembly: 'Context',
   lorekeeper: 'Intro',
   grounding_check: 'Grounding',
   muse: 'Direction',
@@ -42,12 +46,15 @@ export const AGENT_TASKS: Record<string, string> = {
   dedup_check: 'Dedup',
 };
 
+/** Checker agent → the generator agent it reviews and can send back for revision (see server's runCheckReviseLoop). */
+export const CHECKER_GENERATOR_PAIRS: Record<string, string> = {
+  grounding_check: 'lorekeeper',
+  continuity_editor: 'scribe',
+  dedup_check: 'cartographer',
+};
+
 export function isRunActive(run: Run | RunWithEvents): boolean {
   return run.status === 'running' || run.status === 'pending' || run.status === 'needs_input';
-}
-
-export function isRunSavedHistory(run: Run | RunWithEvents): boolean {
-  return run.status === 'completed' || run.status === 'failed' || run.status === 'stopped';
 }
 
 export function runDurationMs(run: Run | RunWithEvents): number {
@@ -96,10 +103,11 @@ function agentStageDefinitions(run: RunWithEvents): Array<Omit<AgentStage, 'stat
   for (const step of runPipelineSteps(run)) {
     if (step === 'research') {
       // Researcher now runs once per queue item, before Inception/Expansion/
-      // Branching — and builds the ContextPackage the rest of the cascade
-      // reuses, so the "Context Assembly" pseudo-stage lives here instead of
-      // being repeated under Inception/Expansion.
-      add(step, 'Context', 'context_assembly');
+      // Branching, and builds the ContextPackage the rest of the cascade
+      // reuses. Context assembly itself isn't a distinct agent — it has no
+      // stage of its own; if it fails, that failure surfaces on Researcher,
+      // the agent that actually depends on it (see the failedSteps handling
+      // in buildAgentStages below).
       add(step, 'Research', 'researcher');
     }
     const coherenceCheckOn = (run.config.coherenceCheckLevel ?? 0) > 0;
@@ -117,21 +125,14 @@ function agentStageDefinitions(run: RunWithEvents): Array<Omit<AgentStage, 'stat
       // Branching intentionally always rebuilds its own ContextPackage under
       // 'propose_children' mode rather than reusing Research's — see
       // runProposeChildrenGraph's comment in pipelines/proposeChildren.ts.
-      add(step, 'Context', 'context_assembly');
+      // Same reasoning as Research: no separate stage, failures surface on
+      // Cartographer.
       add(step, 'Children', 'cartographer');
       if (coherenceCheckOn) add(step, 'Children', 'dedup_check');
     }
   }
 
   return stages;
-}
-
-export function pipelineStepForCall(call: RunAgentCall): AgentStageStep | null {
-  if (call.pipelineType === 'research') return 'research';
-  if (call.pipelineType === 'summarize') return 'inception';
-  if (call.pipelineType === 'propose' || call.pipelineType === 'expand') return 'expansion';
-  if (call.pipelineType === 'propose_children') return 'branching';
-  return null;
 }
 
 export function buildAgentStages(run: RunWithEvents, articleId: string | null): AgentStage[] {
@@ -151,26 +152,36 @@ export function buildAgentStages(run: RunWithEvents, articleId: string | null): 
     if (!callsByAgent.has(call.agentType)) callsByAgent.set(call.agentType, []);
     callsByAgent.get(call.agentType)!.push(call);
   }
-  const calledSteps = new Set(articleCalls.map(pipelineStepForCall).filter(Boolean));
   const latestReviewByKind = new Map<string, RunReviewItem>();
   for (const review of articleReviews) {
     latestReviewByKind.set(review.kind, review);
   }
 
+  // A checker (grounding_check/continuity_editor/dedup_check) can send its
+  // generator back for revision up to run.config.coherenceCheckLevel times;
+  // the generator agentType is step-specific (e.g. lorekeeper only appears in
+  // Inception), so counting its calls here is unambiguous. The first call is
+  // the initial draft, not a retry.
+  const retryInfoForChecker = (checkerAgentType: string): Pick<AgentStage, 'retryGeneratorAgentType' | 'retryMax' | 'retryActual'> | undefined => {
+    const generatorAgentType = CHECKER_GENERATOR_PAIRS[checkerAgentType];
+    if (!generatorAgentType) return undefined;
+    const generatorCalls = callsByAgent.get(generatorAgentType) ?? [];
+    return {
+      retryGeneratorAgentType: generatorAgentType,
+      retryMax: run.config.coherenceCheckLevel ?? 0,
+      retryActual: Math.max(0, generatorCalls.length - 1),
+    };
+  };
+
   const stages = agentStageDefinitions(run).map<AgentStage>((stage) => {
-    if (stage.agentType === 'context_assembly') {
-      return {
-        ...stage,
-        status: calledSteps.has(stage.step) ? 'completed' : 'pending',
-        detail: calledSteps.has(stage.step) ? 'Context package prepared.' : undefined,
-      };
-    }
+    const retryInfo = retryInfoForChecker(stage.agentType);
     const calls = callsByAgent.get(stage.agentType) ?? [];
     const failedCall = calls.find((call) => call.status === 'error' || call.status === 'rejected');
     const latestCall = calls[calls.length - 1];
     if (failedCall) {
       return {
         ...stage,
+        ...retryInfo,
         status: 'failed',
         call: failedCall,
         detail: failedCall.errorMessage ?? `${stage.label} failed.`,
@@ -179,6 +190,7 @@ export function buildAgentStages(run: RunWithEvents, articleId: string | null): 
     if (latestCall?.status === 'success') {
       return {
         ...stage,
+        ...retryInfo,
         status: 'completed',
         call: latestCall,
         detail: `${stage.label} completed.`,
@@ -203,6 +215,7 @@ export function buildAgentStages(run: RunWithEvents, articleId: string | null): 
     }
     return {
       ...stage,
+      ...retryInfo,
       status: 'pending',
     };
   });
@@ -251,14 +264,12 @@ export function runStepProgress(steps: AgentStageStep[], stages: AgentStage[]): 
 }
 
 /**
- * Agent-pass completed/total from already-built stages, excluding the
- * context_assembly pseudo-stages (system bookkeeping, not an LLM agent).
- * Each real agent role appears once per step regardless of checker→revise
- * retries, so this is an estimated-pass count, not a raw call count.
+ * Agent-pass completed/total from already-built stages. Each real agent role
+ * appears once per step regardless of checker→revise retries, so this is an
+ * estimated-pass count, not a raw call count.
  */
 export function runAgentPassProgress(stages: AgentStage[]): CountProgress {
-  const agentStages = stages.filter((stage) => stage.agentType !== 'context_assembly');
-  return { completed: agentStages.filter((stage) => stage.status === 'completed').length, total: agentStages.length };
+  return { completed: stages.filter((stage) => stage.status === 'completed').length, total: stages.length };
 }
 
 export function stageStatusClass(status: AgentStageStatus): string {
@@ -294,7 +305,6 @@ export function stageStatusSentence(stage: AgentStage): string {
   if (stage.status === 'pending') return `${stage.label} is queued for ${stageTaskLabel(stage).toLowerCase()}.`;
   if (stage.status === 'failed') return stage.detail ?? `${stage.label} found an issue.`;
   if (stage.status === 'completed') {
-    if (stage.agentType === 'context_assembly') return 'Context is ready for this article.';
     return stage.detail ?? `${stage.label} completed ${stageTaskLabel(stage).toLowerCase()}.`;
   }
   return `${stage.label} was skipped.`;
@@ -303,11 +313,9 @@ export function stageStatusSentence(stage: AgentStage): string {
 export function stageDiagnosticNote(stage: AgentStage): string {
   return stage.detail
     ?? stage.call?.errorMessage
-    ?? (stage.agentType === 'context_assembly'
-      ? 'The system assembled world and article context before the LLM agent stage.'
-      : stage.status === 'pending'
-        ? 'This stage has not run for the selected article yet.'
-        : stage.status === 'running'
-          ? 'This is the next expected MAS stage for the selected article.'
-          : 'No additional details were recorded for this stage.');
+    ?? (stage.status === 'pending'
+      ? 'This stage has not run for the selected article yet.'
+      : stage.status === 'running'
+        ? 'This is the next expected MAS stage for the selected article.'
+        : 'No additional details were recorded for this stage.');
 }

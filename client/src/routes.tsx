@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react';
-import { createBrowserRouter } from 'react-router-dom';
+import { createBrowserRouter, Navigate } from 'react-router-dom';
 import App from './App.tsx';
 import AppShell from './components/layout/AppShell.tsx';
 import RouteErrorBoundary from './components/shared/RouteErrorBoundary.tsx';
@@ -19,6 +19,7 @@ const UsagePage         = lazy(() => import('./pages/UsagePage.tsx'));
 const ToolboxPage       = lazy(() => import('./pages/ToolboxPage.tsx'));
 const ExpandPage        = lazy(() => import('./pages/ExpandPage.tsx'));
 const ConsolidatePage   = lazy(() => import('./pages/ConsolidatePage.tsx'));
+const InboxPage         = lazy(() => import('./pages/InboxPage.tsx'));
 const PublishPage       = lazy(() => import('./pages/PublishPage.tsx'));
 
 function PageFallback() {
@@ -47,7 +48,9 @@ export const router = createBrowserRouter([
           { path: 'graph',         element: withSuspense(<GraphPage />) },
           { path: 'snapshots',     element: withSuspense(<SnapshotsPage />) },
           { path: 'usage',         element: withSuspense(<UsagePage />) },
-          { path: 'expand',        element: withSuspense(<ExpandPage />) },
+          { path: 'grow',          element: withSuspense(<ExpandPage />) },
+          { path: 'expand',        element: <Navigate to="../grow" replace /> },
+          { path: 'inbox',         element: withSuspense(<InboxPage />) },
           { path: 'consolidate',   element: withSuspense(<ConsolidatePage />) },
           { path: 'toolbox',       element: withSuspense(<ToolboxPage />) },
           { path: 'publish',       element: withSuspense(<PublishPage />) },

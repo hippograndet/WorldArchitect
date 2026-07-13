@@ -7,6 +7,7 @@ import {
   stageTaskLabel,
   stageStatusSentence,
   stageDiagnosticNote,
+  AGENT_LABELS,
 } from './stageModel.ts';
 import type { AgentStage, AgentStageStep } from './stageModel.ts';
 
@@ -21,7 +22,6 @@ export default function AgentStageBoard({
   selectedStage,
   contextDepth,
   validationLevel,
-  continuationMode,
 }: {
   stages: AgentStage[];
   headerLabel: string;
@@ -33,8 +33,9 @@ export default function AgentStageBoard({
   selectedStage: AgentStage | null;
   contextDepth: string;
   validationLevel: string;
-  continuationMode: string;
 }) {
+  const selectedStageIndex = selectedStage ? stages.findIndex((stage) => stage.key === selectedStage.key) : -1;
+  const selectedStageContinues = selectedStageIndex >= 0 && selectedStageIndex < stages.length - 1;
   return (
     <>
       <div className="flex items-center justify-between gap-3 mb-3">
@@ -58,15 +59,23 @@ export default function AgentStageBoard({
       {stages.length === 0 ? (
         <p className="text-xs text-gray-400">No pipeline plan is available for this article.</p>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-          {(['research', 'inception', 'expansion', 'branching'] as AgentStageStep[]).map((step) => {
+        <div className="flex flex-wrap items-stretch gap-2">
+          {(['research', 'inception', 'expansion', 'branching'] as AgentStageStep[]).reduce<JSX.Element[]>((acc, step) => {
             const stepStages = stages.filter((stage) => stage.step === step);
-            if (stepStages.length === 0) return null;
-            return (
-              <div key={step} className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+            if (stepStages.length === 0) return acc;
+            if (acc.length > 0) {
+              acc.push(
+                <div key={`arrow-${step}`} className="hidden md:flex items-center justify-center text-gray-300 shrink-0" aria-hidden="true">
+                  <span className="text-lg leading-none">→</span>
+                </div>,
+              );
+            }
+            acc.push(
+              <div key={step} className="flex-1 min-w-[180px] rounded-lg border border-gray-200 bg-gray-50 p-3">
                 <p className="text-xs font-semibold text-gray-800 capitalize mb-2">{step}</p>
                 <div className="space-y-2">
                   {stepStages.map((stage) => {
+                    const hasRetryLoop = typeof stage.retryMax === 'number' && stage.retryMax > 0;
                     return (
                       <button
                         key={stage.key}
@@ -95,13 +104,22 @@ export default function AgentStageBoard({
                         }`}>
                           {stageStatusSentence(stage)}
                         </p>
+                        {hasRetryLoop && (
+                          <p className="text-[10px] text-gray-400 mt-1.5 flex items-center gap-1" title={`Sends back to ${AGENT_LABELS[stage.retryGeneratorAgentType ?? ''] ?? stage.retryGeneratorAgentType} for revision`}>
+                            <span aria-hidden="true">↩</span>
+                            <span>
+                              {AGENT_LABELS[stage.retryGeneratorAgentType ?? ''] ?? stage.retryGeneratorAgentType} revisions: {stage.retryActual ?? 0}/{stage.retryMax}
+                            </span>
+                          </p>
+                        )}
                       </button>
                     );
                   })}
                 </div>
-              </div>
+              </div>,
             );
-          })}
+            return acc;
+          }, [])}
         </div>
       )}
 
@@ -175,7 +193,7 @@ export default function AgentStageBoard({
               </div>
               <div>
                 <p className="text-[10px] uppercase tracking-wide text-gray-400">Continue</p>
-                <p className="text-xs font-semibold text-gray-800 mt-1">{continuationMode}</p>
+                <p className="text-xs font-semibold text-gray-800 mt-1">{String(selectedStageContinues)}</p>
               </div>
             </div>
 

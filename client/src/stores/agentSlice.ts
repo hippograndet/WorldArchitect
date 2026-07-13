@@ -35,7 +35,9 @@ export type PipelineType =
   | 'improve_intro'
   | 'cohere'
   | 'forge_expand'
-  | 'audit';
+  | 'audit'
+  | 'concept_scan'
+  | 'fix_issue';
 
 export type AgentPanelMode = 'spark' | 'solidification';
 export type RunValidationLevel = 'manual' | 'assisted' | 'autopilot';
@@ -138,6 +140,8 @@ const DRAFT_PIPELINE_MAP: Record<PipelineType, boolean> = {
   improve_intro: false,
   cohere: false,
   audit: false,
+  concept_scan: false,
+  fix_issue: false,
 };
 
 // ---------------------------------------------------------------------------

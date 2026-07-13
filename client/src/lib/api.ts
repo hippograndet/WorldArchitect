@@ -5,6 +5,7 @@ import type { FlatArticle } from './tree.ts';
 import type { Article, ArticleDetail, ArticleGraph, ArticleGraphEdge, ArticleVersion, PendingDraft, CoherenceWarning, AcceptDraftResult } from '../types/article.ts';
 import type { ContextDepth, IdeaItem, EdgeProposal, GlobalWarning, StyleWardenResult } from '../types/agent.ts';
 import type { ArticleMetadataFieldDefinition, ArticleTypeDefinition } from './articleTypes.ts';
+import type { InboxCountResponse, InboxResponse } from '../types/inbox.ts';
 import { getAuthToken } from './authToken.ts';
 
 const BASE = '/api';
@@ -433,19 +434,11 @@ export const api = {
       get<WorldIssue[]>(`/worlds/${wid}/articles/${aid}/world-issues`),
   },
 
-  consolidation: {
-    list: (wid: string, params?: { status?: string; severity?: string; scope?: 'world' | 'article'; articleId?: string; q?: string }) => {
-      const qs = new URLSearchParams();
-      if (params?.status)    qs.set('status', params.status);
-      if (params?.severity)  qs.set('severity', params.severity);
-      if (params?.scope)     qs.set('scope', params.scope);
-      if (params?.articleId) qs.set('articleId', params.articleId);
-      if (params?.q)         qs.set('q', params.q);
-      const query = qs.toString() ? `?${qs}` : '';
-      return get<import('./consolidation.ts').ConsolidationIssue[]>(`/worlds/${wid}/consolidation-issues${query}`);
-    },
+  inbox: {
+    list: (wid: string) =>
+      get<InboxResponse>(`/worlds/${wid}/inbox`),
     count: (wid: string) =>
-      get<{ open: number }>(`/worlds/${wid}/consolidation-issues/count`),
+      get<InboxCountResponse>(`/worlds/${wid}/inbox/count`),
   },
 
   runs: {

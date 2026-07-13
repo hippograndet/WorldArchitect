@@ -74,11 +74,13 @@ export async function createRun(params: {
   const placeholders = params.articleIds.map(() => '?').join(',');
 
   await exec.transaction(async (tx) => {
-    const locked = await tx.all<{ id: string }>(
-      `SELECT id FROM articles WHERE world_id = ? AND owner_id = ? AND id IN (${placeholders}) AND locked_by_run_id IS NOT NULL`,
-      [params.worldId, params.ownerId, ...params.articleIds],
-    );
-    if (locked.length > 0) throw new RunConflictError(locked.map((r) => r.id));
+    if (params.articleIds.length > 0) {
+      const locked = await tx.all<{ id: string }>(
+        `SELECT id FROM articles WHERE world_id = ? AND owner_id = ? AND id IN (${placeholders}) AND locked_by_run_id IS NOT NULL`,
+        [params.worldId, params.ownerId, ...params.articleIds],
+      );
+      if (locked.length > 0) throw new RunConflictError(locked.map((r) => r.id));
+    }
 
     await tx.run(
       `INSERT INTO runs
@@ -98,11 +100,13 @@ export async function createRun(params: {
       ],
     );
 
-    for (const articleId of params.articleIds) {
-      await tx.run(
-        `UPDATE articles SET locked_by_run_id = ? WHERE id = ? AND world_id = ? AND owner_id = ?`,
-        [runId, articleId, params.worldId, params.ownerId],
-      );
+    if (params.articleIds.length > 0) {
+      for (const articleId of params.articleIds) {
+        await tx.run(
+          `UPDATE articles SET locked_by_run_id = ? WHERE id = ? AND world_id = ? AND owner_id = ?`,
+          [runId, articleId, params.worldId, params.ownerId],
+        );
+      }
     }
   });
 
@@ -178,6 +182,24 @@ export async function markRunStatus(
     `UPDATE runs SET status = ?, error_message = ?, updated_at = ?
      WHERE id = ? AND world_id = ? AND owner_id = ?`,
     [status, errorMessage ?? null, Date.now(), runId, worldId, ownerId],
+  );
+}
+
+export async function addRunEvent(
+  worldId: string,
+  ownerId: string,
+  runId: string,
+  step: string,
+  title: string,
+  ok: boolean,
+  message?: string,
+): Promise<void> {
+  await getDbClient().run(
+    `INSERT INTO run_events (id, run_id, step, title, ok, message, created_at)
+     SELECT ?, r.id, ?, ?, ?, ?, ?
+       FROM runs r
+      WHERE r.id = ? AND r.world_id = ? AND r.owner_id = ?`,
+    [nanoid(), step, title, ok ? 1 : 0, message ?? null, Date.now(), runId, worldId, ownerId],
   );
 }
 

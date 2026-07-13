@@ -8,7 +8,9 @@ import { createRun, getRun, listRuns, cancelRun, markRunStatus, listRunEvents, l
 import { isLlmTraceEnabled, listRunLlmTraces } from '../services/llmTraceService.js';
 import { decideRunReviewItem, listRunReviewItems } from '../services/runReviewItems.js';
 import { startForgeRun, resumeForgeRun } from '../agents/graphs/forgeGraph/index.js';
+import { startConsolidateRun } from '../agents/graphs/consolidateRun.js';
 import type { AutonomyMode, CommitPolicy, ReviewPolicy } from '../agents/graphs/masContract.js';
+import type { ConsolidatePipelineType } from '../agents/graphs/consolidateRun.js';
 
 const router = Router({ mergeParams: true });
 
@@ -81,12 +83,13 @@ router.get('/:rid/llm-traces', asyncHandler(async (req, res) => {
 }));
 
 const CreateRunSchema = z.object({
-  articleIds: z.array(z.string().min(1)).min(1),
+  articleIds: z.array(z.string().min(1)).optional().default([]),
   budgetLimit: z.number().int().positive().optional(),
   pipelineType: z.enum([
     'expand_description', 'create_child', 'propose_children',
-    'reorganize', 'summarize', 'improve_intro', 'cohere', 'forge_expand', 'audit',
+    'reorganize', 'summarize', 'improve_intro', 'cohere', 'forge_expand', 'audit', 'concept_scan', 'fix_issue',
   ]),
+  graphType: z.enum(['expand', 'consolidate']).optional(),
   contextDepth: z.enum(['shallow', 'mid', 'deep']).optional().default('mid'),
   contextBasis: z.enum(['current', 'latest_draft', 'published']).optional().default('current'),
   branchingMode: z.enum(['conceptual', 'specific']).optional().default('conceptual'),
@@ -157,6 +160,12 @@ function deriveRunPolicy(input: z.infer<typeof CreateRunSchema>): {
   };
 }
 
+const CONSOLIDATE_PIPELINES = new Set<string>(['reorganize', 'cohere', 'audit', 'concept_scan']);
+
+function deriveGraphType(input: z.infer<typeof CreateRunSchema>): 'expand' | 'consolidate' {
+  return input.graphType ?? (CONSOLIDATE_PIPELINES.has(input.pipelineType) ? 'consolidate' : 'expand');
+}
+
 // ---------------------------------------------------------------------------
 // POST /api/worlds/:wid/runs — create + start a Forge run
 //
@@ -178,16 +187,30 @@ router.post('/', asyncHandler(async (req, res) => {
   const { worldId, ownerId } = requireTenantContext(req);
   const { articleIds } = parse.data;
   const rootArticleId = articleIds[0];
+  const graphType = deriveGraphType(parse.data);
 
-  const placeholders = articleIds.map(() => '?').join(',');
-  const existing = await getDbClient().all<{ id: string; title: string }>(
-    `SELECT id, title FROM articles WHERE world_id = ? AND owner_id = ? AND id IN (${placeholders})`,
-    [worldId, ownerId, ...articleIds],
-  );
-  if (existing.length !== articleIds.length) {
-    throw new AppError(404, 'NOT_FOUND', 'One or more articles not found in this world');
+  if (graphType === 'expand' && !rootArticleId) {
+    throw new AppError(400, 'VALIDATION_ERROR', 'Grow runs require a starting article');
   }
-  const rootArticle = existing.find((a) => a.id === rootArticleId)!;
+  if (graphType === 'consolidate' && (parse.data.pipelineType === 'reorganize' || parse.data.pipelineType === 'cohere') && !rootArticleId) {
+    throw new AppError(400, 'VALIDATION_ERROR', 'This Consolidate pipeline requires an article target');
+  }
+  if (parse.data.pipelineType === 'fix_issue') {
+    throw new AppError(400, 'VALIDATION_ERROR', 'Issue fixes are launched from Inbox issue actions, not run creation');
+  }
+
+  let existing: Array<{ id: string; title: string }> = [];
+  if (articleIds.length > 0) {
+    const placeholders = articleIds.map(() => '?').join(',');
+    existing = await getDbClient().all<{ id: string; title: string }>(
+      `SELECT id, title FROM articles WHERE world_id = ? AND owner_id = ? AND id IN (${placeholders})`,
+      [worldId, ownerId, ...articleIds],
+    );
+    if (existing.length !== articleIds.length) {
+      throw new AppError(404, 'NOT_FOUND', 'One or more articles not found in this world');
+    }
+  }
+  const rootArticle = rootArticleId ? existing.find((a) => a.id === rootArticleId)! : null;
   const runPolicy = deriveRunPolicy(parse.data);
   const startStep = deriveStartStep(parse.data.pipelineType);
   const runConfig = {
@@ -198,15 +221,16 @@ router.post('/', asyncHandler(async (req, res) => {
     reviewPolicy: runPolicy.reviewPolicy,
     commitPolicy: runPolicy.commitPolicy,
   };
+  const lockedArticleIds = graphType === 'consolidate' && parse.data.pipelineType === 'audit' ? [] : articleIds;
 
   let run;
   try {
     run = await createRun({
       worldId,
       ownerId,
-      articleIds,
+      articleIds: lockedArticleIds,
       budgetLimit: parse.data.budgetLimit,
-      graphType: 'expand',
+      graphType,
       config: runConfig,
     });
   } catch (err) {
@@ -216,32 +240,49 @@ router.post('/', asyncHandler(async (req, res) => {
     throw err;
   }
 
-  void startForgeRun({
-    runId: run.id,
-    worldId,
-    ownerId,
-    articleId: rootArticleId,
-    articleTitle: rootArticle.title,
-    startStep,
-    contextDepth: parse.data.contextDepth,
-    contextBasis: parse.data.contextBasis,
-    branchingMode: parse.data.branchingMode,
-    forgeMode: parse.data.forgeMode,
-    forgeMaxDepth: parse.data.forgeMaxDepth,
-    forgeMaxChildren: parse.data.forgeMaxChildren,
-    coherenceCheckLevel: parse.data.coherenceCheckLevel,
-    safetyNet: parse.data.safetyNet,
-    forgeContinuationMode: parse.data.forgeContinuationMode,
-    forgeInceptionExistingMode: parse.data.forgeInceptionExistingMode,
-    forgeExpansionExistingMode: parse.data.forgeExpansionExistingMode,
-    forgeBranchingExistingMode: parse.data.forgeBranchingExistingMode,
-    autonomyMode: runPolicy.autonomyMode,
-    reviewPolicy: runPolicy.reviewPolicy,
-    commitPolicy: runPolicy.commitPolicy,
-  }).catch((err) => {
-    // eslint-disable-next-line no-console
-    console.error(`Forge run ${run.id} crashed outside its own error handling`, err);
-  });
+  if (graphType === 'consolidate') {
+    void startConsolidateRun({
+      runId: run.id,
+      worldId,
+      ownerId,
+      pipelineType: parse.data.pipelineType as ConsolidatePipelineType,
+      articleId: rootArticle?.id,
+      articleTitle: rootArticle?.title,
+      contextDepth: parse.data.contextDepth,
+      contextBasis: parse.data.contextBasis,
+      focus: 'all',
+    }).catch((err) => {
+      // eslint-disable-next-line no-console
+      console.error(`Consolidate run ${run.id} crashed outside its own error handling`, err);
+    });
+  } else {
+    void startForgeRun({
+      runId: run.id,
+      worldId,
+      ownerId,
+      articleId: rootArticleId,
+      articleTitle: rootArticle!.title,
+      startStep,
+      contextDepth: parse.data.contextDepth,
+      contextBasis: parse.data.contextBasis,
+      branchingMode: parse.data.branchingMode,
+      forgeMode: parse.data.forgeMode,
+      forgeMaxDepth: parse.data.forgeMaxDepth,
+      forgeMaxChildren: parse.data.forgeMaxChildren,
+      coherenceCheckLevel: parse.data.coherenceCheckLevel,
+      safetyNet: parse.data.safetyNet,
+      forgeContinuationMode: parse.data.forgeContinuationMode,
+      forgeInceptionExistingMode: parse.data.forgeInceptionExistingMode,
+      forgeExpansionExistingMode: parse.data.forgeExpansionExistingMode,
+      forgeBranchingExistingMode: parse.data.forgeBranchingExistingMode,
+      autonomyMode: runPolicy.autonomyMode,
+      reviewPolicy: runPolicy.reviewPolicy,
+      commitPolicy: runPolicy.commitPolicy,
+    }).catch((err) => {
+      // eslint-disable-next-line no-console
+      console.error(`Forge run ${run.id} crashed outside its own error handling`, err);
+    });
+  }
 
   res.status(202).json(run);
 }));

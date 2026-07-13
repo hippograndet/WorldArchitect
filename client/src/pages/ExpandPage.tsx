@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { ArrowUp, GitBranch, PanelRightClose, PanelRightOpen, Play, RotateCcw, Settings, Star } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ArrowUp, GitBranch, Play, RotateCcw, Settings, Star } from 'lucide-react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { useStore } from '../stores/index.ts';
 import { api } from '../lib/api.ts';
@@ -8,15 +8,20 @@ import type { TreeNode } from '../lib/tree.ts';
 import type { PipelineType } from '../stores/agentSlice.ts';
 import type { Run, RunLlmTrace, RunReviewItem, RunWithEvents } from '../types/run.ts';
 import SettingGroup from '../components/shared/SettingGroup.tsx';
-import LabelBadge from '../components/shared/LabelBadge.tsx';
 import WorkspaceLayout from '../components/shared/WorkspaceLayout.tsx';
+import RunListSidebar from '../components/run/RunListSidebar.tsx';
+import WorkflowSettingsHeader from '../components/run/WorkflowSettingsHeader.tsx';
+import WorkflowCenter from '../components/run/WorkflowCenter.tsx';
+import RunDetailHeader from '../components/run/RunDetailHeader.tsx';
+import RunStatsGrid from '../components/run/RunStatsGrid.tsx';
+import { useWorkflowRuns } from '../components/run/useWorkflowRuns.ts';
 import ReviewActionPanel from '../components/expand/ReviewActionPanel.tsx';
 import AgentStageBoard from '../components/expand/AgentStageBoard.tsx';
 import LlmTraceViewer from '../components/expand/LlmTraceViewer.tsx';
 import { formatTime, formatDuration } from '../components/expand/format.ts';
+import { RUN_STATUS_LABELS, defaultRunTitle } from '../lib/runModel.ts';
 import {
   isRunActive,
-  isRunSavedHistory,
   runDurationMs,
   startStepFromPipelineType,
   buildAgentStages,
@@ -49,7 +54,7 @@ const START_STEPS: Array<{
     id: 'expansion',
     label: 'Expansion',
     icon: ArrowUp,
-    description: 'Expand one document into fuller descriptive canon.',
+    description: 'Grow one document into fuller descriptive canon.',
   },
   {
     id: 'branching',
@@ -114,16 +119,6 @@ const VALIDATION_LEVELS: Array<{
   },
 ];
 
-const RUN_STATUS_LABELS: Record<Run['status'], string> = {
-  pending: 'Queued',
-  running: 'In progress',
-  paused: 'Paused',
-  needs_input: 'Needs input',
-  completed: 'Finished successfully',
-  stopped: 'Finished unsuccessfully',
-  failed: 'Finished unsuccessfully',
-};
-
 interface FlatNode {
   id: string;
   title: string;
@@ -158,20 +153,8 @@ function uniqueValues<T>(values: T[]): T[] {
   return [...new Set(values)];
 }
 
-function statusClass(status: Run['status']): string {
-  if (status === 'completed') return 'bg-green-100 text-green-700';
-  if (status === 'failed' || status === 'stopped') return 'bg-red-100 text-red-700';
-  if (status === 'paused' || status === 'needs_input') return 'bg-amber-100 text-amber-700';
-  if (status === 'running' || status === 'pending') return 'bg-blue-100 text-blue-700';
-  return 'bg-gray-100 text-gray-600';
-}
-
-function shortRunId(id: string): string {
-  return id.slice(0, 8);
-}
-
 function runDisplayName(run: Run | RunWithEvents): string {
-  return `Run ${shortRunId(run.id)}`;
+  return defaultRunTitle(run);
 }
 
 export default function ExpandPage() {
@@ -184,9 +167,13 @@ export default function ExpandPage() {
     agentEstimatedTokens,
     agentError,
     currentArticleDetail,
+    versions,
+    drafts,
     forgeRunning,
     forgePaused,
     selectArticle,
+    loadVersions,
+    checkDraft,
     openAgentPanel,
     closeAgentPanel,
     setAgentParams,
@@ -209,22 +196,41 @@ export default function ExpandPage() {
   const [expansionExistingMode, setExpansionExistingMode] = useState<ExistingContentMode>('improve');
   const [branchingExistingMode, setBranchingExistingMode] = useState<BranchingExistingMode>('append_deduped');
   const [guidance, setGuidance] = useState('');
-  const [runs, setRuns] = useState<Run[]>([]);
-  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
-  const [selectedRun, setSelectedRun] = useState<RunWithEvents | null>(null);
   const [selectedRunArticleId, setSelectedRunArticleId] = useState<string | null>(null);
   const [selectedRunStageKey, setSelectedRunStageKey] = useState<string | null>(null);
-  const [selectedRunLoading, setSelectedRunLoading] = useState(false);
   const [llmTraces, setLlmTraces] = useState<RunLlmTrace[]>([]);
   const [llmTracesLoading, setLlmTracesLoading] = useState(false);
   const [llmTraceError, setLlmTraceError] = useState<string | null>(null);
   const [selectedTraceId, setSelectedTraceId] = useState<string | null>(null);
   const [runActionBusy, setRunActionBusy] = useState(false);
-  const [clearingRuns, setClearingRuns] = useState(false);
-  const [autoSelectRuns, setAutoSelectRuns] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(true);
   const [runEstimate, setRunEstimate] = useState<RunEstimateResponse | null>(null);
+  // '' means "use the default for this node" (latest draft if one is pending, otherwise the latest published version) —
+  // see selectedContentOption below. Explicit picks persist until the node changes.
+  const [selectedContentKey, setSelectedContentKey] = useState('');
   const startArticleId = searchParams.get('start');
+  const resetSelectedRunDetails = useCallback(() => {
+    setSelectedRunArticleId(null);
+    setSelectedRunStageKey(null);
+    setLlmTraces([]);
+    setSelectedTraceId(null);
+    setLlmTraceError(null);
+  }, []);
+  const {
+    runs,
+    selectedRunId,
+    selectedRun,
+    selectedRunLoading,
+    setSelectedRun,
+    loadRuns,
+    refreshSelectedRun,
+    selectRun,
+  } = useWorkflowRuns({
+    worldId: wid,
+    graphType: 'expand',
+    extraPoll: forgeRunning,
+    resetSelectionDetails: resetSelectedRunDetails,
+  });
 
   useEffect(() => {
     if (!startingNodeId && flatNodes[0]) setStartingNodeId(flatNodes[0].id);
@@ -239,75 +245,11 @@ export default function ExpandPage() {
 
   useEffect(() => {
     if (!wid || !startingNodeId) return;
+    setSelectedContentKey('');
     selectArticle(wid, startingNodeId).catch(console.error);
-  }, [wid, startingNodeId, selectArticle]);
-
-  const loadRuns = async (selectLatest = false) => {
-    if (!wid) return;
-    const list = await api.runs.list(wid);
-    setRuns(list);
-    if (selectLatest && list[0]) {
-      setAutoSelectRuns(true);
-      setSelectedRunId(list[0].id);
-      return;
-    }
-    if (!selectedRunId && autoSelectRuns && list[0]) {
-      const active = list.find((run) => run.status === 'running' || run.status === 'pending' || run.status === 'needs_input' || run.status === 'paused');
-      setSelectedRunId((active ?? list[0]).id);
-    }
-  };
-
-  useEffect(() => {
-    loadRuns().catch(console.error);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wid]);
-
-  useEffect(() => {
-    if (!wid || !selectedRunId) {
-      setSelectedRun(null);
-      setSelectedRunArticleId(null);
-      setSelectedRunStageKey(null);
-      setLlmTraces([]);
-      setSelectedTraceId(null);
-      setLlmTraceError(null);
-      return;
-    }
-    let cancelled = false;
-    setSelectedRun(null);
-    setSelectedRunArticleId(null);
-    setSelectedRunStageKey(null);
-    setLlmTraces([]);
-    setSelectedTraceId(null);
-    setLlmTraceError(null);
-    setSelectedRunLoading(true);
-    api.runs.get(wid, selectedRunId)
-      .then((run) => {
-        if (!cancelled) setSelectedRun(run);
-      })
-      .catch(console.error)
-      .finally(() => {
-        if (!cancelled) setSelectedRunLoading(false);
-      });
-    return () => { cancelled = true; };
-  }, [wid, selectedRunId]);
-
-  useEffect(() => {
-    if (!wid) return;
-    const hasActive = runs.some((run) => run.status === 'running' || run.status === 'pending' || run.status === 'needs_input');
-    if (!hasActive && !forgeRunning) return;
-    const timer = window.setInterval(() => {
-      loadRuns().catch(console.error);
-      if (selectedRunId) {
-        api.runs.get(wid, selectedRunId)
-          .then((run) => {
-            if (run.id === selectedRunId) setSelectedRun(run);
-          })
-          .catch(console.error);
-      }
-    }, 2500);
-    return () => window.clearInterval(timer);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wid, runs, selectedRunId, forgeRunning]);
+    loadVersions(wid, startingNodeId).catch(console.error);
+    checkDraft(wid, startingNodeId).catch(console.error);
+  }, [wid, startingNodeId, selectArticle, loadVersions, checkDraft]);
 
   const selectedNode = flatNodes.find((node) => node.id === startingNodeId) ?? flatNodes[0];
   const isForgeRun = true;
@@ -316,8 +258,42 @@ export default function ExpandPage() {
     startStep === 'inception' ? 'summarize' :
     startStep === 'branching' ? 'propose_children' :
     'forge_expand';
-  const introWords = countWords(currentArticleDetail?.introduction ?? '');
-  const descWords = countWords(currentArticleDetail?.version?.description ?? '');
+  // Candidate content sources for the selected node: pending draft(s) first (they're
+  // the newest authored content, even though not yet accepted), then the published
+  // version, then older versions. Guarded by articleId so a stale fetch from the
+  // previous node can't leak into the list for a split second after switching nodes.
+  const isCurrentNodeDetail = currentArticleDetail?.article.id === startingNodeId;
+  const publishedVersion = isCurrentNodeDetail ? currentArticleDetail.version : null;
+  const publishedIntroduction = isCurrentNodeDetail ? currentArticleDetail.introduction : '';
+  const nodePendingDrafts = drafts.filter((draft) => draft.articleId === startingNodeId && draft.status === 'pending');
+  const nodeVersions = versions.filter((version) => version.articleId === startingNodeId);
+
+  const contentOptions: Array<{ key: string; label: string; introduction: string; description: string }> = [
+    ...nodePendingDrafts.map((draft) => ({
+      key: `draft:${draft.id}`,
+      label: `Latest draft — pending review (${formatTime(draft.createdAt)})`,
+      introduction: draft.draftContent?.introduction ?? publishedIntroduction,
+      description: draft.draftContent?.description ?? (publishedVersion?.description ?? ''),
+    })),
+    ...(publishedVersion ? [{
+      key: 'published',
+      label: `Latest published — v${publishedVersion.versionNumber}`,
+      introduction: publishedIntroduction,
+      description: publishedVersion.description,
+    }] : []),
+    ...nodeVersions.filter((version) => version.id !== publishedVersion?.id).map((version) => ({
+      key: `version:${version.id}`,
+      label: `v${version.versionNumber} — ${formatTime(version.createdAt)}`,
+      introduction: version.introduction,
+      description: version.description,
+    })),
+  ];
+  const defaultContentKey = contentOptions[0]?.key ?? 'published';
+  const effectiveContentKey = contentOptions.some((option) => option.key === selectedContentKey) ? selectedContentKey : defaultContentKey;
+  const selectedContentOption = contentOptions.find((option) => option.key === effectiveContentKey) ?? null;
+
+  const introWords = countWords(selectedContentOption?.introduction ?? '');
+  const descWords = countWords(selectedContentOption?.description ?? '');
   const startStepAvailability: Record<PipelineStartStep, { ok: boolean; reason: string }> = {
     inception: { ok: true, reason: '' },
     expansion: {
@@ -520,32 +496,13 @@ export default function ExpandPage() {
     }
   };
 
-  const handleClearRunHistory = async () => {
-    if (!wid || clearingRuns) return;
-    setClearingRuns(true);
-    try {
-      await api.runs.clear(wid);
-      const selectedWasDeleted = runs.some((run) => run.id === selectedRunId && isRunSavedHistory(run));
-      const refreshed = await api.runs.list(wid);
-      setRuns(refreshed);
-      setAutoSelectRuns(false);
-      if (selectedWasDeleted) {
-        setSelectedRunId(null);
-        setSelectedRun(null);
-      }
-    } finally {
-      setClearingRuns(false);
-    }
-  };
-
   const handleResumeSelectedRun = async () => {
     if (!wid || !selectedRunForDetails || runActionBusy) return;
     setRunActionBusy(true);
     try {
       await api.runs.resume(wid, selectedRunForDetails.id);
       await loadRuns();
-      const refreshed = await api.runs.get(wid, selectedRunForDetails.id);
-      setSelectedRun(refreshed);
+      await refreshSelectedRun();
     } finally {
       setRunActionBusy(false);
     }
@@ -616,133 +573,65 @@ export default function ExpandPage() {
     <WorkspaceLayout
       rightOpen={settingsOpen}
       left={
-        <>
-          <div className="px-4 py-3 border-b border-gray-100 flex items-start justify-between gap-3">
-            <div>
-              <h1 className="text-sm font-semibold text-gray-900">Runs</h1>
-            </div>
-            <button
-              onClick={handleClearRunHistory}
-              disabled={clearingRuns || !runs.some(isRunSavedHistory)}
-              className="text-[11px] text-gray-400 hover:text-gray-700 mt-0.5 disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              {clearingRuns ? 'Clearing...' : 'Clear'}
-            </button>
-          </div>
-
-          <div className="flex-1 overflow-y-auto p-3">
-            {runs.length === 0 ? (
-              <p className="text-xs text-gray-400">No generation runs yet.</p>
-            ) : (
-              <div className="space-y-2">
-                {runs.map((run) => (
-                  <button
-                    key={run.id}
-                    onClick={() => {
-                      if (selectedRunId === run.id) {
-                        setAutoSelectRuns(false);
-                        setSelectedRunId(null);
-                        setSelectedRun(null);
-                      } else {
-                        setAutoSelectRuns(true);
-                        setSelectedRunId(run.id);
-                      }
-                    }}
-                    className={`w-full rounded-lg border p-3 text-left transition-colors ${
-                      selectedRunId === run.id
-                        ? 'border-purple-300 bg-purple-50'
-                        : run.status === 'failed'
-                          ? 'border-red-200 bg-red-50 hover:bg-red-100/50'
-                          : 'border-gray-200 bg-white hover:bg-gray-50'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <LabelBadge label={RUN_STATUS_LABELS[run.status]} colorClass={statusClass(run.status)} />
-                      <span className="text-[10px] text-gray-400">{formatDuration(runDurationMs(run))}</span>
-                    </div>
-                    <div className="mt-2">
-                      <p className="text-xs font-semibold text-gray-900">{runDisplayName(run)}</p>
-                      <p className="text-xs text-gray-500 mt-0.5 truncate" title={run.articleIds[0] ?? run.id}>
-                        Start: {getRunStartTitle(run)}
-                      </p>
-                      <p className="text-[10px] text-gray-400 mt-1">Started {formatTime(run.createdAt)}</p>
-                    </div>
-                    <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
-                      <div>
-                        <p className="text-[10px] uppercase tracking-wide text-gray-400">Articles</p>
-                        <p className="font-semibold text-gray-700">
-                          {run.itemsCompleted - run.itemsFailed} / {run.itemsTotal}
-                          {run.itemsFailed > 0 && <span className="text-red-600 font-normal"> ({run.itemsFailed} failed)</span>}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-[10px] uppercase tracking-wide text-gray-400">Tokens</p>
-                        <p className="font-semibold text-gray-700">~{run.budgetUsed.toLocaleString()}</p>
-                      </div>
-                    </div>
-                    {run.errorMessage && (
-                      <p className="text-xs text-red-600 mt-1 line-clamp-2">{run.errorMessage}</p>
-                    )}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        </>
-      }
-      center={
-        <>
-          <div className="max-w-6xl mx-auto py-8 px-6">
-            <div className="mb-5 flex items-start justify-between gap-4">
+        <RunListSidebar
+          title="Runs"
+          emptyText="No generation runs yet."
+          runs={runs}
+          selectedRunId={selectedRunId}
+          accent="purple"
+          onSelectRun={(run) => {
+            selectRun(run, { toggle: true });
+          }}
+          getTitle={runDisplayName}
+          getSubtitle={(run) => `Start: ${getRunStartTitle(run)}`}
+          getTimestamp={(run) => `Started ${formatTime(run.createdAt)}`}
+          getTopRight={(run) => formatDuration(runDurationMs(run))}
+          renderStats={(run) => (
+            <div className="grid grid-cols-2 gap-2 text-xs">
               <div>
-                <p className="text-xs font-semibold text-purple-600 uppercase tracking-wide">Selected Run</p>
-                <h2 className="text-2xl font-bold text-gray-900 mt-1">
-                  {selectedRunForDetails ? runDisplayName(selectedRunForDetails) : 'No run selected'}
-                </h2>
-                <p className="text-sm text-gray-500 mt-1">
-                  {activeRun && selectedRunId === activeRun.id
-                    ? `${RUN_STATUS_LABELS[activeRun.status]} · ${activeRun.itemsCompleted - activeRun.itemsFailed} / ${activeRun.itemsTotal} articles · started ${formatTime(activeRun.createdAt)} · runtime ${formatDuration(runDurationMs(activeRun))}`
-                    : selectedRunForDetails
-                      ? `${RUN_STATUS_LABELS[selectedRunForDetails.status]} · started ${formatTime(selectedRunForDetails.createdAt)} · runtime ${formatDuration(runDurationMs(selectedRunForDetails))}`
-                      : 'Select a run in the inbox, or start a new one from the settings panel.'}
+                <p className="text-[10px] uppercase tracking-wide text-gray-400">Articles</p>
+                <p className="font-semibold text-gray-700">
+                  {run.itemsCompleted - run.itemsFailed} / {run.itemsTotal}
+                  {run.itemsFailed > 0 && <span className="font-normal text-red-600"> ({run.itemsFailed} failed)</span>}
                 </p>
               </div>
-              {!settingsOpen && (
-                <button
-                  onClick={() => setSettingsOpen(true)}
-                  className="shrink-0 inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50"
-                >
-                  <PanelRightOpen size={14} />
-                  Show Settings
-                </button>
-              )}
+              <div>
+                <p className="text-[10px] uppercase tracking-wide text-gray-400">Tokens</p>
+                <p className="font-semibold text-gray-700">~{run.budgetUsed.toLocaleString()}</p>
+              </div>
             </div>
-
-            <section className="border border-gray-200 bg-white rounded-xl overflow-hidden min-h-[520px]">
-              {selectedRunLoading ? (
-                <div className="p-6 text-sm text-gray-400">Loading selected run...</div>
-              ) : !selectedRunForDetails ? (
-                <div className="p-6">
-                  <div className="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-6">
-                    <p className="text-sm font-semibold text-gray-900">No run selected</p>
-                    <p className="text-sm text-gray-500 mt-1">
-                      The latest active run is selected automatically when one exists. Older runs can be opened from the inbox.
-                    </p>
-                  </div>
-                </div>
-              ) : (
+          )}
+          renderFooter={(run) => run.errorMessage ? (
+            <p className="mt-1 line-clamp-2 text-xs text-red-600">{run.errorMessage}</p>
+          ) : null}
+        />
+      }
+      center={
+        <WorkflowCenter
+          accentClass="text-purple-600"
+          eyebrow="Selected Run"
+          title={selectedRunForDetails ? runDisplayName(selectedRunForDetails) : 'No run selected'}
+          subtitle={
+            activeRun && selectedRunId === activeRun.id
+              ? `${RUN_STATUS_LABELS[activeRun.status]} · ${activeRun.itemsCompleted - activeRun.itemsFailed} / ${activeRun.itemsTotal} articles · started ${formatTime(activeRun.createdAt)} · runtime ${formatDuration(runDurationMs(activeRun))}`
+              : selectedRunForDetails
+                ? `${RUN_STATUS_LABELS[selectedRunForDetails.status]} · started ${formatTime(selectedRunForDetails.createdAt)} · runtime ${formatDuration(runDurationMs(selectedRunForDetails))}`
+                : 'Select a Grow run, or start a new one from the settings panel.'
+          }
+          settingsOpen={settingsOpen}
+          loading={selectedRunLoading}
+          emptyTitle="No run selected"
+          emptyText="The latest active Grow run is selected automatically when one exists. Older runs can be opened from the run list."
+          onShowSettings={() => setSettingsOpen(true)}
+        >
+          {selectedRunForDetails ? (
                 <>
-                <div className="px-4 py-3 border-b border-gray-100 flex items-start justify-between gap-4">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h3 className="text-sm font-semibold text-gray-900">{runDisplayName(selectedRunForDetails)}</h3>
-                      <LabelBadge label={RUN_STATUS_LABELS[selectedRunForDetails.status]} colorClass={statusClass(selectedRunForDetails.status)} />
-                    </div>
-                    <p className="text-xs text-gray-500 mt-1">
-                      ID: {selectedRunForDetails.id} · created {formatTime(selectedRunForDetails.createdAt)}
-                    </p>
-                  </div>
-                  <div className="flex gap-2 shrink-0">
+                <RunDetailHeader
+                  run={selectedRunForDetails}
+                  title={runDisplayName(selectedRunForDetails)}
+                  createdLabel={formatTime(selectedRunForDetails.createdAt)}
+                  actions={
+                    <>
                     <button
                       onClick={handleReuseSelectedRun}
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-xs font-medium text-gray-600 hover:bg-gray-50"
@@ -759,46 +648,34 @@ export default function ExpandPage() {
                         {runActionBusy ? 'Resuming...' : 'Resume'}
                       </button>
                     )}
-                  </div>
-                </div>
+                    </>
+                  }
+                />
 
-                <div className="grid grid-cols-3 gap-3 p-4 border-b border-gray-100">
-                  <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
-                    <p className="text-[10px] uppercase tracking-wide text-gray-400">Start Node</p>
-                    <p className="text-sm font-semibold text-gray-900 mt-1 truncate" title={selectedRunForDetails.articleIds[0] ?? selectedRunForDetails.id}>
-                      {getRunStartTitle(selectedRunForDetails)}
-                    </p>
-                  </div>
-                  <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
-                    <p className="text-[10px] uppercase tracking-wide text-gray-400">Started</p>
-                    <p className="text-sm font-semibold text-gray-900 mt-1">{formatTime(selectedRunForDetails.createdAt)}</p>
-                  </div>
-                  <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
-                    <p className="text-[10px] uppercase tracking-wide text-gray-400">Runtime</p>
-                    <p className="text-sm font-semibold text-gray-900 mt-1">{formatDuration(runDurationMs(selectedRunForDetails))}</p>
-                  </div>
-                  <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
-                    <p className="text-[10px] uppercase tracking-wide text-gray-400">Articles</p>
-                    <p className="text-sm font-semibold text-gray-900 mt-1">
-                      {selectedRunForDetails.itemsCompleted - selectedRunForDetails.itemsFailed} / {selectedRunForDetails.itemsTotal}
-                      {selectedRunForDetails.itemsFailed > 0 && (
-                        <span className="text-xs font-normal text-red-600 ml-1">({selectedRunForDetails.itemsFailed} failed)</span>
-                      )}
-                    </p>
-                  </div>
-                  <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
-                    <p className="text-[10px] uppercase tracking-wide text-gray-400">Steps</p>
-                    <p className="text-sm font-semibold text-gray-900 mt-1">
-                      {selectedRunStepProgress ? `${selectedRunStepProgress.completed} / ${selectedRunStepProgress.total}` : '—'}
-                    </p>
-                  </div>
-                  <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
-                    <p className="text-[10px] uppercase tracking-wide text-gray-400">Agent Passes</p>
-                    <p className="text-sm font-semibold text-gray-900 mt-1">
-                      {selectedRunAgentPassProgress ? `${selectedRunAgentPassProgress.completed} / ${selectedRunAgentPassProgress.total}` : '—'}
-                    </p>
-                  </div>
-                </div>
+                <RunStatsGrid
+                  stats={[
+                    {
+                      label: 'Start Node',
+                      value: getRunStartTitle(selectedRunForDetails),
+                      title: selectedRunForDetails.articleIds[0] ?? selectedRunForDetails.id,
+                    },
+                    { label: 'Started', value: formatTime(selectedRunForDetails.createdAt) },
+                    { label: 'Runtime', value: formatDuration(runDurationMs(selectedRunForDetails)) },
+                    {
+                      label: 'Articles',
+                      value: (
+                        <>
+                          {selectedRunForDetails.itemsCompleted - selectedRunForDetails.itemsFailed} / {selectedRunForDetails.itemsTotal}
+                          {selectedRunForDetails.itemsFailed > 0 && (
+                            <span className="ml-1 text-xs font-normal text-red-600">({selectedRunForDetails.itemsFailed} failed)</span>
+                          )}
+                        </>
+                      ),
+                    },
+                    { label: 'Steps', value: selectedRunStepProgress ? `${selectedRunStepProgress.completed} / ${selectedRunStepProgress.total}` : '—' },
+                    { label: 'Agent Passes', value: selectedRunAgentPassProgress ? `${selectedRunAgentPassProgress.completed} / ${selectedRunAgentPassProgress.total}` : '—' },
+                  ]}
+                />
 
                 {(selectedRunForDetails.errorMessage || selectedRunFailedEvent) && (
                   <div className="m-4 rounded-lg border border-red-200 bg-red-50 p-3">
@@ -931,7 +808,6 @@ export default function ExpandPage() {
                       selectedStage={selectedRunStage}
                       contextDepth={selectedRunForDetails.config.contextDepth ?? 'mid'}
                       validationLevel={selectedRunForDetails.config.validationLevel ?? 'autopilot'}
-                      continuationMode={selectedRunForDetails.config.forgeContinuationMode ?? 'recursive'}
                     />
 
                     {DEV_LLM_TRACE_VIEWER && (
@@ -947,29 +823,17 @@ export default function ExpandPage() {
                   </div>
                 </div>
                 </>
-              )}
-              </section>
-          </div>
-        </>
+          ) : null}
+        </WorkflowCenter>
       }
       right={
         <>
-          <div className="px-4 py-3 border-b border-gray-100">
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
-                <Settings size={15} className="text-gray-500" />
-                <h2 className="text-sm font-semibold text-gray-900">New Generation Run</h2>
-              </div>
-              <button
-                onClick={() => setSettingsOpen(false)}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-2.5 py-1 text-xs font-medium text-gray-500 hover:bg-gray-50"
-              >
-                <PanelRightClose size={13} />
-                Hide
-              </button>
-            </div>
-            <p className="text-xs text-gray-500 mt-0.5">Configure the next generation run.</p>
-          </div>
+          <WorkflowSettingsHeader
+            icon={<Settings size={15} className="text-gray-500" />}
+            title="New Grow Run"
+            description="Configure the next Grow run."
+            onHide={() => setSettingsOpen(false)}
+          />
 
           <div className="border-b border-gray-100 p-4">
             <p className="text-xs font-semibold text-gray-700 mb-2">Estimate</p>
@@ -1007,6 +871,22 @@ export default function ExpandPage() {
                   ))}
                 </select>
                 <p className="text-xs text-gray-400 mt-1.5">Defaults to the root node.</p>
+
+                <p className="text-xs text-gray-500 mt-3 mb-1">Version</p>
+                <select
+                  value={effectiveContentKey}
+                  onChange={(event) => { markCustom(); setSelectedContentKey(event.target.value); }}
+                  className="w-full px-2.5 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-purple-200"
+                >
+                  {contentOptions.map((option) => (
+                    <option key={option.key} value={option.key}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-400 mt-1.5">
+                  Defaults to the newest content for this node — the pending draft if one exists, otherwise the latest published version.
+                </p>
             </SettingGroup>
 
             <SettingGroup title="Pipeline" defaultOpen>
@@ -1062,11 +942,11 @@ export default function ExpandPage() {
               </div>
             </SettingGroup>
 
-            <SettingGroup title="Existing Content Behavior" defaultOpen>
+            <SettingGroup title="Content Reuse Strategy" defaultOpen>
               <div className="space-y-3">
                 <div>
                   <p className="text-xs font-semibold text-gray-700">Inception</p>
-                  <p className="text-xs text-gray-400 mt-0.5 mb-1">Current introduction: {introWords} words</p>
+                  <p className="text-xs text-gray-400 mt-0.5 mb-1">Selected introduction: {introWords} words</p>
                   <select
                     value={inceptionExistingMode}
                     onChange={(event) => setInceptionExistingMode(event.target.value as ExistingContentMode)}
@@ -1080,7 +960,7 @@ export default function ExpandPage() {
 
                 <div>
                   <p className="text-xs font-semibold text-gray-700">Expansion</p>
-                  <p className="text-xs text-gray-400 mt-0.5 mb-1">Current description: {descWords} words</p>
+                  <p className="text-xs text-gray-400 mt-0.5 mb-1">Selected description: {descWords} words</p>
                   <select
                     value={expansionExistingMode}
                     onChange={(event) => setExpansionExistingMode(event.target.value as ExistingContentMode)}
@@ -1094,7 +974,7 @@ export default function ExpandPage() {
 
                 <div>
                   <p className="text-xs font-semibold text-gray-700">Branching</p>
-                  <p className="text-xs text-gray-400 mt-0.5 mb-1">Existing children are never deleted by Expand.</p>
+                  <p className="text-xs text-gray-400 mt-0.5 mb-1">Existing children are never deleted by Grow.</p>
                   <select
                     value={branchingExistingMode}
                     onChange={(event) => setBranchingExistingMode(event.target.value as BranchingExistingMode)}

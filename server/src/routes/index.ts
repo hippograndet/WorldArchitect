@@ -18,6 +18,7 @@ import worldIssueRoutes from './worldIssues.js';
 import consolidationRoutes from './consolidation.js';
 import runRoutes from './runs.js';
 import articleTypeRoutes from './articleTypes.js';
+import inboxRoutes from './inbox.js';
 
 export function registerRoutes(app: express.Express): void {
   app.get('/health', asyncHandler(async (_req, res) => {
@@ -41,6 +42,7 @@ export function registerRoutes(app: express.Express): void {
   app.use('/api/worlds/:wid/names', requireWorldTenant, nameBankRoutes);
   app.use('/api/worlds/:wid/entity-mentions', requireWorldTenant, entityMentionsRoutes);
   app.use('/api/worlds/:wid/publish', requireWorldTenant, publishRoutes);
+  app.use('/api/worlds/:wid/inbox', requireWorldTenant, inboxRoutes);
   app.use('/api/worlds/:wid/runs', requireWorldTenant, runRoutes);
   app.use('/api/worlds/:wid', requireWorldTenant, worldIssueRoutes);
   app.use('/api/worlds/:wid', requireWorldTenant, consolidationRoutes);

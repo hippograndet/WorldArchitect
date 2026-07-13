@@ -6,6 +6,10 @@ const forgeGraph = vi.hoisted(() => ({
   resumeForgeRun: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock('../agents/graphs/forgeGraph/index.js', () => forgeGraph);
+const consolidateRun = vi.hoisted(() => ({
+  startConsolidateRun: vi.fn().mockResolvedValue(undefined),
+}));
+vi.mock('../agents/graphs/consolidateRun.js', () => consolidateRun);
 
 import { createApp } from '../app.js';
 import { getDbClient } from '../db/client.js';
@@ -384,6 +388,176 @@ describe('core routes on Postgres', () => {
       .post(`/api/worlds/${world.id}/runs/${assisted.body.id}/cancel`)
       .set(asUser('user-a'))
       .expect(200);
+  });
+
+  it('creates Consolidate runs with article locks, while audit runs avoid broad locks', async ({ skip }) => {
+    if (skipIfUnavailable(skip)) return;
+
+    const { world, categories } = await createTenantFixture(request!, 'user-a', 'Consolidation Bay');
+    const first = await createArticleFixture(request!, 'user-a', world.id, categories[0].id, 'Broken Ledger');
+    const second = await createArticleFixture(request!, 'user-a', world.id, categories[0].id, 'Quiet Ledger');
+
+    const reorganize = await request!
+      .post(`/api/worlds/${world.id}/runs`)
+      .set(asUser('user-a'))
+      .send({
+        graphType: 'consolidate',
+        articleIds: [first.article.id],
+        pipelineType: 'reorganize',
+      })
+      .expect(202);
+
+    expect(reorganize.body.graphType).toBe('consolidate');
+    expect(consolidateRun.startConsolidateRun).toHaveBeenCalledWith(expect.objectContaining({
+      runId: reorganize.body.id,
+      worldId: world.id,
+      ownerId: 'user-a',
+      pipelineType: 'reorganize',
+      articleId: first.article.id,
+      articleTitle: 'Broken Ledger',
+    }));
+
+    const locked = await runWithUserContext('user-a', () =>
+      getDbClient().get<{ locked_by_run_id: string | null }>(
+        'SELECT locked_by_run_id FROM articles WHERE id = ?',
+        [first.article.id],
+      ),
+    );
+    expect(locked?.locked_by_run_id).toBe(reorganize.body.id);
+
+    await request!
+      .post(`/api/worlds/${world.id}/runs/${reorganize.body.id}/cancel`)
+      .set(asUser('user-a'))
+      .expect(200);
+
+    const audit = await request!
+      .post(`/api/worlds/${world.id}/runs`)
+      .set(asUser('user-a'))
+      .send({
+        graphType: 'consolidate',
+        articleIds: [],
+        pipelineType: 'audit',
+      })
+      .expect(202);
+
+    expect(audit.body.graphType).toBe('consolidate');
+    expect(audit.body.articleIds).toEqual([]);
+    expect(consolidateRun.startConsolidateRun).toHaveBeenCalledWith(expect.objectContaining({
+      runId: audit.body.id,
+      pipelineType: 'audit',
+      articleId: undefined,
+    }));
+
+    const locksAfterAudit = await runWithUserContext('user-a', () =>
+      getDbClient().all<{ id: string; locked_by_run_id: string | null }>(
+        'SELECT id, locked_by_run_id FROM articles WHERE id IN (?, ?) ORDER BY id',
+        [first.article.id, second.article.id],
+      ),
+    );
+    expect(locksAfterAudit.every((row) => row.locked_by_run_id === null)).toBe(true);
+  });
+
+  it('aggregates a high-signal tenant-scoped Inbox', async ({ skip }) => {
+    if (skipIfUnavailable(skip)) return;
+
+    const { world, categories } = await createTenantFixture(request!, 'user-a', 'Inbox Reach');
+    const { world: worldB, categories: categoriesB } = await createTenantFixture(request!, 'user-b', 'Other Inbox');
+    const first = await createArticleFixture(request!, 'user-a', world.id, categories[0].id, 'Signal Archive');
+    const second = await createArticleFixture(request!, 'user-a', world.id, categories[0].id, 'Anchor Archive');
+    const other = await createArticleFixture(request!, 'user-b', worldB.id, categoriesB[0].id, 'Hidden Archive');
+    const now = Date.now();
+
+    await runWithUserContext('user-a', async () => {
+      await getDbClient().run(
+        `INSERT INTO pending_drafts
+           (id, owner_id, world_id, article_id, status, source_run_id, run_type, context_basis, context_draft_ids,
+            display_title, selected_proposal, draft_content, expansion_params, phase, pipeline_type, auto_select,
+            context_package, concepts, parent_update, created_at, updated_at)
+         VALUES (?, ?, ?, ?, 'pending', ?, ?, 'current', '[]', ?, '{}', ?, '{}', 'done', 'reorganize', 0, NULL, NULL, NULL, ?, ?)`,
+        ['draft-inbox-a', 'user-a', world.id, first.article.id, null, 'reorganize', 'Consolidation draft', '{"description":"Cleaner prose."}', now, now],
+      );
+      await getDbClient().run(
+        `INSERT INTO article_issues
+           (id, owner_id, world_id, article_id, source, severity, code, excerpt, explanation, suggestion, status, created_at)
+         VALUES (?, ?, ?, ?, 'warden', 'blocking', 'COHERENCE_WARNING', NULL, 'Contradiction found.', NULL, 'open', ?)`,
+        ['issue-inbox-a', 'user-a', world.id, first.article.id, now],
+      );
+      await getDbClient().run(
+        `INSERT INTO world_issues
+           (id, owner_id, world_id, severity, type, description, article_ids, source, status, created_at, updated_at)
+         VALUES (?, ?, ?, 'warning', 'coherence', 'World gap found.', ?, 'auditor', 'open', ?, ?)`,
+        ['world-issue-inbox-a', 'user-a', world.id, JSON.stringify([first.article.id]), now, now],
+      );
+      await getDbClient().run(
+        `INSERT INTO auditor_edge_proposals
+           (id, owner_id, world_id, source_article_id, target_article_id, link_type, rationale, status, created_at)
+         VALUES (?, ?, ?, ?, ?, 'references', 'These records depend on each other.', 'pending', ?)`,
+        ['edge-inbox-a', 'user-a', world.id, first.article.id, second.article.id, now],
+      );
+      await getDbClient().run(
+        `INSERT INTO entity_mentions
+           (id, owner_id, world_id, source_article_id, article_id, title, template_type, summary, status, created_at)
+         VALUES (?, ?, ?, ?, NULL, 'The Salt Concord', 'general', 'A candidate concept.', 'pending', ?)`,
+        ['mention-inbox-a', 'user-a', world.id, first.article.id, now],
+      );
+      await getDbClient().run(
+        `INSERT INTO runs
+           (id, owner_id, world_id, status, graph_type, checkpoint_id, article_ids, budget_used, budget_limit, run_config, created_at, updated_at)
+         VALUES (?, ?, ?, 'needs_input', 'expand', ?, ?, 0, 1000, '{}', ?, ?)`,
+        ['run-inbox-a', 'user-a', world.id, 'run-inbox-a', JSON.stringify([first.article.id]), now, now],
+      );
+      await getDbClient().run(
+        `INSERT INTO run_review_items
+           (id, owner_id, world_id, run_id, article_id, step, kind, status, payload_json, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, 'Expansion', 'draft_review', 'pending', ?, ?, ?)`,
+        ['review-inbox-a', 'user-a', world.id, 'run-inbox-a', first.article.id, '{"title":"Signal Archive"}', now, now],
+      );
+      await getDbClient().run(
+        `INSERT INTO run_review_items
+           (id, owner_id, world_id, run_id, article_id, step, kind, status, payload_json, decision_json, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, 'Expansion', 'idea_selection', 'accepted', ?, '{}', ?, ?)`,
+        ['resolved-review-inbox-a', 'user-a', world.id, 'run-inbox-a', first.article.id, '{"title":"Resolved micro-step"}', now, now],
+      );
+    });
+
+    await runWithUserContext('user-b', async () => {
+      await getDbClient().run(
+        `INSERT INTO article_issues
+           (id, owner_id, world_id, article_id, source, severity, code, explanation, status, created_at)
+         VALUES (?, ?, ?, ?, 'warden', 'blocking', 'HIDDEN', 'Hidden issue.', 'open', ?)`,
+        ['issue-inbox-b', 'user-b', worldB.id, other.article.id, now],
+      );
+    });
+
+    const inbox = await request!
+      .get(`/api/worlds/${world.id}/inbox`)
+      .set(asUser('user-a'))
+      .expect(200);
+    const ids = inbox.body.items.map((item: { id: string }) => item.id);
+    expect(ids).toEqual(expect.arrayContaining([
+      'draft-inbox-a',
+      `publish:${first.article.id}`,
+      'issue-inbox-a',
+      'world-issue-inbox-a',
+      'edge-inbox-a',
+      'mention-inbox-a',
+      'review-inbox-a',
+    ]));
+    expect(ids).not.toContain('resolved-review-inbox-a');
+    expect(ids).not.toContain('issue-inbox-b');
+
+    const count = await request!
+      .get(`/api/worlds/${world.id}/inbox/count`)
+      .set(asUser('user-a'))
+      .expect(200);
+    expect(count.body.open).toBeGreaterThanOrEqual(6);
+
+    await expectTenantListExcludes<{ items: Array<{ id: string }> }>(request!, {
+      path: `/api/worlds/${worldB.id}/inbox`,
+      userId: 'user-b',
+      hiddenId: 'issue-inbox-a',
+      extractIds: (body) => body.items.map((item) => item.id),
+    });
   });
 
   it('captures and restores snapshots on Postgres', async ({ skip }) => {

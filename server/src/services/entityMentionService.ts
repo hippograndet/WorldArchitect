@@ -82,6 +82,7 @@ export async function scanEntityMentions(input: {
   worldId: string;
   ownerId: string;
   articleId?: string;
+  pipelineRunId?: string;
 }): Promise<{ scannedArticles: number; created: number; mentions: EntityMentionRow[] }> {
   const exec = getDbClient();
   const targets = await scanTargets(input);
@@ -100,6 +101,11 @@ export async function scanEntityMentions(input: {
       contextPackage,
       description: target.description,
       knownTitles,
+    }, {
+      pipelineRunId: input.pipelineRunId,
+      pipelineType: 'concept_scan',
+      articleId: target.id,
+      ownerId: input.ownerId,
     });
 
     for (const mention of result.output.mentions) {

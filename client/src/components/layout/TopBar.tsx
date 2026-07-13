@@ -8,8 +8,10 @@ import { api } from '../../lib/api.ts';
 const WORLD_SUB_LINKS = [
   { label: 'Overview',  path: '' },
   { label: 'Graph',     path: 'graph' },
-  { label: 'Expand',    path: 'expand' },
+  { label: 'Grow',      path: 'grow' },
   { label: 'Consolidate', path: 'consolidate' },
+  { label: 'Inbox',     path: 'inbox' },
+  { label: 'Publish',   path: 'publish' },
   { label: 'World Settings', path: 'settings' },
 ];
 
@@ -24,7 +26,7 @@ export default function TopBar({ documentsOpen, onToggleDocuments }: TopBarProps
   const { wid } = useParams<{ wid: string }>();
   const location = useLocation();
   const { worlds, addToast } = useStore();
-  const [consolidateCount, setConsolidateCount] = useState(0);
+  const [inboxCount, setInboxCount] = useState(0);
   const [exporting, setExporting] = useState(false);
 
   const world = worlds.find((w) => w.id === wid);
@@ -40,8 +42,8 @@ export default function TopBar({ documentsOpen, onToggleDocuments }: TopBarProps
 
   useEffect(() => {
     if (!wid) return;
-    api.consolidation.count(wid)
-      .then(({ open }) => setConsolidateCount(open))
+    api.inbox.count(wid)
+      .then(({ open }) => setInboxCount(open))
       .catch(() => {});
   }, [wid, location.pathname]);
 
@@ -146,7 +148,7 @@ export default function TopBar({ documentsOpen, onToggleDocuments }: TopBarProps
                 const active = path === ''
                   ? location.pathname === base
                   : location.pathname === to;
-                const badgeCount = path === 'consolidate' ? consolidateCount : 0;
+                const badgeCount = path === 'inbox' ? inboxCount : 0;
                 const showBadge = badgeCount > 0;
 
                 return (
