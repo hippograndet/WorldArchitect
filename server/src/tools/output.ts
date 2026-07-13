@@ -371,6 +371,42 @@ export const OUTPUT_TOOLS: Record<string, Tool> = {
     },
   },
 
+  // Stylist (charter_assist mode): grouped suggestions for the create-world charter
+  submit_charter_suggestions: {
+    name: 'submit_charter_suggestions',
+    description: 'Submit concise grouped suggestions for the world creation charter fields.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        premiseSuggestions: {
+          type: 'array',
+          description: '3–6 concise keywords or fragments for Founding Premise',
+          items: { type: 'string' },
+        },
+        authoritySuggestions: {
+          type: 'array',
+          description: '2–5 concise keywords or fragments for Narrative Authority',
+          items: { type: 'string' },
+        },
+        atmosphereSuggestions: {
+          type: 'array',
+          description: '3–8 concise keywords or fragments for Atmosphere',
+          items: { type: 'string' },
+        },
+        proseSuggestions: {
+          type: 'array',
+          description: '3–8 concise keywords or fragments for Prose Style',
+          items: { type: 'string' },
+        },
+        rationale: {
+          type: 'string',
+          description: 'One short sentence explaining the grouping.',
+        },
+      },
+      required: ['premiseSuggestions', 'authoritySuggestions', 'atmosphereSuggestions', 'proseSuggestions', 'rationale'],
+    },
+  },
+
   // Stylist (article_brief mode): structured article spec from rough notes
   submit_article_brief: {
     name: 'submit_article_brief',

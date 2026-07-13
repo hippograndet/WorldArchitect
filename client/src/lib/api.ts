@@ -100,6 +100,37 @@ export interface RunEstimateResponse {
 export type DraftContextBasis = 'current' | 'latest_draft' | 'published';
 export type DraftStatusFilter = 'pending' | 'accepted' | 'discarded' | 'all';
 
+type PromptEngineerFieldType = 'vibe' | 'writing_style' | 'distill' | 'charter_assist' | 'article_brief' | 'intro_seed' | 'prompt_lab';
+
+interface PromptEngineerInput {
+  fieldType: PromptEngineerFieldType;
+  rawText: string;
+  worldName: string;
+  worldDescription: string;
+  currentVibe?: string;
+  currentWritingStyle?: string;
+  currentAuthority?: string;
+  articleTitle?: string;
+  articleType?: string;
+  focus?: string;
+  wid?: string;
+}
+
+export interface CharterAssistResponse {
+  premiseSuggestions: string[];
+  authoritySuggestions: string[];
+  atmosphereSuggestions: string[];
+  proseSuggestions: string[];
+  rationale: string;
+}
+
+type PromptEngineerResponse =
+  | { expandedDescription: string }
+  | { vibe_append: string; writingStyle_append: string }
+  | CharterAssistResponse
+  | { userSpec: string }
+  | { introduction: string };
+
 function parseDownloadFilename(contentDisposition: string | null): string | null {
   if (!contentDisposition) return null;
   const match = contentDisposition.match(/filename="([^"]+)"/i) ?? contentDisposition.match(/filename=([^;]+)/i);
@@ -113,28 +144,18 @@ export const api = {
     create: (input: CreateWorldInput)     => post<{ world: World; rootArticleId: string }>('/worlds', input),
     update: (wid: string, input: Partial<CreateWorldInput>) => patch<World>(`/worlds/${wid}`, input),
     delete: (wid: string)                 => del(`/worlds/${wid}`),
-    promptEngineer: (input: {
-      fieldType: 'vibe' | 'writing_style' | 'distill' | 'article_brief' | 'intro_seed' | 'prompt_lab';
-      rawText: string;
-      worldName: string;
-      worldDescription: string;
-      currentVibe?: string;
-      currentWritingStyle?: string;
-      articleTitle?: string;
-      articleType?: string;
-      focus?: string;
-      wid?: string;
-    }) => {
+    promptEngineer: (input: PromptEngineerInput): Promise<PromptEngineerResponse> => {
       const path = input.wid
         ? `/worlds/${input.wid}/prompt-engineer`
         : '/worlds/prompt-engineer';
-      return post<{ expandedDescription: string } | { vibe_append: string; writingStyle_append: string } | { userSpec: string } | { introduction: string }>(path, {
+      return post<PromptEngineerResponse>(path, {
         fieldType:           input.fieldType,
         rawText:             input.rawText,
         worldName:           input.worldName,
         worldDescription:    input.worldDescription,
         currentVibe:         input.currentVibe,
         currentWritingStyle: input.currentWritingStyle,
+        currentAuthority:    input.currentAuthority,
         articleTitle:        input.articleTitle,
         articleType:         input.articleType,
         focus:               input.focus,

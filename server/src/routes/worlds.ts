@@ -250,12 +250,13 @@ router.delete('/:wid', asyncHandler(async (req, res) => {
 // ---------------------------------------------------------------------------
 
 const PromptEngineerSchema = z.object({
-  fieldType:           z.enum(['vibe', 'writing_style', 'distill', 'article_brief', 'intro_seed', 'prompt_lab']),
+  fieldType:           z.enum(['vibe', 'writing_style', 'distill', 'charter_assist', 'article_brief', 'intro_seed', 'prompt_lab']),
   rawText:             z.string().min(1),
   worldName:           z.string().min(1),
   worldDescription:    z.string().min(1),
   currentVibe:         z.string().optional(),
   currentWritingStyle: z.string().optional(),
+  currentAuthority:    z.string().optional(),
   articleTitle:        z.string().optional(),
   articleType:         z.string().optional(),
   focus:               z.string().optional(),
@@ -268,7 +269,7 @@ const handlePromptEngineer = asyncHandler(async (req, res) => {
     return;
   }
 
-  const { fieldType, rawText, worldName, worldDescription, currentVibe, currentWritingStyle, articleTitle, articleType, focus } = parse.data;
+  const { fieldType, rawText, worldName, worldDescription, currentVibe, currentWritingStyle, currentAuthority, articleTitle, articleType, focus } = parse.data;
   const worldId = (req.params as Record<string, string>).wid ?? 'wizard';
   if (worldId !== 'wizard' && !(await worldBelongsToTenant(worldId, getTenantContext(req).ownerId))) {
     res.status(404).json({ error: 'World not found', code: 'NOT_FOUND' });
@@ -283,6 +284,7 @@ const handlePromptEngineer = asyncHandler(async (req, res) => {
     worldDescription,
     currentVibe,
     currentWritingStyle,
+    currentAuthority,
     articleTitle,
     articleType,
     focus,
@@ -290,6 +292,14 @@ const handlePromptEngineer = asyncHandler(async (req, res) => {
 
   if (result.output.mode === 'distill') {
     res.json({ vibe_append: result.output.vibe_append, writingStyle_append: result.output.writingStyle_append });
+  } else if (result.output.mode === 'charter_assist') {
+    res.json({
+      premiseSuggestions: result.output.premiseSuggestions,
+      authoritySuggestions: result.output.authoritySuggestions,
+      atmosphereSuggestions: result.output.atmosphereSuggestions,
+      proseSuggestions: result.output.proseSuggestions,
+      rationale: result.output.rationale,
+    });
   } else if (result.output.mode === 'article_brief') {
     res.json({ userSpec: result.output.userSpec });
   } else if (result.output.mode === 'intro_seed') {

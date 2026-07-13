@@ -6,6 +6,8 @@ import {
   buildPromptEngineerUserMessage,
   buildDistillSystemPrompt,
   buildDistillUserMessage,
+  buildCharterAssistSystemPrompt,
+  buildCharterAssistUserMessage,
   buildArticleBriefSystemPrompt,
   buildArticleBriefUserMessage,
   buildIntroSeedSystemPrompt,
@@ -23,12 +25,27 @@ import type { Tool } from '../tools/types.js';
 
 const SubmitExpansionSchema   = z.object({ expandedDescription: z.string().min(1) });
 const SubmitStylePatchSchema  = z.object({ vibe_append: z.string().min(1), writingStyle_append: z.string().min(1) });
+const SubmitCharterSuggestionsSchema = z.object({
+  premiseSuggestions: z.array(z.string()).default([]),
+  authoritySuggestions: z.array(z.string()).default([]),
+  atmosphereSuggestions: z.array(z.string()).default([]),
+  proseSuggestions: z.array(z.string()).default([]),
+  rationale: z.string().min(1),
+});
 const SubmitArticleBriefSchema = z.object({ userSpec: z.string().min(1) });
 const SubmitIntroSeedSchema    = z.object({ introduction: z.string().min(1) });
 
 export type StylistOutput =
   | { mode: 'expand';         expandedDescription: string }
   | { mode: 'distill';        vibe_append: string; writingStyle_append: string }
+  | {
+      mode: 'charter_assist';
+      premiseSuggestions: string[];
+      authoritySuggestions: string[];
+      atmosphereSuggestions: string[];
+      proseSuggestions: string[];
+      rationale: string;
+    }
   | { mode: 'article_brief';  userSpec: string }
   | { mode: 'intro_seed';     introduction: string };
 
@@ -39,6 +56,7 @@ export interface StylistInput {
   worldDescription: string;
   currentVibe?: string;
   currentWritingStyle?: string;
+  currentAuthority?: string;
   articleTitle?: string;
   articleType?: string;
   focus?: string;
@@ -57,6 +75,7 @@ export class StylistAgent extends BaseAgent<StylistInput, StylistOutput> {
   get outputToolName(): string {
     switch (this._input?.fieldType) {
       case 'distill':       return 'submit_style_patch';
+      case 'charter_assist': return 'submit_charter_suggestions';
       case 'article_brief': return 'submit_article_brief';
       case 'intro_seed':    return 'submit_intro_seed';
       default:              return 'submit_prompt_expansion';
@@ -87,6 +106,19 @@ export class StylistAgent extends BaseAgent<StylistInput, StylistOutput> {
           content: buildArticleBriefUserMessage(
             input.rawText, input.worldName, input.worldDescription,
             input.articleTitle, input.articleType,
+          ),
+        },
+      ];
+    }
+
+    if (input.fieldType === 'charter_assist') {
+      return [
+        { role: 'system', content: buildCharterAssistSystemPrompt() },
+        {
+          role: 'user',
+          content: buildCharterAssistUserMessage(
+            input.rawText, input.worldName, input.worldDescription,
+            input.currentAuthority ?? '', input.currentVibe ?? '', input.currentWritingStyle ?? '',
           ),
         },
       ];
@@ -133,6 +165,7 @@ export class StylistAgent extends BaseAgent<StylistInput, StylistOutput> {
   protected buildOutputTool(): Tool {
     switch (this._input?.fieldType) {
       case 'distill':       return OUTPUT_TOOLS.submit_style_patch;
+      case 'charter_assist': return OUTPUT_TOOLS.submit_charter_suggestions;
       case 'article_brief': return OUTPUT_TOOLS.submit_article_brief;
       case 'intro_seed':    return OUTPUT_TOOLS.submit_intro_seed;
       default:              return OUTPUT_TOOLS.submit_prompt_expansion;
@@ -148,6 +181,17 @@ export class StylistAgent extends BaseAgent<StylistInput, StylistOutput> {
       case 'distill': {
         const p = SubmitStylePatchSchema.parse(input);
         return { mode: 'distill', vibe_append: p.vibe_append, writingStyle_append: p.writingStyle_append };
+      }
+      case 'charter_assist': {
+        const p = SubmitCharterSuggestionsSchema.parse(input);
+        return {
+          mode: 'charter_assist',
+          premiseSuggestions: p.premiseSuggestions,
+          authoritySuggestions: p.authoritySuggestions,
+          atmosphereSuggestions: p.atmosphereSuggestions,
+          proseSuggestions: p.proseSuggestions,
+          rationale: p.rationale,
+        };
       }
       case 'article_brief': {
         const p = SubmitArticleBriefSchema.parse(input);

@@ -1,4 +1,4 @@
-export type PromptEngineerFieldType = 'vibe' | 'writing_style' | 'distill' | 'article_brief' | 'intro_seed' | 'prompt_lab';
+export type PromptEngineerFieldType = 'vibe' | 'writing_style' | 'distill' | 'charter_assist' | 'article_brief' | 'intro_seed' | 'prompt_lab';
 
 const FIELD_INSTRUCTIONS: Record<'vibe' | 'writing_style', string> = {
   vibe: `Expand this feeling into a rich, sensory, atmospheric description a writer could use to calibrate every sentence they write.
@@ -30,6 +30,55 @@ Rules:
 - Do not repeat what is already in the current fields.
 - Do not invent content — only translate the user's stated inspiration into style guidance.
 - Output must be JSON via submit_style_patch.`;
+}
+
+export function buildCharterAssistSystemPrompt(): string {
+  return `You are a charter assistant for WorldArchitect, a fiction world-building tool.
+
+Your task: translate the user's rough creative direction into concise, field-specific suggestions for a world creation charter.
+
+Field boundaries:
+- Founding premise: world truths, setting facts, central tensions, and root article material.
+- Narrative authority: who the record sounds like it comes from, and what authority or uncertainty it claims.
+- Atmosphere: mood, stakes, genre pressure, danger, wonder, and emotional climate.
+- Prose style: sentence rhythm, diction, density, pacing, metaphor, and exposition habits.
+
+Rules:
+- Do not write article prose.
+- Do not invent specific lore facts unless the user clearly supplied them.
+- The user may cite inspirations by name. Treat them only as high-level stylistic or structural reference points.
+- Do not output proper nouns, named factions, places, characters, artifacts, magic systems, slogans, plot events, or distinctive world concepts from any cited inspiration.
+- Abstract inspirations into generic qualities such as "dynastic betrayal", "corporate surveillance", "courtly paranoia", or "rain-soaked urban decay".
+- Keep suggestions short and easy to accept or ignore.
+- Prefer concrete keywords and compact prompt fragments over long descriptions.
+- Output must be JSON via submit_charter_suggestions.`;
+}
+
+export function buildCharterAssistUserMessage(
+  rawText: string,
+  worldName: string,
+  worldDescription: string,
+  currentAuthority: string,
+  currentVibe: string,
+  currentWritingStyle: string,
+): string {
+  return `World: ${worldName}
+Founding premise:
+"${worldDescription || '(not set)'}"
+
+Current Narrative Authority:
+"${currentAuthority || '(not set)'}"
+
+Current Atmosphere:
+"${currentVibe || '(not set)'}"
+
+Current Prose Style:
+"${currentWritingStyle || '(not set)'}"
+
+User request:
+"${rawText}"
+
+Suggest concise language grouped by charter field. Call submit_charter_suggestions.`;
 }
 
 export function buildPromptEngineerUserMessage(

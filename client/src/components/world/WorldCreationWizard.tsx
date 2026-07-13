@@ -1,252 +1,227 @@
-import { useState } from 'react';
-import { ArrowLeft, ArrowRight, X, Sparkles } from 'lucide-react';
+import { FormEvent, useState, type ReactNode } from 'react';
+import { ArrowLeft, Check, Landmark, Sparkles } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../../stores/index.ts';
-import { api } from '../../lib/api.ts';
-import type { WorldStyleConfig, WorldStyleInspiration } from '../../types/world.ts';
+import { api, type CharterAssistResponse } from '../../lib/api.ts';
+import type { WorldStyleConfig } from '../../types/world.ts';
 
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-interface GuidancePreset {
+interface CharterPreset {
   key: string;
   label: string;
-  value: string;
 }
 
-const TONE_PRESETS: GuidancePreset[] = [
-  {
-    key: 'story_companion',
-    label: 'Story Companion',
-    value: 'Write in an engaging, clear worldbuilding voice: authoritative enough to feel reliable, but evocative enough to carry atmosphere, character, and conflict. Treat each entry like part of a living story bible.',
-  },
-  {
-    key: 'archive_record',
-    label: 'Archive Record',
-    value: 'Write with restrained authority, as if compiling records for an internal archive. Prioritize clarity, continuity, dates, causes, consequences, and relationships over dramatic flourish.',
-  },
-  {
-    key: 'mythic_chronicle',
-    label: 'Mythic Chronicle',
-    value: 'Write with a sense of age, consequence, and remembered grandeur. Let entries feel like chronicles of events that shaped peoples, places, institutions, and beliefs over generations.',
-  },
+const PREMISE_PRESETS: CharterPreset[] = [
+  { key: 'civilization', label: 'Civilization' },
+  { key: 'conflict', label: 'Conflict' },
+  { key: 'mythology', label: 'Mythology' },
+  { key: 'frontier', label: 'Frontier' },
 ];
 
-const VIBE_PRESETS: GuidancePreset[] = [
-  {
-    key: 'epic_fantasy',
-    label: 'Epic Fantasy',
-    value: 'Grand, mythic, ancient. A world where the weight of history is felt in every stone and the stakes of every conflict echo across ages. Magic is real but costly. Heroes are forged by sacrifice.',
-  },
-  {
-    key: 'gritty_realism',
-    label: 'Gritty Realism',
-    value: 'Low-magic, brutal, political. Power is held by those willing to do what others will not. Moral ambiguity is the rule. Even heroic figures have blood on their hands. No clean victories.',
-  },
-  {
-    key: 'cosmic_horror',
-    label: 'Cosmic Horror',
-    value: 'Vast indifference, dread, and the creeping sense that human understanding is a thin veil over an incomprehensible reality. Knowledge is dangerous. Sanity is fragile.',
-  },
-  {
-    key: 'space_opera',
-    label: 'Space Opera',
-    value: 'Interstellar scale, wonder, and conflict. Empires span star systems. Individual heroes shape galactic events. Technology is indistinguishable from magic. The universe is vast but populated and alive.',
-  },
+const AUTHORITY_PRESETS: CharterPreset[] = [
+  { key: 'neutral_reference', label: 'Neutral Reference' },
+  { key: 'official_archive', label: 'Official Archive' },
+  { key: 'field_notes', label: 'Field Notes' },
+  { key: 'oral_history', label: 'Oral History' },
 ];
 
-const WRITING_STYLE_PRESETS: GuidancePreset[] = [
-  {
-    key: 'elevated',
-    label: 'Elevated',
-    value: 'Use elevated, lyrical prose with deliberate rhythm. Favor precise imagery, resonant proper nouns, lineage references, and in-world terminology. Avoid irony unless the world itself calls for it.',
-  },
-  {
-    key: 'lean_visceral',
-    label: 'Lean & Visceral',
-    value: 'Use sparse, direct prose. Shorten sentences under pressure. Keep vocabulary earthy and concrete. Violence and conflict should carry consequences. Avoid decorative prose that does not reveal character, place, or tension.',
-  },
-  {
-    key: 'slow_dread',
-    label: 'Slow Dread',
-    value: 'Build unease gradually. Let matter-of-fact description give way to implication, contradiction, and uncertainty. Avoid overexplaining mysteries; make absence, silence, and incomplete knowledge do work.',
-  },
-  {
-    key: 'cinematic',
-    label: 'Cinematic',
-    value: 'Write with clear scene momentum, ensemble awareness, and strong visual composition. Balance action, political movement, and character stakes. Exposition should feel embedded in decisions and conflict.',
-  },
+const ATMOSPHERE_PRESETS: CharterPreset[] = [
+  { key: 'epic_fantasy', label: 'Epic Fantasy' },
+  { key: 'gritty_realism', label: 'Gritty Realism' },
+  { key: 'cosmic_horror', label: 'Cosmic Horror' },
+  { key: 'space_opera', label: 'Space Opera' },
 ];
 
-interface GuidanceParameterProps {
-  name: string;
-  presets: GuidancePreset[];
+const PROSE_PRESETS: CharterPreset[] = [
+  { key: 'elevated', label: 'Elevated' },
+  { key: 'lean_visceral', label: 'Lean & Visceral' },
+  { key: 'slow_dread', label: 'Slow Dread' },
+  { key: 'cinematic', label: 'Cinematic' },
+];
+
+const ARCHITECTURE_PRESETS: CharterPreset[] = [
+  { key: 'basic', label: 'Basic' },
+];
+
+interface CharterPresetButtonsProps {
+  presets: CharterPreset[];
   selectedPreset: string;
-  value: string;
-  placeholder: string;
-  rows?: number;
   onPreset: (key: string) => void;
-  onChange: (value: string) => void;
-  onRefine?: () => void;
-  refining?: boolean;
 }
 
-function GuidanceParameter({
-  name,
-  presets,
-  selectedPreset,
-  value,
-  placeholder,
-  rows = 4,
-  onPreset,
-  onChange,
-  onRefine,
-  refining = false,
-}: GuidanceParameterProps) {
+function CharterPresetButtons({ presets, selectedPreset, onPreset }: CharterPresetButtonsProps) {
   return (
-    <section className="rounded-lg border border-gray-200 p-4">
-      <div className="flex items-center justify-between gap-3 mb-3">
-        <h2 className="text-sm font-semibold text-gray-800">{name}</h2>
-        <span className="text-xs text-gray-400">Prompt context</span>
-      </div>
-
-      <div className="grid grid-cols-2 gap-2 mb-3 sm:grid-cols-3">
+    <>
+      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">Presets</p>
+      <div className="mb-3 grid grid-cols-2 gap-2 lg:grid-cols-4">
         {presets.map((preset) => (
           <button
             key={preset.key}
             type="button"
             onClick={() => onPreset(preset.key)}
-            className={`min-h-10 rounded-md border px-3 py-2 text-left text-xs font-medium transition-colors ${
+            className={`min-h-11 rounded-md border px-3 py-2 text-left text-xs font-semibold transition-colors ${
               selectedPreset === preset.key
-                ? 'border-blue-500 bg-blue-50 text-blue-700'
-                : 'border-gray-200 text-gray-700 hover:border-gray-300 hover:bg-gray-50'
+                ? 'border-slate-900 bg-slate-900 text-white'
+                : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300 hover:bg-gray-50'
             }`}
           >
             {preset.label}
           </button>
         ))}
       </div>
+    </>
+  );
+}
+
+interface CharterTextFieldProps {
+  name: string;
+  summary: string;
+  presets: CharterPreset[];
+  selectedPreset: string;
+  value: string;
+  placeholder: string;
+  recommendation: string;
+  rows?: number;
+  id?: string;
+  className?: string;
+  headerMeta?: ReactNode;
+  onPreset: (key: string) => void;
+  onChange: (value: string) => void;
+  onRefine?: () => void;
+  refining?: boolean;
+}
+
+function CharterTextField({
+  name,
+  summary,
+  presets,
+  selectedPreset,
+  value,
+  placeholder,
+  recommendation,
+  rows = 4,
+  id,
+  className = 'border-t border-gray-200 pt-6',
+  headerMeta,
+  onPreset,
+  onChange,
+  onRefine,
+  refining = false,
+}: CharterTextFieldProps) {
+  return (
+    <section className={className}>
+      <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+        <label htmlFor={id} className="text-sm font-semibold text-gray-950">
+          {name} <span className="font-normal text-gray-500">- {summary}</span>
+        </label>
+        {headerMeta}
+        {!headerMeta && onRefine && (
+          <button
+            type="button"
+            disabled={!value.trim() || refining}
+            onClick={onRefine}
+            className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border border-gray-200 bg-white px-2.5 text-xs font-semibold text-gray-700 shadow-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <Sparkles size={13} aria-hidden="true" />
+            {refining ? 'Refining...' : 'Refine'}
+          </button>
+        )}
+      </div>
+
+      <CharterPresetButtons presets={presets} selectedPreset={selectedPreset} onPreset={onPreset} />
 
       <textarea
+        id={id}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         rows={rows}
         placeholder={placeholder}
-        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
+        className="w-full resize-none rounded-md border border-gray-300 bg-white px-3 py-2 text-sm leading-6 text-gray-900 shadow-sm outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-200"
       />
-
-      {onRefine && (
-        <button
-          type="button"
-          disabled={!value.trim() || refining}
-          onClick={onRefine}
-          className="mt-2 inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 disabled:opacity-40 disabled:cursor-not-allowed"
-        >
-          <Sparkles size={12} />
-          {refining ? 'Refining...' : 'Refine with AI'}
-        </button>
-      )}
+      <p className="mt-2 text-xs leading-5 text-gray-500">Recommended range: {recommendation}</p>
     </section>
   );
 }
 
-// ---------------------------------------------------------------------------
-// Wizard
-// ---------------------------------------------------------------------------
+interface ArchitectureFieldProps {
+  selectedPreset: string;
+  onPreset: (key: string) => void;
+}
+
+function ArchitectureField({ selectedPreset, onPreset }: ArchitectureFieldProps) {
+  return (
+    <section className="border-t border-gray-200 pt-6">
+      <h2 className="mb-3 text-sm font-semibold text-gray-950">
+        Bible foundational architecture <span className="font-normal text-gray-500">- How the world begins</span>
+      </h2>
+      <CharterPresetButtons presets={ARCHITECTURE_PRESETS} selectedPreset={selectedPreset} onPreset={onPreset} />
+      <div className="rounded-md border border-gray-300 bg-gray-50 px-3 py-3 text-sm leading-6 text-gray-700 shadow-sm">
+        Basic creates one root article. The founding premise becomes the stem of that article's introduction and the first World Bible entry, matching the current creation flow.
+      </div>
+    </section>
+  );
+}
+
+interface SuggestionGroupProps {
+  title: string;
+  suggestions: string[];
+  onApply: (suggestion: string) => void;
+}
+
+function SuggestionGroup({ title, suggestions, onApply }: SuggestionGroupProps) {
+  if (suggestions.length === 0) return null;
+
+  return (
+    <div className="mt-4">
+      <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">{title}</h3>
+      <div className="mt-2 flex flex-wrap gap-2">
+        {suggestions.map((suggestion, index) => (
+          <button
+            key={`${title}-${suggestion}-${index}`}
+            type="button"
+            onClick={() => onApply(suggestion)}
+            className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-left text-xs font-medium text-slate-700 shadow-sm hover:border-slate-400 hover:bg-slate-50"
+          >
+            <Check size={12} aria-hidden="true" />
+            <span className="truncate">{suggestion}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export default function WorldCreationWizard() {
   const navigate = useNavigate();
-  const { createWorld, updateWorld, addToast } = useStore();
+  const { createWorld, addToast } = useStore();
 
-  // Step 1
-  const [name, setName]               = useState('');
+  const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const [creatingWorld, setCreatingWorld] = useState(false);
-
-  // Created world info (set after Step 1 completes)
-  const [worldId, setWorldId]         = useState<string | null>(null);
-  const [rootArticleId, setRootArticleId] = useState<string | null>(null);
-
-  // Step 2
-  const [selectedTonePreset, setSelectedTonePreset] = useState<string>('');
+  const [selectedPremisePreset, setSelectedPremisePreset] = useState('');
+  const [selectedTonePreset, setSelectedTonePreset] = useState('');
   const [toneGuidance, setToneGuidance] = useState('');
-  const [selectedVibePreset, setSelectedVibePreset] = useState<string>('');
-  const [selectedWritingPreset, setSelectedWritingPreset] = useState<string>('');
-  const [vibe, setVibe]               = useState('');
+  const [selectedVibePreset, setSelectedVibePreset] = useState('');
+  const [selectedWritingPreset, setSelectedWritingPreset] = useState('');
+  const [vibe, setVibe] = useState('');
   const [writingStyle, setWritingStyle] = useState('');
-  const [inspirations, setInspirations] = useState<WorldStyleInspiration[]>([]);
-  const [inspirationInput, setInspirationInput] = useState('');
+  const [stylePrompt, setStylePrompt] = useState('');
+  const [charterSuggestions, setCharterSuggestions] = useState<CharterAssistResponse | null>(null);
+  const [assistingCharter, setAssistingCharter] = useState(false);
   const [expandingVibe, setExpandingVibe] = useState(false);
   const [expandingStyle, setExpandingStyle] = useState(false);
-  const [distilling, setDistilling]   = useState(false);
-  const [distillPatch, setDistillPatch] = useState<{ vibe_append: string; writingStyle_append: string } | null>(null);
-  const [savingStyle, setSavingStyle]   = useState(false);
+  const [selectedArchitecturePreset, setSelectedArchitecturePreset] = useState('basic');
+  const [creating, setCreating] = useState(false);
 
-  const [step, setStep] = useState<1 | 2>(1);
+  const valid = name.trim().length > 0 && description.trim().length >= 20;
 
-  // ---------------------------------------------------------------------------
-  // Validation
-  // ---------------------------------------------------------------------------
-
-  const step1Valid = name.trim().length > 0 && description.trim().length >= 20;
-  const step2HasStyle = toneGuidance.trim().length > 0 || vibe.trim().length > 0 || writingStyle.trim().length > 0;
-
-  // ---------------------------------------------------------------------------
-  // Step 1: create world
-  // ---------------------------------------------------------------------------
-
-  const handleCreateWorld = async () => {
-    if (!step1Valid || creatingWorld) return;
-    setCreatingWorld(true);
-    try {
-      const { world, rootArticleId: rid } = await createWorld({
-        name: name.trim(),
-        description: description.trim(),
-      });
-      setWorldId(world.id);
-      setRootArticleId(rid);
-      setStep(2);
-    } catch (err) {
-      addToast({ message: (err as Error).message, type: 'error' });
-    } finally {
-      setCreatingWorld(false);
-    }
+  const applyPreset = (presets: CharterPreset[], key: string, select: (key: string) => void) => {
+    if (!presets.some((p) => p.key === key)) return;
+    select(key);
   };
 
-  // ---------------------------------------------------------------------------
-  // Step 2: helpers
-  // ---------------------------------------------------------------------------
-
-  const applyTonePreset = (key: string) => {
-    const preset = TONE_PRESETS.find((p) => p.key === key);
-    if (!preset) return;
-    setSelectedTonePreset(key);
-    setToneGuidance(preset.value);
-  };
-
-  const applyVibePreset = (key: string) => {
-    const preset = VIBE_PRESETS.find((p) => p.key === key);
-    if (!preset) return;
-    setSelectedVibePreset(key);
-    setVibe(preset.value);
-  };
-
-  const applyWritingPreset = (key: string) => {
-    const preset = WRITING_STYLE_PRESETS.find((p) => p.key === key);
-    if (!preset) return;
-    setSelectedWritingPreset(key);
-    setWritingStyle(preset.value);
-  };
-
-  const presetNameFor = (presets: GuidancePreset[], selectedKey: string, currentValue: string) => {
+  const presetNameFor = (presets: CharterPreset[], selectedKey: string, currentValue: string) => {
     const preset = presets.find((p) => p.key === selectedKey);
     if (!preset) return 'Custom';
-    return currentValue.trim() === preset.value.trim() ? preset.label : `${preset.label} - Custom`;
-  };
-
-  const presetValueFor = (presets: GuidancePreset[], selectedKey: string) => {
-    return presets.find((p) => p.key === selectedKey)?.value;
+    return currentValue.trim() ? `${preset.label} - Custom` : preset.label;
   };
 
   const handleExpandVibe = async () => {
@@ -254,13 +229,17 @@ export default function WorldCreationWizard() {
     setExpandingVibe(true);
     try {
       const result = await api.worlds.promptEngineer({
-        fieldType: 'vibe', rawText: vibe,
-        worldName: name.trim(), worldDescription: description.trim(),
-        wid: worldId ?? undefined,
+        fieldType: 'vibe',
+        rawText: vibe,
+        worldName: name.trim() || 'Untitled world',
+        worldDescription: description.trim() || '(not set)',
       });
       if ('expandedDescription' in result) setVibe(result.expandedDescription);
-    } catch (err) { addToast({ message: (err as Error).message, type: 'error' }); }
-    finally { setExpandingVibe(false); }
+    } catch (err) {
+      addToast({ message: (err as Error).message, type: 'error' });
+    } finally {
+      setExpandingVibe(false);
+    }
   };
 
   const handleExpandStyle = async () => {
@@ -268,301 +247,277 @@ export default function WorldCreationWizard() {
     setExpandingStyle(true);
     try {
       const result = await api.worlds.promptEngineer({
-        fieldType: 'writing_style', rawText: writingStyle,
-        worldName: name.trim(), worldDescription: description.trim(),
-        wid: worldId ?? undefined,
+        fieldType: 'writing_style',
+        rawText: writingStyle,
+        worldName: name.trim() || 'Untitled world',
+        worldDescription: description.trim() || '(not set)',
       });
       if ('expandedDescription' in result) setWritingStyle(result.expandedDescription);
-    } catch (err) { addToast({ message: (err as Error).message, type: 'error' }); }
-    finally { setExpandingStyle(false); }
-  };
-
-  const handleAddInspiration = () => {
-    const trimmed = inspirationInput.trim();
-    if (!trimmed) return;
-    setInspirations((prev) => [...prev, { name: trimmed }]);
-    setInspirationInput('');
-  };
-
-  const handleDistill = async () => {
-    if (!inspirations.length || distilling) return;
-    setDistilling(true);
-    setDistillPatch(null);
-    try {
-      const rawText = inspirations.map((i) => i.name).join(', ');
-      const result = await api.worlds.promptEngineer({
-        fieldType: 'distill', rawText,
-        worldName: name.trim(), worldDescription: description.trim(),
-        currentVibe: vibe, currentWritingStyle: writingStyle,
-        wid: worldId ?? undefined,
-      });
-      if ('vibe_append' in result) setDistillPatch(result);
-    } catch (err) { addToast({ message: (err as Error).message, type: 'error' }); }
-    finally { setDistilling(false); }
-  };
-
-  const handleApplyPatch = () => {
-    if (!distillPatch) return;
-    if (distillPatch.vibe_append) setVibe((v) => v ? `${v} ${distillPatch.vibe_append}` : distillPatch.vibe_append);
-    if (distillPatch.writingStyle_append) setWritingStyle((s) => s ? `${s} ${distillPatch.writingStyle_append}` : distillPatch.writingStyle_append);
-    setDistillPatch(null);
-  };
-
-  // ---------------------------------------------------------------------------
-  // Step 2: save style + navigate
-  // ---------------------------------------------------------------------------
-
-  const navigateToWorld = () => {
-    if (!worldId || !rootArticleId) return;
-    navigate(`/worlds/${worldId}/articles/${rootArticleId}`);
-  };
-
-  const handleFinish = async () => {
-    if (!worldId || savingStyle) return;
-    setSavingStyle(true);
-
-    const styleConfig: Partial<WorldStyleConfig> = {
-      preset: selectedVibePreset || selectedWritingPreset || selectedTonePreset || undefined,
-      tonePreset: presetNameFor(TONE_PRESETS, selectedTonePreset, toneGuidance),
-      tonePresetValue: presetValueFor(TONE_PRESETS, selectedTonePreset),
-      toneGuidance: toneGuidance.trim(),
-      vibePreset: presetNameFor(VIBE_PRESETS, selectedVibePreset, vibe),
-      vibePresetValue: presetValueFor(VIBE_PRESETS, selectedVibePreset),
-      vibe: vibe.trim(),
-      writingStylePreset: presetNameFor(WRITING_STYLE_PRESETS, selectedWritingPreset, writingStyle),
-      writingStylePresetValue: presetValueFor(WRITING_STYLE_PRESETS, selectedWritingPreset),
-      writingStyle: writingStyle.trim(),
-      inspirations: inspirations,
-    };
-
-    try {
-      await updateWorld(worldId, { tone: 'custom', styleConfig });
-      navigateToWorld();
     } catch (err) {
       addToast({ message: (err as Error).message, type: 'error' });
-      setSavingStyle(false);
+    } finally {
+      setExpandingStyle(false);
     }
   };
 
-  // ---------------------------------------------------------------------------
-  // Render
-  // ---------------------------------------------------------------------------
+  const handleCharterAssist = async () => {
+    if (!stylePrompt.trim() || assistingCharter) return;
+    setAssistingCharter(true);
+    setCharterSuggestions(null);
+    try {
+      const result = await api.worlds.promptEngineer({
+        fieldType: 'charter_assist',
+        rawText: stylePrompt,
+        worldName: name.trim() || 'Untitled world',
+        worldDescription: description.trim() || '(not set)',
+        currentAuthority: toneGuidance,
+        currentVibe: vibe,
+        currentWritingStyle: writingStyle,
+      });
+      if ('premiseSuggestions' in result) setCharterSuggestions(result);
+    } catch (err) {
+      addToast({ message: (err as Error).message, type: 'error' });
+    } finally {
+      setAssistingCharter(false);
+    }
+  };
+
+  const appendSuggestion = (current: string, suggestion: string) => {
+    const trimmed = current.trim();
+    if (!trimmed) return suggestion;
+    return `${trimmed}; ${suggestion}`;
+  };
+
+  const buildStyleConfig = (): Partial<WorldStyleConfig> => ({
+    preset: selectedVibePreset || selectedWritingPreset || selectedTonePreset || undefined,
+    tonePreset: presetNameFor(AUTHORITY_PRESETS, selectedTonePreset, toneGuidance),
+    toneGuidance: toneGuidance.trim(),
+    vibePreset: presetNameFor(ATMOSPHERE_PRESETS, selectedVibePreset, vibe),
+    vibe: vibe.trim(),
+    writingStylePreset: presetNameFor(PROSE_PRESETS, selectedWritingPreset, writingStyle),
+    writingStyle: writingStyle.trim(),
+    inspirations: [],
+  });
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!valid || creating) return;
+    setCreating(true);
+
+    try {
+      const { world, rootArticleId } = await createWorld({
+        name: name.trim(),
+        description: description.trim(),
+        tone: 'custom',
+        styleConfig: buildStyleConfig(),
+      });
+      navigate(`/worlds/${world.id}/articles/${rootArticleId}`);
+    } catch (err) {
+      addToast({ message: (err as Error).message, type: 'error' });
+      setCreating(false);
+    }
+  };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-start justify-center py-16 px-4">
-      <div className="w-full max-w-xl">
-        {step === 1 && (
-          <button onClick={() => navigate('/')} className="text-sm text-gray-400 hover:text-gray-700 mb-6 flex items-center gap-1">
-            <ArrowLeft size={14} /> Back
-          </button>
-        )}
+    <div className="min-h-screen bg-gray-100 text-gray-950">
+      <div className="mx-auto flex w-full max-w-7xl flex-col gap-8 px-4 py-8 sm:px-6 lg:px-8">
+        <button
+          type="button"
+          onClick={() => navigate('/')}
+          className="inline-flex w-fit items-center gap-2 rounded-md border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-gray-600 shadow-sm hover:bg-gray-50 hover:text-gray-950"
+        >
+          <ArrowLeft size={16} aria-hidden="true" />
+          Worlds
+        </button>
 
-        <h1 className="text-2xl font-bold text-gray-900 mb-1">Create a new world</h1>
-        <p className="text-sm text-gray-500 mb-6">
-          {step === 1
-            ? 'Name and describe your world.'
-            : 'Set its style to guide AI generation. You can always edit this later.'}
-        </p>
-
-        {/* Step indicator */}
-        <div className="flex gap-2 mb-8">
-          {[1, 2].map((s) => (
-            <div
-              key={s}
-              className={`h-1.5 flex-1 rounded-full transition-colors ${step >= s ? 'bg-blue-500' : 'bg-gray-200'}`}
-            />
-          ))}
-        </div>
-
-        {/* ---- STEP 1: Identity ---- */}
-        {step === 1 && (
-          <div className="bg-white rounded-xl border border-gray-200 p-6 flex flex-col gap-5">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">World name *</label>
-              <input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="e.g. Aethon, The Shattered Realm…"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
+        <header className="border-b border-gray-300 pb-8">
+          <div className="max-w-3xl">
+            <div className="mb-4 inline-flex items-center gap-2 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-gray-600 shadow-sm">
+              <Landmark size={14} className="text-slate-700" aria-hidden="true" />
+              World Charter
             </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Description * <span className="text-gray-400 font-normal">(20 chars min)</span>
-              </label>
-              <textarea
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                rows={5}
-                placeholder="Describe the world's premise, themes, and setting. Include anything that defines its identity — setting, conflicts, key concepts, tone…"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-              <p className="text-xs text-gray-400 mt-1">{description.length} chars</p>
-            </div>
-
-            <button
-              type="button"
-              disabled={!step1Valid || creatingWorld}
-              onClick={handleCreateWorld}
-              className="w-full py-2.5 bg-blue-600 text-white rounded-lg font-medium text-sm hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <span className="flex items-center justify-center gap-1.5">
-                {creatingWorld ? 'Creating…' : <><ArrowRight size={14} /> Next: World Style</>}
-              </span>
-            </button>
+            <h1 className="text-4xl font-bold tracking-normal text-gray-950 sm:text-5xl">Create a world</h1>
+            <p className="mt-4 max-w-2xl text-base leading-7 text-gray-600">
+              Establish the official record: premise, voice, atmosphere, prose style, and foundational architecture.
+            </p>
           </div>
-        )}
+        </header>
 
-        {/* ---- STEP 2: Style ---- */}
-        {step === 2 && (
-          <div className="bg-white rounded-xl border border-gray-200 p-6 flex flex-col gap-5">
-            <GuidanceParameter
-              name="Writing Tone"
-              presets={TONE_PRESETS}
+        <form onSubmit={handleSubmit} className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
+          <main className="rounded-lg border border-gray-300 bg-white p-5 shadow-sm sm:p-7">
+            <section className="grid gap-5">
+              <div>
+                <label htmlFor="world-name" className="block text-sm font-semibold text-gray-950">
+                  World name
+                </label>
+                <input
+                  id="world-name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder=""
+                  className="mt-2 w-full rounded-md border border-gray-300 bg-white px-3 py-3 text-base font-semibold text-gray-950 shadow-sm outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-200"
+                />
+              </div>
+
+              <CharterTextField
+                id="world-description"
+                name="Founding premise"
+                summary="Core truths and founding tensions"
+                presets={PREMISE_PRESETS}
+                selectedPreset={selectedPremisePreset}
+                value={description}
+                placeholder="Define what is true about the world itself: where it is, who lives there, what powers or systems shape it, what conflicts matter, what history casts a shadow, and what the root article must establish. This is lore and premise, not writing style."
+                recommendation="80-180 words, or 6-12 decisive facts."
+                rows={7}
+                className=""
+                headerMeta={<span className="text-xs font-medium text-gray-400">{description.length} chars</span>}
+                onPreset={(key) => applyPreset(PREMISE_PRESETS, key, setSelectedPremisePreset)}
+                onChange={setDescription}
+              />
+            </section>
+
+            <CharterTextField
+              name="Narrative authority"
+              summary="Source and authority of record"
+              presets={AUTHORITY_PRESETS}
               selectedPreset={selectedTonePreset}
               value={toneGuidance}
-              placeholder="Select a preset or write the tone guidance that should steer every generated article."
+              placeholder="Define the source and authority behind the encyclopedia: neutral reference work, state archive, field researcher, oral tradition, secret dossier, unreliable scholar, or another record-keeping stance. This controls who appears to be speaking and how certain the record sounds. It does not define sentence rhythm, vocabulary density, or literary style."
+              recommendation="1-3 sentences, or 3-6 authority keywords."
               rows={4}
-              onPreset={applyTonePreset}
+              onPreset={(key) => applyPreset(AUTHORITY_PRESETS, key, setSelectedTonePreset)}
               onChange={setToneGuidance}
             />
 
-            <GuidanceParameter
-              name="Vibe & Atmosphere"
-              presets={VIBE_PRESETS}
+            <CharterTextField
+              name="Atmosphere"
+              summary="Mood, stakes, and genre pressure"
+              presets={ATMOSPHERE_PRESETS}
               selectedPreset={selectedVibePreset}
               value={vibe}
-              placeholder="Select a preset or write the atmospheric context that should steer every generated article."
+              placeholder="Describe the world's dominant mood and genre forces: dread or wonder, scarcity or abundance, myth or realism, cosmic scale or local intimacy, clean heroism or moral compromise. Define the pressure the setting puts on people."
+              recommendation="2-4 sentences, or 5-10 atmosphere keywords."
               rows={4}
-              onPreset={applyVibePreset}
+              onPreset={(key) => applyPreset(ATMOSPHERE_PRESETS, key, setSelectedVibePreset)}
               onChange={setVibe}
               onRefine={handleExpandVibe}
               refining={expandingVibe}
             />
 
-            <GuidanceParameter
-              name="Writing Style"
-              presets={WRITING_STYLE_PRESETS}
+            <CharterTextField
+              name="Prose style"
+              summary="Sentence rhythm and diction rules"
+              presets={PROSE_PRESETS}
               selectedPreset={selectedWritingPreset}
               value={writingStyle}
-              placeholder="Select a preset or write the prose guidance that should steer every generated article."
+              placeholder="Define how the text should be written on the page: plain or lyrical, dense or spare, formal or conversational, fast or measured, metaphor-heavy or concrete, terse or elaborate. This controls sentence rhythm, diction, paragraph shape, and exposition habits. It does not decide who authored the record."
+              recommendation="2-4 sentences, or 5-10 prose rules."
               rows={4}
-              onPreset={applyWritingPreset}
+              onPreset={(key) => applyPreset(PROSE_PRESETS, key, setSelectedWritingPreset)}
               onChange={setWritingStyle}
               onRefine={handleExpandStyle}
               refining={expandingStyle}
             />
 
-            {/* Inspirations */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Inspirations <span className="text-gray-400 font-normal">(optional)</span>
-              </label>
-              <p className="text-xs text-gray-400 mb-2">Add works that inspired this world. Use "Distill to Style" to absorb their feel into your Vibe & Writing Style fields.</p>
-              <div className="flex gap-2 mb-2">
-                <input
-                  value={inspirationInput}
-                  onChange={(e) => setInspirationInput(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddInspiration())}
-                  placeholder="e.g. Game of Thrones, Dune…"
-                  className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            <ArchitectureField
+              selectedPreset={selectedArchitecturePreset}
+              onPreset={(key) => applyPreset(ARCHITECTURE_PRESETS, key, setSelectedArchitecturePreset)}
+            />
+          </main>
+
+          <aside className="flex flex-col gap-4">
+            <section className="rounded-lg border border-gray-300 bg-white p-5 shadow-sm">
+              <div className="mb-4 flex items-start gap-3">
+                <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-slate-900 text-white">
+                  <Sparkles size={18} aria-hidden="true" />
+                </span>
+                <div>
+                  <h2 className="text-sm font-semibold text-gray-950">Style prompt engineer</h2>
+                  <p className="mt-1 text-xs leading-5 text-gray-500">
+                    Cite inspirations, moods, or keywords; suggestions will abstract them into original charter language.
+                  </p>
+                </div>
+              </div>
+
+              <textarea
+                value={stylePrompt}
+                onChange={(e) => setStylePrompt(e.target.value)}
+                rows={5}
+                placeholder="Example: I want keywords for a gritty, dark world inspired by cyberpunk power structures and dynastic betrayal. Keep it political, grounded, and tense."
+                className="w-full resize-none rounded-md border border-gray-300 bg-white px-3 py-2 text-sm leading-6 text-gray-900 shadow-sm outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-200"
+              />
+              <button
+                type="button"
+                disabled={!stylePrompt.trim() || assistingCharter}
+                onClick={handleCharterAssist}
+                className="mt-3 inline-flex h-9 w-full items-center justify-center gap-2 rounded-md bg-slate-950 px-3 text-xs font-semibold text-white shadow-sm hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-45"
+              >
+                <Sparkles size={13} aria-hidden="true" />
+                {assistingCharter ? 'Thinking...' : 'Suggest charter language'}
+              </button>
+              <p className="mt-2 text-xs leading-5 text-gray-500">
+                Suggestions are not saved as context and should not copy named concepts from cited works.
+              </p>
+            </section>
+
+            {charterSuggestions && (
+              <section className="rounded-lg border border-slate-300 bg-slate-50 p-5 shadow-sm">
+                <h2 className="text-sm font-semibold text-slate-950">Suggested language</h2>
+                <p className="mt-1 text-xs leading-5 text-slate-600">{charterSuggestions.rationale}</p>
+
+                <SuggestionGroup
+                  title="Founding premise"
+                  suggestions={charterSuggestions.premiseSuggestions}
+                  onApply={(suggestion) => setDescription((value) => appendSuggestion(value, suggestion))}
                 />
-                <button
-                  type="button"
-                  onClick={handleAddInspiration}
-                  disabled={!inspirationInput.trim()}
-                  className="px-3 py-2 text-sm bg-gray-100 border border-gray-300 rounded-lg hover:bg-gray-200 disabled:opacity-40"
-                >
-                  Add
-                </button>
-              </div>
-
-              {inspirations.length > 0 && (
-                <div className="flex flex-wrap gap-1.5 mb-3">
-                  {inspirations.map((ins, idx) => (
-                    <span
-                      key={idx}
-                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-purple-50 border border-purple-200 text-xs text-purple-800"
-                    >
-                      {ins.name}
-                      <button type="button" onClick={() => setInspirations((p) => p.filter((_, j) => j !== idx))} className="hover:text-purple-500 ml-0.5">
-                        <X size={11} />
-                      </button>
-                    </span>
-                  ))}
-                </div>
-              )}
-
-              {inspirations.length > 0 && (
-                <button
-                  type="button"
-                  disabled={distilling}
-                  onClick={handleDistill}
-                  className="flex items-center gap-1.5 text-xs px-3 py-1.5 bg-purple-50 border border-purple-200 text-purple-700 rounded-lg hover:bg-purple-100 disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  <Sparkles size={12} />
-                  {distilling ? 'Distilling…' : '✦ Distill to Style'}
-                </button>
-              )}
-            </div>
-
-            {/* Distill patch preview */}
-            {distillPatch && (
-              <div className="rounded-lg border border-purple-200 bg-purple-50 p-4 flex flex-col gap-3 text-xs">
-                <p className="font-medium text-purple-800">Style additions — review before applying</p>
-                {distillPatch.vibe_append && (
-                  <div>
-                    <p className="text-purple-600 uppercase tracking-wide font-medium mb-1">Vibe addition</p>
-                    <p className="text-gray-700 leading-relaxed">{distillPatch.vibe_append}</p>
-                  </div>
-                )}
-                {distillPatch.writingStyle_append && (
-                  <div>
-                    <p className="text-purple-600 uppercase tracking-wide font-medium mb-1">Writing Style addition</p>
-                    <p className="text-gray-700 leading-relaxed">{distillPatch.writingStyle_append}</p>
-                  </div>
-                )}
-                <div className="flex gap-2 pt-1">
-                  <button
-                    type="button"
-                    onClick={handleApplyPatch}
-                    className="px-3 py-1.5 bg-purple-600 text-white rounded-lg hover:bg-purple-700 text-xs font-medium"
-                  >
-                    Apply
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setDistillPatch(null)}
-                    className="px-3 py-1.5 text-gray-500 hover:text-gray-700 text-xs"
-                  >
-                    Discard
-                  </button>
-                </div>
-              </div>
+                <SuggestionGroup
+                  title="Narrative authority"
+                  suggestions={charterSuggestions.authoritySuggestions}
+                  onApply={(suggestion) => setToneGuidance((value) => appendSuggestion(value, suggestion))}
+                />
+                <SuggestionGroup
+                  title="Atmosphere"
+                  suggestions={charterSuggestions.atmosphereSuggestions}
+                  onApply={(suggestion) => setVibe((value) => appendSuggestion(value, suggestion))}
+                />
+                <SuggestionGroup
+                  title="Prose style"
+                  suggestions={charterSuggestions.proseSuggestions}
+                  onApply={(suggestion) => setWritingStyle((value) => appendSuggestion(value, suggestion))}
+                />
+              </section>
             )}
 
-            <div className="flex flex-col gap-2 pt-1">
+            <section className="rounded-lg border border-gray-300 bg-white p-5 shadow-sm">
+              <h2 className="text-sm font-semibold text-gray-950">Create record</h2>
+              <dl className="mt-4 grid gap-3 text-xs">
+                <div className="flex items-center justify-between gap-3">
+                  <dt className="text-gray-500">Name</dt>
+                  <dd className="max-w-[180px] truncate font-semibold text-gray-900">{name.trim() || 'Required'}</dd>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <dt className="text-gray-500">Premise</dt>
+                  <dd className={description.trim().length >= 20 ? 'font-semibold text-gray-900' : 'font-semibold text-amber-700'}>
+                    {description.trim().length >= 20 ? 'Ready' : '20 chars min'}
+                  </dd>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <dt className="text-gray-500">Style fields</dt>
+                  <dd className="font-semibold text-gray-900">
+                    {[toneGuidance, vibe, writingStyle].filter((v) => v.trim()).length}/3
+                  </dd>
+                </div>
+              </dl>
               <button
-                type="button"
-                disabled={savingStyle}
-                onClick={handleFinish}
-                className="w-full py-2.5 bg-blue-600 text-white rounded-lg font-medium text-sm hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                type="submit"
+                disabled={!valid || creating}
+                className="mt-5 inline-flex h-11 w-full items-center justify-center rounded-md bg-slate-950 px-4 text-sm font-semibold text-white shadow-sm hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-45"
               >
-                <span className="flex items-center justify-center gap-1.5">
-                  {savingStyle ? 'Saving…' : step2HasStyle ? 'Finish — Save Style' : 'Finish'}
-                </span>
+                {creating ? 'Creating...' : 'Create world'}
               </button>
-              <button
-                type="button"
-                onClick={navigateToWorld}
-                className="w-full py-2 text-sm text-gray-400 hover:text-gray-600"
-              >
-                <span className="flex items-center justify-center gap-1">Skip style for now <ArrowRight size={14} /></span>
-              </button>
-            </div>
-          </div>
-        )}
+            </section>
+          </aside>
+        </form>
       </div>
     </div>
   );
