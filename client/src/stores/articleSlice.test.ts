@@ -16,6 +16,7 @@ const mockApi = vi.hoisted(() => ({
       revert: vi.fn(),
     },
     draft: {
+      save: vi.fn(),
       get: vi.fn(),
       list: vi.fn(),
       accept: vi.fn(),
@@ -60,9 +61,12 @@ type Store = ReturnType<typeof makeStore>;
 
 let store: Store;
 beforeEach(() => {
-  vi.clearAllMocks();
+  // resetAllMocks (not clearAllMocks) so a mockResolvedValue set in one
+  // describe's beforeEach can't bleed into a later describe that doesn't
+  // set its own — each block should fully control its own mock behavior.
+  vi.resetAllMocks();
   store = makeStore();
-  // bible.getMeta is called by loadBibleMeta inside manualEdit / acceptDraft
+  // bible.getMeta is called by loadBibleMeta inside acceptDraft
   mockApi.bible.getMeta.mockResolvedValue({ tokenCount: 0, threshold: 80000 });
 });
 
@@ -78,8 +82,6 @@ const article1 = {
   title: 'The Dragon',
   status: 'draft' as const,
   templateType: 'general' as const,
-  temporalAnchorStart: null,
-  temporalAnchorEnd: null,
   isFixedPoint: false,
   depth: 1,
   currentVersionId: 'v1',
@@ -94,7 +96,6 @@ const version1 = {
   versionNumber: 1,
   introduction: 'Original introduction.',
   description: 'Original description.',
-  chronology: '',
   expansionParams: null,
   proposalUsed: null,
   wordCount: 3,
@@ -262,12 +263,11 @@ describe('checkDraft', () => {
 });
 
 // ---------------------------------------------------------------------------
-// manualEdit
+// saveManualEdit
 // ---------------------------------------------------------------------------
 
-describe('manualEdit', () => {
-  const updatedArticle = { ...article1, updatedAt: 2000 };
-  const updatedVersion = { ...version1, id: 'v2', versionNumber: 2, description: 'New description.' };
+describe('saveManualEdit', () => {
+  const savedDraft = { ...pendingDraft, id: 'draftM1', pipelineType: 'manual_edit', displayTitle: 'Manual edit' };
 
   beforeEach(() => {
     store.setState((s) => {
@@ -275,40 +275,50 @@ describe('manualEdit', () => {
       s.currentArticleDetail = articleDetail;
       s.currentWorldId = 'w1';
     });
-    mockApi.articles.update.mockResolvedValue({
-      article: updatedArticle,
-      version: updatedVersion,
+    mockApi.articles.draft.save.mockResolvedValue(savedDraft);
+    mockApi.articles.draft.list.mockResolvedValue([savedDraft]);
+  });
+
+  it('creates a new manual-edit draft carrying forward the untouched field', async () => {
+    await S().saveManualEdit('w1', 'art1', { description: 'New description.' });
+    expect(mockApi.articles.draft.save).toHaveBeenCalledWith('w1', 'art1', {
+      pipelineType: 'manual_edit',
+      phase: 'draft_ready',
+      draftContent: { introduction: articleDetail.introduction, description: 'New description.' },
+      draftId: undefined,
+      displayTitle: 'Manual edit',
     });
   });
 
-  it('updates the article in the articles list', async () => {
-    await S().manualEdit('w1', 'art1', { description: 'New description.' });
-    expect(S().articles[0]).toEqual(updatedArticle);
-  });
+  it('upserts onto an existing pending manual-edit draft instead of creating a second one', async () => {
+    const existing = {
+      ...pendingDraft,
+      id: 'draftM1',
+      pipelineType: 'manual_edit',
+      draftContent: { introduction: 'Staged intro.' },
+    };
+    store.setState((s) => { s.drafts = [existing]; });
 
-  it('updates currentArticleDetail when it matches the edited article', async () => {
-    await S().manualEdit('w1', 'art1', { description: 'New description.' });
-    expect(S().currentArticleDetail!.article).toEqual(updatedArticle);
-    expect(S().currentArticleDetail!.version).toEqual(updatedVersion);
-  });
-
-  it('does NOT update currentArticleDetail when it shows a different article', async () => {
-    store.setState((s) => {
-      s.currentArticleDetail = { ...articleDetail, article: { ...article1, id: 'other' } };
+    await S().saveManualEdit('w1', 'art1', { description: 'New description.' });
+    expect(mockApi.articles.draft.save).toHaveBeenCalledWith('w1', 'art1', {
+      pipelineType: 'manual_edit',
+      phase: 'draft_ready',
+      draftContent: { introduction: 'Staged intro.', description: 'New description.' },
+      draftId: 'draftM1',
+      displayTitle: 'Manual edit',
     });
-    await S().manualEdit('w1', 'art1', { description: 'New description.' });
-    expect(S().currentArticleDetail!.article.id).toBe('other');
   });
 
-  it('calls loadBibleMeta after a successful edit', async () => {
-    await S().manualEdit('w1', 'art1', { description: 'New description.' });
-    expect(mockApi.bible.getMeta).toHaveBeenCalledWith('w1');
+  it('does not touch an unrelated agent-generated pending draft', async () => {
+    store.setState((s) => { s.drafts = [pendingDraft]; });
+    await S().saveManualEdit('w1', 'art1', { introduction: 'New introduction.' });
+    expect(mockApi.articles.draft.save).toHaveBeenCalledWith('w1', 'art1', expect.objectContaining({ draftId: undefined }));
   });
 
-  it('does not call loadBibleMeta when currentWorldId is null', async () => {
-    store.setState((s) => { s.currentWorldId = null; });
-    await S().manualEdit('w1', 'art1', { description: 'New description.' });
-    expect(mockApi.bible.getMeta).not.toHaveBeenCalled();
+  it('refreshes drafts state after saving', async () => {
+    await S().saveManualEdit('w1', 'art1', { description: 'New description.' });
+    expect(mockApi.articles.draft.list).toHaveBeenCalledWith('w1', 'art1', 'all');
+    expect(S().drafts).toEqual([savedDraft]);
   });
 });
 

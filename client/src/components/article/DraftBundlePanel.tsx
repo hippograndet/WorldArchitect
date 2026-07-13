@@ -20,16 +20,15 @@ function draftSections(draft: PendingDraft): string {
 
 export default function DraftBundlePanel({
   drafts,
-  onReview,
   onAccept,
   onDiscard,
 }: {
   drafts: PendingDraft[];
-  onReview: (draft: PendingDraft) => void;
   onAccept: (draft: PendingDraft) => void;
   onDiscard: (draft: PendingDraft) => void;
 }) {
   const [showHistory, setShowHistory] = useState(false);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   const pending = drafts.filter((draft) => draft.status === 'pending');
   const history = drafts.filter((draft) => draft.status !== 'pending');
   if (drafts.length === 0) return null;
@@ -47,20 +46,46 @@ export default function DraftBundlePanel({
             {draft.resolvedAt ? ` · resolved ${new Date(draft.resolvedAt).toLocaleString()}` : ''}
           </p>
         </div>
-        {!isHistory && (
-          <div className="flex items-center gap-1 shrink-0">
-            <button onClick={() => onReview(draft)} className="px-2 py-1 text-xs border border-amber-300 rounded text-amber-800 hover:bg-amber-100">
-              Review
-            </button>
-            <button onClick={() => onAccept(draft)} className="p-1.5 text-green-700 hover:bg-green-50 rounded" title="Accept draft">
-              <Check size={14} />
-            </button>
-            <button onClick={() => onDiscard(draft)} className="p-1.5 text-red-700 hover:bg-red-50 rounded" title="Discard draft">
-              <Trash2 size={14} />
-            </button>
-          </div>
-        )}
+        <div className="flex items-center gap-1 shrink-0">
+          <button
+            onClick={() => setExpandedId((id) => (id === draft.id ? null : draft.id))}
+            className="px-2 py-1 text-xs border border-amber-300 rounded text-amber-800 hover:bg-amber-100"
+          >
+            {expandedId === draft.id ? 'Hide' : 'Preview'}
+          </button>
+          {!isHistory && (
+            <>
+              <button onClick={() => onAccept(draft)} className="p-1.5 text-green-700 hover:bg-green-50 rounded" title="Accept draft">
+                <Check size={14} />
+              </button>
+              <button onClick={() => onDiscard(draft)} className="p-1.5 text-red-700 hover:bg-red-50 rounded" title="Discard draft">
+                <Trash2 size={14} />
+              </button>
+            </>
+          )}
+        </div>
       </div>
+      {expandedId === draft.id && (
+        <div className="mt-2 pt-2 border-t border-amber-200 flex flex-col gap-2">
+          {draft.draftContent?.introduction && (
+            <div>
+              <p className="text-[11px] font-semibold text-amber-700 uppercase tracking-wide">Introduction</p>
+              <p className="text-xs text-amber-900 whitespace-pre-wrap">{draft.draftContent.introduction}</p>
+            </div>
+          )}
+          {(draft.draftContent?.description || draft.draftContent?.childDescription) && (
+            <div>
+              <p className="text-[11px] font-semibold text-amber-700 uppercase tracking-wide">Description</p>
+              <p className="text-xs text-amber-900 whitespace-pre-wrap">
+                {draft.draftContent.description || draft.draftContent.childDescription}
+              </p>
+            </div>
+          )}
+          {!draft.draftContent?.introduction && !draft.draftContent?.description && !draft.draftContent?.childDescription && (
+            <p className="text-xs text-amber-600 italic">No text content on this draft.</p>
+          )}
+        </div>
+      )}
     </div>
   );
 

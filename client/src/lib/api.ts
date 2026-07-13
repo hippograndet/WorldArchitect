@@ -2,7 +2,7 @@ import type { World, CreateWorldInput, BibleMeta, WorldIssue } from '../types/wo
 import type { Run, RunConfig, RunLlmTrace, RunReviewItem, RunWithEvents } from '../types/run.ts';
 import type { PipelineType } from '../stores/agentSlice.ts';
 import type { FlatArticle } from './tree.ts';
-import type { Article, ArticleDetail, ArticleGraph, ArticleGraphEdge, ArticleVersion, PendingDraft, CoherenceWarning, AcceptDraftResult } from '../types/article.ts';
+import type { Article, ArticleDetail, ArticleGraph, ArticleGraphEdge, ArticleVersion, PendingDraft, DraftContent, CoherenceWarning, AcceptDraftResult } from '../types/article.ts';
 import type { ContextDepth, IdeaItem, EdgeProposal, GlobalWarning, StyleWardenResult } from '../types/agent.ts';
 import type { ArticleMetadataFieldDefinition, ArticleTypeDefinition } from './articleTypes.ts';
 import type { InboxCountResponse, InboxResponse } from '../types/inbox.ts';
@@ -193,6 +193,13 @@ export const api = {
     },
 
     draft: {
+      save:    (wid: string, aid: string, input: {
+        pipelineType: string;
+        phase: 'draft_ready' | 'coherence_checked' | 'retention_checked';
+        draftContent: DraftContent;
+        draftId?: string;
+        displayTitle?: string;
+      }) => post<PendingDraft>(`/worlds/${wid}/articles/${aid}/draft`, input),
       get:     (wid: string, aid: string)              => get<PendingDraft | null>(`/worlds/${wid}/articles/${aid}/draft`),
       list:    (wid: string, aid: string, status: DraftStatusFilter = 'pending') =>
         get<PendingDraft[]>(`/worlds/${wid}/articles/${aid}/drafts?status=${encodeURIComponent(status)}`),

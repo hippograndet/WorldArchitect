@@ -2,7 +2,7 @@ import type { StateCreator } from 'zustand';
 import type { StoreState } from './index.ts';
 import { api } from '../lib/api.ts';
 import type { ChildProposal, ContextDepth, SummarizerMode, IdeaItem, EdgeProposal, GlobalWarning, StyleWardenResult } from '../types/agent.ts';
-import type { DraftContent, PendingDraft } from '../types/article.ts';
+import type { DraftContent } from '../types/article.ts';
 import type { DraftContextBasis } from '../lib/api.ts';
 import { defaultForgeRuntime } from './forgeSlice.ts';
 export type { ForgeLogEntry } from './forgeSlice.ts';
@@ -198,7 +198,6 @@ export interface AgentSlice {
   toggleAgentIdea: (idea: IdeaItem) => void;
   clearAgentIdeas: () => void;
   agentRetry: () => void;
-  loadDraftIntoPanel: (draft: PendingDraft) => void;
   continueWithStep: (step: NextStep) => void;
   startAudit: (worldId: string) => Promise<void>;
 
@@ -279,18 +278,6 @@ export const agentSlice: StateCreator<StoreState, [['zustand/immer', never]], []
       set((s) => {
         Object.assign(s, defaultAgentRuntime);
         s.agentPhase = 'configuring';
-      });
-    },
-
-    loadDraftIntoPanel: (draft) => {
-      set((s) => {
-        s.agentPhase = 'reviewing';
-        s.agentPanelOpen = true;
-        s.agentPanelMode = 'spark';
-        s.agentTargetArticleId = draft.articleId;
-        s.agentPipelineType = draft.pipelineType as PipelineType;
-        s.agentDraftResult = draft.draftContent;
-        s.agentLoadedDraftId = draft.id;
       });
     },
 

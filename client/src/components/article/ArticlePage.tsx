@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { ExternalLink, Settings } from 'lucide-react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useStore } from '../../stores/index.ts';
-import { api } from '../../lib/api.ts';
 import MarkdownSectionEditor from './MarkdownSectionEditor.tsx';
 import VersionHistoryPanel from './VersionHistoryPanel.tsx';
 import AddSubsectionDialog from './AddSubsectionDialog.tsx';
@@ -20,8 +19,8 @@ export default function ArticlePage() {
   const navigate = useNavigate();
   const {
     selectArticle, currentArticleDetail, currentArticleId,
-    manualEdit, loadTree, addToast, checkDraft,
-    drafts, acceptDraft, discardDraft, loadDraftIntoPanel,
+    saveManualEdit, loadTree, addToast, checkDraft,
+    drafts, acceptDraft, discardDraft,
   } = useStore();
 
   const [editingSection, setEditingSection] = useState<EditingSection>(null);
@@ -45,6 +44,19 @@ export default function ArticlePage() {
   const { article, version, introduction, links, openWarnings } = currentArticleDetail;
   const description = version?.description ?? '';
 
+  const pendingManualDraft = drafts.find(
+    (d) => d.pipelineType === 'manual_edit' && d.status === 'pending',
+  );
+  // saveManualEdit always carries the full {introduction, description} pair into
+  // draftContent, even for a field the user didn't touch (see articleSlice.ts —
+  // acceptDraft would otherwise wipe an omitted field to ''). So "present in
+  // draftContent" doesn't mean "changed" — compare against the committed value
+  // to find what's actually pending, for the badge and the edit-mode seed below.
+  const draftIntro = pendingManualDraft?.draftContent?.introduction;
+  const draftDescription = pendingManualDraft?.draftContent?.description;
+  const pendingIntro = draftIntro !== undefined && draftIntro !== introduction ? draftIntro : undefined;
+  const pendingDescription = draftDescription !== undefined && draftDescription !== description ? draftDescription : undefined;
+
   const handleOpenHistory = () => {
     setShowHistory(true);
   };
@@ -53,10 +65,6 @@ export default function ArticlePage() {
     if (!wid || !aid) return;
     setShowHistory(false);
     navigate(`/worlds/${wid}/expand?start=${encodeURIComponent(aid)}`);
-  };
-
-  const handleReviewDraft = (draft: PendingDraft) => {
-    loadDraftIntoPanel(draft);
   };
 
   const handleAcceptDraft = async (draft: PendingDraft) => {
@@ -92,10 +100,9 @@ export default function ArticlePage() {
   const handleSaveDescription = async (newMarkdown: string) => {
     if (!wid || !aid) return;
     try {
-      await manualEdit(wid, aid, { description: newMarkdown });
+      await saveManualEdit(wid, aid, { description: newMarkdown });
       setEditingSection(null);
-      if (wid) loadTree(wid).catch(console.error);
-      addToast({ message: 'Description saved.', type: 'success' });
+      addToast({ message: 'Saved as a pending edit — accept it below to apply.', type: 'success' });
     } catch (err) {
       addToast({ message: (err as Error).message, type: 'error' });
     }
@@ -105,10 +112,9 @@ export default function ArticlePage() {
     if (!wid || !aid || savingIntro) return;
     setSavingIntro(true);
     try {
-      await api.bible.updateEntry(wid, aid, introText.trim());
-      await selectArticle(wid, aid);
+      await saveManualEdit(wid, aid, { introduction: introText.trim() });
       setEditingSection(null);
-      addToast({ message: 'Introduction saved.', type: 'success' });
+      addToast({ message: 'Saved as a pending edit — accept it below to apply.', type: 'success' });
     } catch (err) {
       addToast({ message: (err as Error).message, type: 'error' });
     } finally {
@@ -117,7 +123,7 @@ export default function ArticlePage() {
   };
 
   const startEditIntro = () => {
-    setIntroText(introduction);
+    setIntroText(pendingIntro ?? introduction);
     setEditingSection('introduction');
   };
 
@@ -170,14 +176,13 @@ export default function ArticlePage() {
 
       <DraftBundlePanel
         drafts={drafts}
-        onReview={handleReviewDraft}
         onAccept={handleAcceptDraft}
         onDiscard={handleDiscardDraft}
       />
 
       {/* Introduction */}
       <section className="mb-8">
-        <SectionHeader title="Introduction" onEdit={startEditIntro} />
+        <SectionHeader title="Introduction" onEdit={startEditIntro} pending={pendingIntro !== undefined} />
         {editingSection === 'introduction' ? (
           <div className="flex flex-col gap-2">
             <textarea
@@ -212,11 +217,12 @@ export default function ArticlePage() {
         <SectionHeader
           title="Description"
           onEdit={() => setEditingSection(editingSection === 'description' ? null : 'description')}
+          pending={pendingDescription !== undefined}
         />
         {editingSection === 'description' ? (
           <MarkdownSectionEditor
             key={version?.id}
-            initialContent={description}
+            initialContent={pendingDescription ?? description}
             onSave={handleSaveDescription}
             onCancel={() => setEditingSection(null)}
           />

@@ -18,7 +18,7 @@ export interface ArticleSlice {
   selectArticle: (worldId: string, articleId: string) => Promise<void>;
   loadVersions: (worldId: string, articleId: string) => Promise<void>;
   checkDraft: (worldId: string, articleId: string) => Promise<void>;
-  manualEdit: (worldId: string, articleId: string, fields: { introduction?: string; description?: string }) => Promise<void>;
+  saveManualEdit: (worldId: string, articleId: string, fields: { introduction?: string; description?: string }) => Promise<void>;
   revertToVersion: (worldId: string, articleId: string, versionId: string) => Promise<void>;
   acceptDraft: (worldId: string, articleId: string, draftId?: string) => Promise<void>;
   discardDraft: (worldId: string, articleId: string, draftId?: string) => Promise<void>;
@@ -77,18 +77,23 @@ export const articleSlice: StateCreator<StoreState, [['zustand/immer', never]], 
     }
   },
 
-  manualEdit: async (worldId, articleId, fields) => {
-    const { article, version } = await api.articles.update(worldId, articleId, fields);
-    set((s) => {
-      const idx = s.articles.findIndex((a) => a.id === articleId);
-      if (idx !== -1) s.articles[idx] = article;
-      if (s.currentArticleDetail?.article.id === articleId) {
-        s.currentArticleDetail.article = article;
-        s.currentArticleDetail.version = version;
-      }
+  saveManualEdit: async (worldId, articleId, fields) => {
+    const detail = get().currentArticleDetail;
+    const existing = get().drafts.find(
+      (d) => d.pipelineType === 'manual_edit' && d.status === 'pending' && d.articleId === articleId,
+    );
+    const draftContent = {
+      introduction: fields.introduction ?? existing?.draftContent?.introduction ?? detail?.introduction ?? '',
+      description: fields.description ?? existing?.draftContent?.description ?? detail?.version?.description ?? '',
+    };
+    await api.articles.draft.save(worldId, articleId, {
+      pipelineType: 'manual_edit',
+      phase: 'draft_ready',
+      draftContent,
+      draftId: existing?.id,
+      displayTitle: 'Manual edit',
     });
-    const currentWorldId = get().currentWorldId;
-    if (currentWorldId) await get().loadBibleMeta(currentWorldId);
+    await get().checkDraft(worldId, articleId);
   },
 
   revertToVersion: async (worldId, articleId, versionId) => {
@@ -99,6 +104,7 @@ export const articleSlice: StateCreator<StoreState, [['zustand/immer', never]], 
       if (s.currentArticleDetail?.article.id === articleId) {
         s.currentArticleDetail.article = article;
         s.currentArticleDetail.version = version;
+        s.currentArticleDetail.introduction = version.introduction;
       }
     });
   },
@@ -114,6 +120,7 @@ export const articleSlice: StateCreator<StoreState, [['zustand/immer', never]], 
         s.currentArticleDetail.article = result.article;
         if ('version' in result) {
           s.currentArticleDetail.version = result.version;
+          s.currentArticleDetail.introduction = result.version.introduction;
         }
       }
       if ('childArticle' in result) {

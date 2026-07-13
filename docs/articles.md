@@ -12,7 +12,7 @@ An **article version** is a saved content revision for one article. Versions sto
 
 A **current version** is the version pointed to by `articles.current_version_id`. Normal reads and agent context use the current version today.
 
-A **draft bundle** is a generated review unit for one article. Multiple pending bundles can exist when the user reruns Expand before accepting earlier output. Accepted and discarded bundles remain in draft history, but only pending bundles can be accepted.
+A **draft bundle** is a review unit for one article, either agent-generated (Expand/Consolidate/Inception) or a manual edit (`pipelineType: 'manual_edit'`, from the Introduction/Description pencil icon on the article page). Multiple pending bundles can exist — e.g. an Expand rerun alongside a manual edit — but only one pending `manual_edit` bundle is kept per article; re-saving a manual edit before accepting updates that same bundle in place rather than creating another. Accepted and discarded bundles remain in draft history, but only pending bundles can be accepted.
 
 A **World Bible entry** is a concise summary used for context and continuity. It is updated when article introductions or summaries change.
 
@@ -24,8 +24,8 @@ An **article type** is a predefined concept hint such as General, Person / Chara
 
 ```text
 stub article
-  -> manual edit or accepted AI draft
-  -> draft article with current version
+  -> manual edit or AI draft, staged as a pending draft bundle
+  -> accepted, creating a draft article with current version
   -> reviewed article
   -> published article/version through publish workflow
 ```
@@ -90,8 +90,7 @@ This means version history is useful for undo/review. It is separate from canon 
 
 Current version creation paths include:
 
-- manual article edit
-- draft acceptance
+- draft acceptance — the article page's Introduction/Description pencil icon now saves a `manual_edit` draft bundle rather than writing a version directly; accepting it (or any other draft) is what creates the version. The generic `PATCH /api/worlds/:wid/articles/:aid` direct-edit endpoint (`updateArticle`) still exists server-side and still creates a version immediately, but the article page UI no longer calls it.
 - child article creation
 - parent append during child creation
 - issue fixer apply
@@ -99,7 +98,7 @@ Current version creation paths include:
 - world creation root article
 - architect-generated stubs
 
-These paths share a server-side version writer.
+Draft acceptance, revert, and child/parent-append creation share a `commitArticleContent` helper (`server/src/services/articlesService.ts`) that writes the version, moves `articles.current_version_id`, and syncs the matching World Bible entry together — see the World Bible paragraph above. A `manual_edit` draft's `draftContent` always carries both `introduction` and `description`, even when only one was actually changed: draft acceptance falls back to `''` for any field missing from `draftContent`, so an edit that omitted the untouched field would silently blank it on accept. The client (`saveManualEdit` in `client/src/stores/articleSlice.ts`) fills the other field from the article's current committed content before saving.
 
 ## Canon And Coherence Boundaries
 
