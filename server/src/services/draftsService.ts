@@ -27,7 +27,7 @@ export type DraftContextBasis = 'current' | 'latest_draft' | 'published';
 
 export interface SavePendingDraftInput extends DraftTenantInput {
   selectedProposal?: Record<string, unknown>;
-  pipelineType: 'expand_description' | 'create_root' | 'create_child' | 'reorganize';
+  pipelineType: 'expand_description' | 'create_root' | 'create_child' | 'reorganize' | 'manual_edit';
   sourceRunId?: string;
   runType?: string;
   contextBasis?: DraftContextBasis;

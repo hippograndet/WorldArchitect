@@ -158,6 +158,75 @@ describe('core routes on Postgres', () => {
     });
   });
 
+  it('commits a manual introduction edit as a real version, blocked while locked or published', async ({ skip }) => {
+    if (skipIfUnavailable(skip)) return;
+
+    const { world, categories } = await createTenantFixture(request!, 'user-a', 'Lantern Reach');
+    const created = await createArticleFixture(request!, 'user-a', world.id, categories[0].id, 'Beacon Charter');
+    const articleId = created.article.id;
+
+    const edited = await request!
+      .patch(`/api/worlds/${world.id}/articles/${articleId}`)
+      .set(asUser('user-a'))
+      .send({ introduction: 'A revised, longer introduction for the beacon.' })
+      .expect(200);
+    expect(edited.body.version.introduction).toBe('A revised, longer introduction for the beacon.');
+    expect(edited.body.version.versionNumber).toBe(2);
+
+    const read = await request!
+      .get(`/api/worlds/${world.id}/articles/${articleId}`)
+      .set(asUser('user-a'))
+      .expect(200);
+    expect(read.body.introduction).toBe('A revised, longer introduction for the beacon.');
+
+    const versions = await request!
+      .get(`/api/worlds/${world.id}/articles/${articleId}/versions`)
+      .set(asUser('user-a'))
+      .expect(200);
+    expect(versions.body).toHaveLength(2);
+
+    const lockRunId = `lock-run-${articleId}`;
+    await runWithUserContext('user-a', () =>
+      getDbClient().run(
+        `INSERT INTO runs (id, owner_id, world_id, checkpoint_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [lockRunId, 'user-a', world.id, 'checkpoint-1', Date.now(), Date.now()],
+      ),
+    );
+    await runWithUserContext('user-a', () =>
+      getDbClient().run('UPDATE articles SET locked_by_run_id = ? WHERE id = ?', [lockRunId, articleId]),
+    );
+    const lockedAttempt = await request!
+      .patch(`/api/worlds/${world.id}/articles/${articleId}`)
+      .set(asUser('user-a'))
+      .send({ introduction: 'Should not be saved while locked.' })
+      .expect(409);
+    expect(lockedAttempt.body.code).toBe('ARTICLE_LOCKED');
+    await runWithUserContext('user-a', () =>
+      getDbClient().run('UPDATE articles SET locked_by_run_id = NULL WHERE id = ?', [articleId]),
+    );
+    await runWithUserContext('user-a', () =>
+      getDbClient().run('DELETE FROM runs WHERE id = ?', [lockRunId]),
+    );
+
+    await runWithUserContext('user-a', () =>
+      getDbClient().run(`UPDATE articles SET status = 'published' WHERE id = ?`, [articleId]),
+    );
+    const publishedAttempt = await request!
+      .patch(`/api/worlds/${world.id}/articles/${articleId}`)
+      .set(asUser('user-a'))
+      .send({ introduction: 'Should not be saved without force.' })
+      .expect(409);
+    expect(publishedAttempt.body.code).toBe('PUBLISHED_CONTENT_OVERWRITE');
+
+    const forced = await request!
+      .patch(`/api/worlds/${world.id}/articles/${articleId}`)
+      .set(asUser('user-a'))
+      .send({ introduction: 'Saved with an explicit override.', force: true })
+      .expect(200);
+    expect(forced.body.version.introduction).toBe('Saved with an explicit override.');
+  });
+
   it('creates runs, preserves lock rollback on conflict, and releases locks on cancel', async ({ skip }) => {
     if (skipIfUnavailable(skip)) return;
 

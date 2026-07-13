@@ -3,7 +3,46 @@ import type { TenantContext } from '../tenant.js';
 
 export type DbRow = Record<string, unknown>;
 
-export function parseArticle(row: DbRow) {
+/** Article shell/identity fields — not versioned content. */
+export interface ArticleRecord {
+  id: unknown;
+  worldId: unknown;
+  title: unknown;
+  status: unknown;
+  templateType: unknown;
+  depth: unknown;
+  isFixedPoint: boolean;
+  currentVersionId: unknown;
+  lockedByRunId: unknown;
+  createdAt: unknown;
+  updatedAt: unknown;
+}
+
+/** A single article_versions row as exposed to the API (history view). */
+export interface ArticleVersionView {
+  id: unknown;
+  articleId: unknown;
+  versionNumber: unknown;
+  introduction: string;
+  description: string;
+  body: string;
+  summary: string;
+  expansionParams: unknown;
+  proposalUsed: unknown;
+  wordCount: unknown;
+  isRevert: boolean;
+  revertedFromVersionId: unknown;
+  createdAt: unknown;
+}
+
+/** "The current content of an article" — the concept split across article_versions and world_bible_entries today. */
+export interface ArticleContent {
+  introduction: string;
+  description: string;
+  wordCount: number;
+}
+
+export function parseArticle(row: DbRow): ArticleRecord {
   return {
     id: row.id,
     worldId: row.world_id,
@@ -11,8 +50,6 @@ export function parseArticle(row: DbRow) {
     status: row.status,
     templateType: row.template_type,
     depth: row.depth ?? 1,
-    temporalAnchorStart: row.temporal_anchor_start ?? null,
-    temporalAnchorEnd: row.temporal_anchor_end ?? null,
     isFixedPoint: row.is_fixed_point === 1,
     currentVersionId: row.current_version_id ?? null,
     lockedByRunId: row.locked_by_run_id ?? null,
@@ -21,14 +58,12 @@ export function parseArticle(row: DbRow) {
   };
 }
 
-export function parseVersion(row: DbRow) {
+export function parseVersion(row: DbRow): ArticleVersionView {
   const introduction = (row.introduction as string) ?? '';
   const description = (row.description as string) ?? '';
-  const chronology = (row.chronology as string) ?? '';
   const body = [
     introduction ? `## Introduction\n\n${introduction}` : '',
     description ? `## Description\n\n${description}` : '',
-    chronology ? `## Chronology\n\n${chronology}` : '',
   ].filter(Boolean).join('\n\n');
   const summary = introduction || description.split(/\s+/).filter(Boolean).slice(0, 50).join(' ');
 
@@ -38,7 +73,6 @@ export function parseVersion(row: DbRow) {
     versionNumber: row.version_number,
     introduction,
     description,
-    chronology,
     body,
     summary,
     expansionParams: row.expansion_params

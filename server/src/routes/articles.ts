@@ -15,6 +15,7 @@ import {
   acceptDraft,
   ArticleServiceError,
   batchCreateChildArticles,
+  getCurrentArticleContent,
   revertArticleVersion,
   updateArticle,
 } from '../services/articlesService.js';
@@ -49,11 +50,8 @@ const ManualEditSchema = z.object({
   body: z.string().optional(),
   introduction: z.string().optional(),
   description: z.string().optional(),
-  chronology: z.string().optional(),
   status: z.enum(['stub', 'draft', 'reviewed']).optional(),
   title: z.string().min(1).max(500).optional(),
-  temporalAnchorStart: z.string().nullable().optional(),
-  temporalAnchorEnd: z.string().nullable().optional(),
   isFixedPoint: z.boolean().optional(),
   force: z.boolean().optional().default(false),
 });
@@ -62,7 +60,7 @@ const SaveDraftSchema = z.object({
   // selectedProposal: stores the Phase 1 proposal chosen by user { title, direction }
   selectedProposal: z.record(z.unknown()).optional(),
   pipelineType: z
-    .enum(['expand_description', 'create_root', 'create_child', 'reorganize'])
+    .enum(['expand_description', 'create_root', 'create_child', 'reorganize', 'manual_edit'])
     .optional()
     .default('expand_description'),
   autoSelect: z.boolean().optional().default(false),
@@ -84,6 +82,7 @@ const SaveDraftSchema = z.object({
   displayTitle: z.string().optional(),
   // draftContent: flexible JSON blob stored by the Director; shape depends on pipelineType
   draftContent: GeneratedDraftContentSchema.optional(),
+  draftId: z.string().optional(),
 });
 
 const AcceptDraftSchema = z.object({
@@ -129,10 +128,12 @@ router.get('/:aid', asyncHandler(async (req, res) => {
     ? await exec.get<DbRow>('SELECT * FROM article_versions WHERE id = ?', [article.current_version_id])
     : undefined;
 
-  const bibleEntry = await exec.get<{ summary: string }>(
-    'SELECT summary FROM world_bible_entries WHERE article_id = ? AND owner_id = ?',
-    [(req.params as Record<string, string>).aid, tenant.ownerId],
-  );
+  const content = await getCurrentArticleContent(exec, {
+    worldId: tenant.worldId,
+    articleId: (req.params as Record<string, string>).aid,
+    ownerId: tenant.ownerId,
+    currentVersionId: (article.current_version_id as string | null) ?? null,
+  });
 
   const links = await exec.all<DbRow>(`
     SELECT a.id, a.title, wbe.summary AS introduction,
@@ -151,7 +152,7 @@ router.get('/:aid', asyncHandler(async (req, res) => {
   res.json({
     article: parseArticle(article),
     version: version ? parseVersion(version) : null,
-    introduction: bibleEntry?.summary ?? '',
+    introduction: content.introduction,
     links,
     openWarnings: warnings,
   });

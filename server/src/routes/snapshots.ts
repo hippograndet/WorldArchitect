@@ -11,6 +11,13 @@ const router = Router({ mergeParams: true });
 
 // ---------------------------------------------------------------------------
 // Snapshot data shape captured at creation time
+//
+// These interfaces mirror raw DB rows (`SELECT *`), including columns the
+// live API no longer exposes (e.g. temporal_anchor_*, chronology — see
+// articlesMapper.ts's ArticleRecord/ArticleVersionView). That's intentional:
+// a snapshot is a byte-exact backup of persistence state, not the current
+// product/domain shape, and restore must be able to round-trip whatever a
+// row actually contains.
 // ---------------------------------------------------------------------------
 
 interface SnapshotArticleRow {

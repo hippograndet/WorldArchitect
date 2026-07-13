@@ -8,6 +8,7 @@ import { PipelineCoordinator } from '../agents/director.js';
 import { StylistAgent } from '../agents/stylist.js';
 import type { PromptEngineerFieldType } from '../prompts/promptEngineer.js';
 import { writeArticleVersionAndSetCurrent } from '../services/articleVersions.js';
+import { upsertEntry } from '../services/worldBible.js';
 import { reindexArticle } from '../services/searchIndex.js';
 import { getTenantContext, worldBelongsToTenant } from '../tenant.js';
 
@@ -123,15 +124,11 @@ router.post('/', asyncHandler(async (req, res) => {
       versionNumber: 1,
       introduction: '',
       description,
-      chronology: '',
       wordCount,
       now,
     });
 
-    await tx.run(`
-      INSERT INTO world_bible_entries (id, world_id, owner_id, article_id, summary, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `, [nanoid(), worldId, ownerId, articleId, description, now]);
+    await upsertEntry(tx, worldId, articleId, description);
   });
 
   await reindexArticle(worldId, articleId);
