@@ -20,7 +20,7 @@ function timeAgo(ms: number): string {
 
 export default function VersionHistoryPanel({ onClose }: Props) {
   const { wid, aid } = useParams<{ wid: string; aid: string }>();
-  const { versions, loadVersions, revertToVersion, currentArticleDetail, addToast, showConfirm } = useStore();
+  const { versions, loadVersions, currentArticleDetail, addToast } = useStore();
 
   const [preview, setPreview]       = useState<ArticleVersion | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -45,24 +45,6 @@ export default function VersionHistoryPanel({ onClose }: Props) {
     } finally {
       setPreviewLoading(false);
     }
-  };
-
-  const handleRevert = (v: ArticleVersion) => {
-    if (!wid || !aid) return;
-    showConfirm({
-      title: `Revert to version ${v.versionNumber}?`,
-      message: 'A new version will be created with the content from this version. Your current version will not be deleted.',
-      confirmLabel: 'Revert',
-      onConfirm: async () => {
-        try {
-          await revertToVersion(wid, aid, v.id);
-          addToast({ message: `Reverted to version ${v.versionNumber}.`, type: 'success' });
-          setPreview(null);
-        } catch (err) {
-          addToast({ message: (err as Error).message, type: 'error' });
-        }
-      },
-    });
   };
 
   const currentVersionId = currentArticleDetail?.article.currentVersionId;
@@ -102,14 +84,6 @@ export default function VersionHistoryPanel({ onClose }: Props) {
                   >
                     {preview?.id === v.id ? 'Hide' : 'Preview'}
                   </button>
-                  {v.id !== currentVersionId && (
-                    <button
-                      onClick={() => handleRevert(v)}
-                      className="px-2 py-1 text-xs border border-gray-200 rounded hover:bg-gray-50 text-gray-600"
-                    >
-                      Revert
-                    </button>
-                  )}
                 </div>
               </div>
 

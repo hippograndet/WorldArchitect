@@ -2,13 +2,20 @@ import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { Markdown } from 'tiptap-markdown';
 
+const TOOLBAR: { label: string; title: string; active: (editor: ReturnType<typeof useEditor>) => boolean; action: (editor: ReturnType<typeof useEditor>) => void }[] = [
+  { label: 'B',  title: 'Bold',      active: (e) => e?.isActive('bold') ?? false,              action: (e) => e?.chain().focus().toggleBold().run() },
+  { label: 'I',  title: 'Italic',    active: (e) => e?.isActive('italic') ?? false,            action: (e) => e?.chain().focus().toggleItalic().run() },
+  { label: 'H2', title: 'Heading 2', active: (e) => e?.isActive('heading', { level: 2 }) ?? false, action: (e) => e?.chain().focus().toggleHeading({ level: 2 }).run() },
+  { label: 'H3', title: 'Heading 3', active: (e) => e?.isActive('heading', { level: 3 }) ?? false, action: (e) => e?.chain().focus().toggleHeading({ level: 3 }).run() },
+];
+
 interface Props {
   initialContent: string;
   onSave: (markdown: string) => Promise<void>;
   onCancel: () => void;
 }
 
-export default function InlineDescriptionEditor({ initialContent, onSave, onCancel }: Props) {
+export default function MarkdownSectionEditor({ initialContent, onSave, onCancel }: Props) {
   const editor = useEditor({
     extensions: [
       StarterKit,
@@ -23,23 +30,16 @@ export default function InlineDescriptionEditor({ initialContent, onSave, onCanc
     await onSave(md.trim());
   };
 
-  const toolbar = [
-    { label: 'B',  title: 'Bold',      active: () => editor?.isActive('bold') ?? false,              action: () => editor?.chain().focus().toggleBold().run() },
-    { label: 'I',  title: 'Italic',    active: () => editor?.isActive('italic') ?? false,            action: () => editor?.chain().focus().toggleItalic().run() },
-    { label: 'H2', title: 'Heading 2', active: () => editor?.isActive('heading', { level: 2 }) ?? false, action: () => editor?.chain().focus().toggleHeading({ level: 2 }).run() },
-    { label: 'H3', title: 'Heading 3', active: () => editor?.isActive('heading', { level: 3 }) ?? false, action: () => editor?.chain().focus().toggleHeading({ level: 3 }).run() },
-  ];
-
   return (
     <div className="border border-blue-300 rounded-xl overflow-hidden">
       {/* Toolbar */}
       <div className="flex items-center gap-1 px-3 py-1.5 border-b border-gray-200 bg-gray-50">
-        {toolbar.map(({ label, title, active, action }) => (
+        {TOOLBAR.map(({ label, title, active, action }) => (
           <button
             key={label}
             title={title}
-            onMouseDown={(e) => { e.preventDefault(); action(); }}
-            className={`px-2 py-0.5 text-xs rounded ${active() ? 'bg-gray-200 font-semibold' : 'text-gray-600 hover:bg-gray-100'}`}
+            onMouseDown={(e) => { e.preventDefault(); action(editor); }}
+            className={`px-2 py-0.5 text-xs rounded ${active(editor) ? 'bg-gray-200 font-semibold' : 'text-gray-600 hover:bg-gray-100'}`}
           >
             {label}
           </button>

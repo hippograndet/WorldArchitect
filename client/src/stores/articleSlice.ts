@@ -2,7 +2,7 @@ import type { StateCreator } from 'zustand';
 import type { StoreState } from './index.ts';
 import { api } from '../lib/api.ts';
 import { buildTree, type TreeNode } from '../lib/tree.ts';
-import type { Article, ArticleDetail, ArticleMetadataFact, ArticleVersion, PendingDraft } from '../types/article.ts';
+import type { Article, ArticleDetail, ArticleVersion, PendingDraft } from '../types/article.ts';
 
 export interface ArticleSlice {
   articles: Article[];
@@ -12,20 +12,16 @@ export interface ArticleSlice {
   versions: ArticleVersion[];
   pendingDraft: PendingDraft | null;
   drafts: PendingDraft[];
-  metadataFacts: ArticleMetadataFact[];
-  metadataSuggestedFields: string[];
 
   loadArticles: (worldId: string) => Promise<void>;
   loadTree: (worldId: string) => Promise<void>;
   selectArticle: (worldId: string, articleId: string) => Promise<void>;
   loadVersions: (worldId: string, articleId: string) => Promise<void>;
   checkDraft: (worldId: string, articleId: string) => Promise<void>;
-  manualEdit: (worldId: string, articleId: string, fields: { introduction?: string; description?: string; chronology?: string }) => Promise<void>;
+  manualEdit: (worldId: string, articleId: string, fields: { introduction?: string; description?: string }) => Promise<void>;
   revertToVersion: (worldId: string, articleId: string, versionId: string) => Promise<void>;
   acceptDraft: (worldId: string, articleId: string, draftId?: string) => Promise<void>;
   discardDraft: (worldId: string, articleId: string, draftId?: string) => Promise<void>;
-  loadMetadataFacts: (worldId: string, articleId: string) => Promise<void>;
-  saveMetadataFacts: (worldId: string, articleId: string, facts: { key: string; value: unknown }[]) => Promise<void>;
   clearCurrentArticle: () => void;
 }
 
@@ -37,8 +33,6 @@ export const articleSlice: StateCreator<StoreState, [['zustand/immer', never]], 
   versions: [],
   pendingDraft: null,
   drafts: [],
-  metadataFacts: [],
-  metadataSuggestedFields: [],
 
   loadArticles: async (worldId) => {
     const articles = await api.articles.list(worldId);
@@ -145,19 +139,6 @@ export const articleSlice: StateCreator<StoreState, [['zustand/immer', never]], 
     await get().checkDraft(worldId, articleId);
   },
 
-  loadMetadataFacts: async (worldId, articleId) => {
-    const { facts, suggestedFields } = await api.metadata.list(worldId, articleId);
-    set((s) => {
-      s.metadataFacts = facts;
-      s.metadataSuggestedFields = suggestedFields;
-    });
-  },
-
-  saveMetadataFacts: async (worldId, articleId, facts) => {
-    const { facts: saved } = await api.metadata.save(worldId, articleId, facts);
-    set((s) => { s.metadataFacts = saved; });
-  },
-
   clearCurrentArticle: () => {
     set((s) => {
       s.currentArticleId = null;
@@ -165,8 +146,6 @@ export const articleSlice: StateCreator<StoreState, [['zustand/immer', never]], 
       s.versions = [];
       s.pendingDraft = null;
       s.drafts = [];
-      s.metadataFacts = [];
-      s.metadataSuggestedFields = [];
     });
   },
 });

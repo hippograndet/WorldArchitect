@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Check, ExternalLink, RefreshCw, Send, X } from 'lucide-react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { api } from '../lib/api.ts';
 import WorkspaceLayout from '../components/shared/WorkspaceLayout.tsx';
 import LabelBadge from '../components/shared/LabelBadge.tsx';
@@ -19,8 +19,10 @@ import {
 
 export default function InboxPage() {
   const { wid } = useParams<{ wid: string }>();
+  const [searchParams] = useSearchParams();
+  const articleFilter = searchParams.get('article');
   const [items, setItems] = useState<InboxItem[]>([]);
-  const [selectedLane, setSelectedLane] = useState<InboxLane>('drafts');
+  const [selectedLane, setSelectedLane] = useState<InboxLane>(articleFilter ? 'flags' : 'drafts');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -42,15 +44,20 @@ export default function InboxPage() {
     loadInbox().catch(console.error);
   }, [loadInbox]);
 
+  const filteredItems = useMemo(
+    () => articleFilter ? items.filter((item) => item.articleIds.includes(articleFilter)) : items,
+    [items, articleFilter],
+  );
+
   const counts = useMemo(() => {
     const out = new Map<InboxLane, number>();
-    for (const item of items) out.set(item.lane, (out.get(item.lane) ?? 0) + 1);
+    for (const item of filteredItems) out.set(item.lane, (out.get(item.lane) ?? 0) + 1);
     return out;
-  }, [items]);
+  }, [filteredItems]);
 
   const laneItems = useMemo(
-    () => items.filter((item) => item.lane === selectedLane),
-    [items, selectedLane],
+    () => filteredItems.filter((item) => item.lane === selectedLane),
+    [filteredItems, selectedLane],
   );
   const selectedItem = items.find((item) => item.id === selectedId) ?? laneItems[0] ?? null;
 

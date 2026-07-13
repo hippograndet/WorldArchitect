@@ -175,7 +175,7 @@ export const api = {
       return get<Article[]>(`/worlds/${wid}/articles${query}`);
     },
     get:    (wid: string, aid: string)    => get<ArticleDetail>(`/worlds/${wid}/articles/${aid}`),
-    update: (wid: string, aid: string, input: { introduction?: string; description?: string; chronology?: string; status?: string; title?: string }) =>
+    update: (wid: string, aid: string, input: { introduction?: string; description?: string; status?: string; title?: string }) =>
       patch<{ article: Article; version: ArticleVersion }>(`/worlds/${wid}/articles/${aid}`, input),
     delete: (wid: string, aid: string)    => del(`/worlds/${wid}/articles/${aid}`),
     createLink: (wid: string, input: ArticleGraphEdge) =>

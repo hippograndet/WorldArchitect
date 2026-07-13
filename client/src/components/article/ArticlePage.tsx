@@ -1,143 +1,26 @@
 import { useEffect, useState } from 'react';
-import { Check, ExternalLink, Pencil, Plus, Settings, Trash2 } from 'lucide-react';
+import { ExternalLink, Settings } from 'lucide-react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useStore } from '../../stores/index.ts';
 import { api } from '../../lib/api.ts';
-import InlineDescriptionEditor from './InlineDescriptionEditor.tsx';
-import ChronologyEditor from './ChronologyEditor.tsx';
+import MarkdownSectionEditor from './MarkdownSectionEditor.tsx';
 import VersionHistoryPanel from './VersionHistoryPanel.tsx';
 import AddSubsectionDialog from './AddSubsectionDialog.tsx';
 import ArticleInfoSidebar from './ArticleInfoSidebar.tsx';
-import ArticleIssuesPanel from './ArticleIssuesPanel.tsx';
+import ArticleIssuesButton from './ArticleIssuesButton.tsx';
+import CoherenceWarningBanner from './CoherenceWarningBanner.tsx';
+import SectionHeader from './SectionHeader.tsx';
+import DraftBundlePanel from './DraftBundlePanel.tsx';
 import type { PendingDraft } from '../../types/article.ts';
 
-function SectionHeader({
-  title,
-  onEdit,
-  onAdd,
-}: {
-  title: string;
-  onEdit?: () => void;
-  onAdd?: () => void;
-}) {
-  return (
-    <div className="flex items-center gap-2 border-b border-gray-200 pb-1 mb-3">
-      <h2 className="text-base font-semibold text-gray-800 flex-1">{title}</h2>
-      {onAdd && (
-        <button
-          onClick={onAdd}
-          className="flex items-center gap-1 text-xs text-gray-400 hover:text-blue-600 transition-colors"
-          title={`Add to ${title}`}
-        >
-          <Plus size={14} />
-        </button>
-      )}
-      {onEdit && (
-        <button
-          onClick={onEdit}
-          className="flex items-center gap-1 text-xs text-gray-400 hover:text-blue-600 transition-colors"
-          title={`Edit ${title}`}
-        >
-          <Pencil size={14} />
-        </button>
-      )}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Main component
-// ---------------------------------------------------------------------------
-
-type EditingSection = 'introduction' | 'description' | 'chronology' | null;
-
-function draftLabel(draft: PendingDraft): string {
-  return draft.displayTitle ?? draft.runType ?? draft.pipelineType;
-}
-
-function draftSections(draft: PendingDraft): string {
-  const content = draft.draftContent ?? {};
-  const sections = [
-    content.introduction ? 'intro' : null,
-    content.description || content.childDescription ? 'description' : null,
-    draft.parentUpdate ? 'parent update' : null,
-    content.coherenceWarnings?.length ? 'warnings' : null,
-    content.retentionIssues?.length ? 'retention' : null,
-  ].filter(Boolean);
-  return sections.length > 0 ? sections.join(', ') : 'metadata only';
-}
-
-function DraftBundlePanel({
-  drafts,
-  onReview,
-  onAccept,
-  onDiscard,
-}: {
-  drafts: PendingDraft[];
-  onReview: (draft: PendingDraft) => void;
-  onAccept: (draft: PendingDraft) => void;
-  onDiscard: (draft: PendingDraft) => void;
-}) {
-  const [showHistory, setShowHistory] = useState(false);
-  const pending = drafts.filter((draft) => draft.status === 'pending');
-  const history = drafts.filter((draft) => draft.status !== 'pending');
-  if (drafts.length === 0) return null;
-
-  const renderDraft = (draft: PendingDraft, isHistory = false) => (
-    <div key={draft.id} className="border border-amber-200 bg-amber-50 rounded-lg p-3">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-xs font-semibold text-amber-900">{draftLabel(draft)}</p>
-          <p className="text-xs text-amber-700 mt-0.5">
-            {draft.status} · {draft.contextBasis.replace('_', ' ')} context · {draftSections(draft)}
-          </p>
-          <p className="text-[11px] text-amber-600 mt-1">
-            {new Date(draft.createdAt).toLocaleString()}
-            {draft.resolvedAt ? ` · resolved ${new Date(draft.resolvedAt).toLocaleString()}` : ''}
-          </p>
-        </div>
-        {!isHistory && (
-          <div className="flex items-center gap-1 shrink-0">
-            <button onClick={() => onReview(draft)} className="px-2 py-1 text-xs border border-amber-300 rounded text-amber-800 hover:bg-amber-100">
-              Review
-            </button>
-            <button onClick={() => onAccept(draft)} className="p-1.5 text-green-700 hover:bg-green-50 rounded" title="Accept draft">
-              <Check size={14} />
-            </button>
-            <button onClick={() => onDiscard(draft)} className="p-1.5 text-red-700 hover:bg-red-50 rounded" title="Discard draft">
-              <Trash2 size={14} />
-            </button>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-
-  return (
-    <section className="mb-6">
-      <div className="flex items-center justify-between mb-2">
-        <h2 className="text-sm font-semibold text-gray-800">Draft Bundles</h2>
-        {history.length > 0 && (
-          <button onClick={() => setShowHistory((v) => !v)} className="text-xs text-gray-500 hover:text-gray-700">
-            {showHistory ? 'Hide' : 'Show'} history ({history.length})
-          </button>
-        )}
-      </div>
-      <div className="flex flex-col gap-2">
-        {pending.map((draft) => renderDraft(draft))}
-        {pending.length === 0 && <p className="text-xs text-gray-400 italic">No pending draft bundles.</p>}
-        {showHistory && history.map((draft) => renderDraft(draft, true))}
-      </div>
-    </section>
-  );
-}
+type EditingSection = 'introduction' | 'description' | null;
 
 export default function ArticlePage() {
   const { wid, aid } = useParams<{ wid: string; aid: string }>();
   const navigate = useNavigate();
   const {
     selectArticle, currentArticleDetail, currentArticleId,
-    manualEdit, loadTree, addToast, checkDraft, loadMetadataFacts,
+    manualEdit, loadTree, addToast, checkDraft,
     drafts, acceptDraft, discardDraft, loadDraftIntoPanel,
   } = useStore();
 
@@ -153,8 +36,7 @@ export default function ArticlePage() {
     setShowHistory(false);
     selectArticle(wid, aid).catch(console.error);
     checkDraft(wid, aid).catch(console.error);
-    loadMetadataFacts(wid, aid).catch(console.error);
-  }, [wid, aid, selectArticle, checkDraft, loadMetadataFacts]);
+  }, [wid, aid, selectArticle, checkDraft]);
 
   if (!currentArticleDetail || currentArticleId !== aid) {
     return <div className="p-8 text-sm text-gray-400">Loading…</div>;
@@ -162,7 +44,6 @@ export default function ArticlePage() {
 
   const { article, version, introduction, links, openWarnings } = currentArticleDetail;
   const description = version?.description ?? '';
-  const chronology  = version?.chronology  ?? '';
 
   const handleOpenHistory = () => {
     setShowHistory(true);
@@ -220,17 +101,6 @@ export default function ArticlePage() {
     }
   };
 
-  const handleSaveChronology = async (newMarkdown: string) => {
-    if (!wid || !aid) return;
-    try {
-      await manualEdit(wid, aid, { chronology: newMarkdown });
-      setEditingSection(null);
-      addToast({ message: 'Chronology saved.', type: 'success' });
-    } catch (err) {
-      addToast({ message: (err as Error).message, type: 'error' });
-    }
-  };
-
   const handleSaveIntro = async () => {
     if (!wid || !aid || savingIntro) return;
     setSavingIntro(true);
@@ -261,27 +131,16 @@ export default function ArticlePage() {
       <div className="flex items-start justify-between gap-4 mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">{article.title}</h1>
-          <div className="flex items-center gap-2 mt-1.5 text-xs text-gray-400">
-            <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${
-              article.status === 'reviewed' ? 'bg-green-100 text-green-700' :
-              article.status === 'draft'    ? 'bg-blue-100 text-blue-700' :
-                                              'bg-gray-100 text-gray-500'
-            }`}>{article.status}</span>
-            {article.lockedByRunId && (
+          {article.lockedByRunId && (
+            <div className="flex items-center gap-2 mt-1.5 text-xs text-gray-400">
               <span
                 className="px-1.5 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-700"
                 title="Locked by an in-progress automated run — manual edits are blocked until it finishes"
               >
                 🔒 locked by run
               </span>
-            )}
-            <span>{article.templateType}</span>
-            {article.temporalAnchorStart && (
-              <span>{article.temporalAnchorEnd
-                ? `${article.temporalAnchorStart} – ${article.temporalAnchorEnd}`
-                : article.temporalAnchorStart}</span>
-            )}
-          </div>
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <button
@@ -290,6 +149,7 @@ export default function ArticlePage() {
           >
             History
           </button>
+          {wid && aid && <ArticleIssuesButton wid={wid} aid={aid} />}
           <button
             onClick={handleOpenSolidify}
             className="px-3 py-1.5 text-xs border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 transition-colors flex items-center gap-1"
@@ -306,14 +166,7 @@ export default function ArticlePage() {
       </div>
 
       {/* Legacy coherence warnings (pre-v5 — shown if present) */}
-      {openWarnings.length > 0 && (
-        <div className="mb-6 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-          <p className="text-xs font-semibold text-amber-800 mb-1">Coherence warnings</p>
-          {openWarnings.map((w) => (
-            <p key={w.id} className="text-xs text-amber-700">• {w.description}</p>
-          ))}
-        </div>
-      )}
+      <CoherenceWarningBanner warnings={openWarnings} />
 
       <DraftBundlePanel
         drafts={drafts}
@@ -361,7 +214,7 @@ export default function ArticlePage() {
           onEdit={() => setEditingSection(editingSection === 'description' ? null : 'description')}
         />
         {editingSection === 'description' ? (
-          <InlineDescriptionEditor
+          <MarkdownSectionEditor
             key={version?.id}
             initialContent={description}
             onSave={handleSaveDescription}
@@ -403,31 +256,6 @@ export default function ArticlePage() {
         )}
       </section>
 
-      {/* Chronology */}
-      <section className="mb-8">
-        <SectionHeader
-          title="Chronology"
-          onEdit={() => setEditingSection(editingSection === 'chronology' ? null : 'chronology')}
-        />
-        {editingSection === 'chronology' ? (
-          <ChronologyEditor
-            key={version?.id}
-            initialContent={chronology}
-            onSave={handleSaveChronology}
-            onCancel={() => setEditingSection(null)}
-          />
-        ) : chronology ? (
-          <div className="text-gray-700 leading-relaxed whitespace-pre-wrap text-sm">{chronology}</div>
-        ) : (
-          <p className="text-sm text-gray-400 italic">No chronology yet. Click ✏ to write one.</p>
-        )}
-      </section>
-
-      {/* Article issues + world notes */}
-      {wid && aid && (
-        <ArticleIssuesPanel wid={wid} aid={aid} onArticleUpdated={() => selectArticle(wid, aid)} />
-      )}
-
       {/* Panels */}
       {showHistory && <VersionHistoryPanel onClose={() => setShowHistory(false)} />}
 
@@ -446,19 +274,6 @@ export default function ArticlePage() {
       <ArticleInfoSidebar />
 
       </div>{/* end flex row */}
-
-      {/* Expand FAB */}
-      {wid && aid && (
-        <button
-          onClick={handleOpenExpand}
-          className="fixed bottom-8 right-8 w-14 h-14 rounded-full bg-purple-600 text-white
-                     shadow-xl hover:bg-purple-700 hover:scale-105 transition-all z-40
-                     flex items-center justify-center text-xl font-bold select-none"
-          title="Expand from this article"
-        >
-          <ExternalLink size={22} />
-        </button>
-      )}
     </div>
   );
 }
