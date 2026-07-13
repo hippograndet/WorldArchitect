@@ -208,8 +208,15 @@ export function buildAgentStages(run: RunWithEvents, articleId: string | null): 
   });
 
   let hasFailure = stages.some((stage) => stage.status === 'failed');
-  const failedStep = run.events.find((event) => !event.ok)?.step.toLowerCase() as AgentStageStep | undefined;
-  if (!hasFailure && failedStep) {
+  // Mark every step that has a failed event, not just the most recent one —
+  // an early non-fatal failure (e.g. Research) can be followed by a second,
+  // consequential failure in a later step; both should show as failed rather
+  // than only the latest, which would otherwise look like the earlier step
+  // never ran at all.
+  const failedSteps = new Set(
+    run.events.filter((event) => !event.ok).map((event) => event.step.toLowerCase() as AgentStageStep),
+  );
+  for (const failedStep of failedSteps) {
     const failedStage = stages.find((stage) => stage.step === failedStep && stage.status === 'pending');
     if (failedStage) {
       failedStage.status = 'failed';
@@ -222,6 +229,36 @@ export function buildAgentStages(run: RunWithEvents, articleId: string | null): 
     if (next) next.status = 'running';
   }
   return stages;
+}
+
+export interface CountProgress {
+  completed: number;
+  total: number;
+}
+
+/**
+ * Steps completed/total for whichever article's stages were passed in (the
+ * currently selected/focused article in the run view — the same scope
+ * `buildAgentStages` already uses, since a recursive run's step tiles are
+ * inherently per-article, not a single run-wide sequence).
+ */
+export function runStepProgress(steps: AgentStageStep[], stages: AgentStage[]): CountProgress {
+  const completed = steps.filter((step) => {
+    const stepStages = stages.filter((stage) => stage.step === step);
+    return stepStages.length > 0 && stepStages.every((stage) => stage.status === 'completed');
+  }).length;
+  return { completed, total: steps.length };
+}
+
+/**
+ * Agent-pass completed/total from already-built stages, excluding the
+ * context_assembly pseudo-stages (system bookkeeping, not an LLM agent).
+ * Each real agent role appears once per step regardless of checker→revise
+ * retries, so this is an estimated-pass count, not a raw call count.
+ */
+export function runAgentPassProgress(stages: AgentStage[]): CountProgress {
+  const agentStages = stages.filter((stage) => stage.agentType !== 'context_assembly');
+  return { completed: agentStages.filter((stage) => stage.status === 'completed').length, total: agentStages.length };
 }
 
 export function stageStatusClass(status: AgentStageStatus): string {

@@ -17,6 +17,8 @@ export const POSTGRES_MIGRATIONS = [
   '008_run_review_items.sql',
   '009_article_metadata_facts.sql',
   '010_entity_mentions_pending.sql',
+  '011_draft_bundles.sql',
+  '012_run_items_failed.sql',
 ] as const;
 
 export type StorageHealth = {

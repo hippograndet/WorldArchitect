@@ -91,7 +91,11 @@ export async function scanEntityMentions(input: {
   const created: EntityMentionRow[] = [];
 
   for (const target of targets) {
-    const contextPackage = await buildContextPackage(input.worldId, target.id, { mode: 'default', contextDepth: 'mid' });
+    const contextPackage = await buildContextPackage(input.worldId, target.id, {
+      mode: 'default',
+      contextDepth: 'mid',
+      ownerId: input.ownerId,
+    });
     const result = await agent.run(input.worldId, {
       contextPackage,
       description: target.description,

@@ -1,4 +1,5 @@
 import { getDbClient } from '../../../../db/client.js';
+import { ownerParams, ownerPredicate, worldOwnerParams, worldOwnerPredicate } from '../../../../db/tenantScope.js';
 import { LorekeepAgent } from '../../../lorekeeper.js';
 import { GroundingCheckAgent } from '../../../groundingCheck.js';
 import { recordArticleIssues } from '../../../../services/issueRecorder.js';
@@ -22,9 +23,9 @@ export async function lorekeeperSummarizeNode(state: OrchestrationState): Promis
   const article = await getDbClient().get<{ title: string; introduction: string }>(
     `SELECT a.title, av.introduction
      FROM articles a
-     LEFT JOIN article_versions av ON av.id = a.current_version_id
-     WHERE a.id = ? AND a.world_id = ?`,
-    [state.articleId, state.worldId],
+     LEFT JOIN article_versions av ON av.id = a.current_version_id${ownerPredicate('av', state.ownerId)}
+     WHERE a.id = ? AND ${worldOwnerPredicate('a', state.ownerId)}`,
+    [...ownerParams(state.ownerId), state.articleId, ...worldOwnerParams(state.worldId, state.ownerId)],
   );
   if (!article) throw new Error(`Article ${state.articleId} not found`);
 

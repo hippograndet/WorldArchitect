@@ -62,6 +62,7 @@ export async function fetchWorldContextNode(state: OrchestrationState): Promise<
  */
 export async function buildContextPackageNode(state: OrchestrationState): Promise<Partial_> {
   if (state.contextPackage) return {};
+  if (!state.ownerId) throw new Error('ownerId is required to build agent context');
   const contextPackage = await buildContextPackage(state.worldId, state.articleId!, {
     mode: state.contextMode,
     contextDepth: state.contextDepth,

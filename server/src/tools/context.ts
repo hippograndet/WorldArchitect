@@ -1,4 +1,5 @@
 import { getDbClient } from '../db/client.js';
+import { ownerParams, ownerPredicate, worldOwnerParams, worldOwnerPredicate } from '../db/tenantScope.js';
 import { renderBible } from '../services/worldBible.js';
 import { listNames, type ListNamesFilter } from '../services/nameBank.js';
 import { dataBlock } from '../prompts/shared.js';
@@ -107,9 +108,9 @@ export async function executeContextTool(worldId: string, call: ToolCall, ownerI
         `SELECT a.id, a.title, a.template_type, a.temporal_anchor_start, a.temporal_anchor_end,
                 a.is_fixed_point, av.introduction, av.description, av.chronology
          FROM articles a
-         LEFT JOIN article_versions av ON av.id = a.current_version_id
-         WHERE a.id = ? AND a.world_id = ?`,
-        [articleId, worldId],
+         LEFT JOIN article_versions av ON av.id = a.current_version_id${ownerPredicate('av', ownerId)}
+         WHERE a.id = ? AND ${worldOwnerPredicate('a', ownerId)}`,
+        [...ownerParams(ownerId), articleId, ...worldOwnerParams(worldId, ownerId)],
       );
       if (!row) return JSON.stringify({ error: 'Article not found' });
       return dataBlock('article', {
@@ -132,11 +133,12 @@ export async function executeContextTool(worldId: string, call: ToolCall, ownerI
         `SELECT a.id, a.title, av.introduction
          FROM article_search_index s
          JOIN articles a ON a.id = s.article_id
-         LEFT JOIN article_versions av ON av.id = a.current_version_id
-         WHERE s.world_id = ? AND s.search_vector @@ plainto_tsquery('english', ?)
+         LEFT JOIN article_versions av ON av.id = a.current_version_id${ownerPredicate('av', ownerId)}
+         WHERE s.world_id = ?${ownerPredicate('a', ownerId)}
+           AND s.search_vector @@ plainto_tsquery('english', ?)
          ORDER BY ts_rank(s.search_vector, plainto_tsquery('english', ?)) DESC
          LIMIT 10`,
-        [worldId, query, query],
+        [...ownerParams(ownerId), worldId, ...ownerParams(ownerId), query, query],
       );
       return dataBlock('searchResults',
         rows.map((r) => ({ id: r.id, title: r.title, introduction: (r.introduction as string) ?? '' })),
@@ -152,16 +154,20 @@ export async function executeContextTool(worldId: string, call: ToolCall, ownerI
          FROM article_links al
          JOIN articles src ON src.id = al.source_article_id
          JOIN articles a ON a.id = al.target_article_id
-         WHERE al.source_article_id = ? AND src.world_id = ? AND a.world_id = ?`,
-        [articleId, worldId, worldId],
+         WHERE al.source_article_id = ?
+           AND ${worldOwnerPredicate('src', ownerId)}
+           AND ${worldOwnerPredicate('a', ownerId)}${ownerPredicate('al', ownerId)}`,
+        [articleId, ...worldOwnerParams(worldId, ownerId), ...worldOwnerParams(worldId, ownerId), ...ownerParams(ownerId)],
       );
       const incoming = await exec.all<Record<string, unknown>>(
         `SELECT al.source_article_id AS id, a.title, al.link_type
          FROM article_links al
          JOIN articles tgt ON tgt.id = al.target_article_id
          JOIN articles a ON a.id = al.source_article_id
-         WHERE al.target_article_id = ? AND tgt.world_id = ? AND a.world_id = ?`,
-        [articleId, worldId, worldId],
+         WHERE al.target_article_id = ?
+           AND ${worldOwnerPredicate('tgt', ownerId)}
+           AND ${worldOwnerPredicate('a', ownerId)}${ownerPredicate('al', ownerId)}`,
+        [articleId, ...worldOwnerParams(worldId, ownerId), ...worldOwnerParams(worldId, ownerId), ...ownerParams(ownerId)],
       );
       return dataBlock('articleLinks', { outgoing, incoming });
     }
@@ -177,7 +183,7 @@ export async function executeContextTool(worldId: string, call: ToolCall, ownerI
         nameComponent: name_component as ListNamesFilter['nameComponent'],
         tags,
       };
-      const entries = await listNames(worldId, filter);
+      const entries = await listNames(worldId, filter, undefined, ownerId);
       return dataBlock('nameBank', entries.map((e) => ({
         name: e.name, entityType: e.entityType,
         gender: e.gender, socialClass: e.socialClass, nameComponent: e.nameComponent, tags: e.tags,

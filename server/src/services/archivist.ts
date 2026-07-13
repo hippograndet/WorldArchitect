@@ -1,4 +1,5 @@
 import { getDbClient } from '../db/client.js';
+import { ownerParams, ownerPredicate, worldOwnerParams, worldOwnerPredicate } from '../db/tenantScope.js';
 import { findLatestPendingDraftRows, type DraftContextBasis } from './draftsService.js';
 import type {
   ArticleContextMode,
@@ -58,11 +59,11 @@ export type ArchivistMode =
 export type ContextDepth = 'shallow' | 'mid' | 'deep';
 
 export interface ArchivistOptions {
+  ownerId: string;
   mode?: ArchivistMode;
   maxTokens?: number;
   contextDepth?: ContextDepth;
   contextBasis?: DraftContextBasis;
-  ownerId?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -162,7 +163,7 @@ function toDependency(
 export async function buildContextPackage(
   worldId: string,
   articleId: string,
-  options: ArchivistOptions = {},
+  options: ArchivistOptions,
 ): Promise<ContextPackage> {
   const exec = getDbClient();
   const { mode = 'default', contextDepth = 'mid', contextBasis = 'current' } = options;
@@ -179,9 +180,9 @@ export async function buildContextPackage(
     `SELECT a.id, a.title, a.template_type, a.temporal_anchor_start, a.status, a.current_version_id,
             av.introduction, av.description, av.chronology
      FROM articles a
-     LEFT JOIN article_versions av ON av.id = a.current_version_id
-     WHERE a.id = ? AND a.world_id = ?`,
-    [articleId, worldId],
+     LEFT JOIN article_versions av ON av.id = a.current_version_id${ownerPredicate('av', options.ownerId)}
+     WHERE a.id = ? AND ${worldOwnerPredicate('a', options.ownerId)}`,
+    [...ownerParams(options.ownerId), articleId, ...worldOwnerParams(worldId, options.ownerId)],
   );
 
   if (!target) throw new Error(`Article ${articleId} not found in world ${worldId}`);
@@ -209,10 +210,10 @@ export async function buildContextPackage(
     const row = await exec.get<{ introduction: string; description: string; chronology: string }>(
       `SELECT introduction, description, chronology
        FROM article_versions
-       WHERE article_id = ? AND is_published = 1
+       WHERE article_id = ?${ownerPredicate('article_versions', options.ownerId)} AND is_published = 1
        ORDER BY version_number DESC
        LIMIT 1`,
-      [targetArticleId],
+      [targetArticleId, ...ownerParams(options.ownerId)],
     );
     publishedVersionCache.set(targetArticleId, row);
     return row;
@@ -276,8 +277,11 @@ export async function buildContextPackage(
 
   const fetchDescription = async (articleRowId: string): Promise<string> => {
     const ver = await exec.get<{ description: string }>(
-      `SELECT av.description FROM articles a LEFT JOIN article_versions av ON av.id = a.current_version_id WHERE a.id = ?`,
-      [articleRowId],
+      `SELECT av.description
+       FROM articles a
+       LEFT JOIN article_versions av ON av.id = a.current_version_id${ownerPredicate('av', options.ownerId)}
+       WHERE a.id = ?${ownerPredicate('a', options.ownerId)}`,
+      [...ownerParams(options.ownerId), articleRowId, ...ownerParams(options.ownerId)],
     );
     return contextDescriptionFor(articleRowId, ver?.description ?? '');
   };
@@ -314,11 +318,12 @@ export async function buildContextPackage(
         `SELECT a.id, a.title, a.status, a.current_version_id, wbe.summary
          FROM article_links al
          JOIN articles a ON a.id = al.source_article_id
-         LEFT JOIN world_bible_entries wbe ON wbe.article_id = a.id
-         WHERE al.target_article_id = ? AND al.link_type = 'hierarchical' AND a.world_id = ?
+         LEFT JOIN world_bible_entries wbe ON wbe.article_id = a.id${ownerPredicate('wbe', options.ownerId)}
+         WHERE al.target_article_id = ? AND al.link_type = 'hierarchical'
+           AND ${worldOwnerPredicate('a', options.ownerId)}${ownerPredicate('al', options.ownerId)}
          ORDER BY ${STATUS_ORDER}, a.title
          LIMIT 2`,
-        [articleId, worldId],
+        [...ownerParams(options.ownerId), articleId, ...worldOwnerParams(worldId, options.ownerId), ...ownerParams(options.ownerId)],
       );
 
       for (const r of rows) {
@@ -340,11 +345,12 @@ export async function buildContextPackage(
       `SELECT a.id, a.title, a.status, a.current_version_id, wbe.summary
        FROM article_links al
        JOIN articles a ON a.id = al.source_article_id
-       LEFT JOIN world_bible_entries wbe ON wbe.article_id = a.id
-       WHERE al.target_article_id = ? AND al.link_type = 'hierarchical' AND a.world_id = ?
+       LEFT JOIN world_bible_entries wbe ON wbe.article_id = a.id${ownerPredicate('wbe', options.ownerId)}
+       WHERE al.target_article_id = ? AND al.link_type = 'hierarchical'
+         AND ${worldOwnerPredicate('a', options.ownerId)}${ownerPredicate('al', options.ownerId)}
        ORDER BY ${STATUS_ORDER}, a.title
        LIMIT 4`,
-      [articleId, worldId],
+      [...ownerParams(options.ownerId), articleId, ...worldOwnerParams(worldId, options.ownerId), ...ownerParams(options.ownerId)],
     );
 
     for (const r of rows) {
@@ -368,21 +374,23 @@ export async function buildContextPackage(
     const before = await exec.all<Record<string, unknown>>(
       `SELECT a.id, a.title, a.temporal_anchor_start, a.status, a.current_version_id, wbe.summary
        FROM articles a
-       LEFT JOIN world_bible_entries wbe ON wbe.article_id = a.id
+       LEFT JOIN world_bible_entries wbe ON wbe.article_id = a.id${ownerPredicate('wbe', options.ownerId)}
        WHERE a.world_id = ? AND a.temporal_anchor_start IS NOT NULL
+         ${ownerPredicate('a', options.ownerId)}
          AND a.temporal_anchor_start < ? AND a.id != ?
        ORDER BY a.temporal_anchor_start DESC, ${STATUS_ORDER} LIMIT 3`,
-      [worldId, anchor, articleId],
+      [...ownerParams(options.ownerId), worldId, ...ownerParams(options.ownerId), anchor, articleId],
     );
 
     const after = await exec.all<Record<string, unknown>>(
       `SELECT a.id, a.title, a.temporal_anchor_start, a.status, a.current_version_id, wbe.summary
        FROM articles a
-       LEFT JOIN world_bible_entries wbe ON wbe.article_id = a.id
+       LEFT JOIN world_bible_entries wbe ON wbe.article_id = a.id${ownerPredicate('wbe', options.ownerId)}
        WHERE a.world_id = ? AND a.temporal_anchor_start IS NOT NULL
+         ${ownerPredicate('a', options.ownerId)}
          AND a.temporal_anchor_start > ? AND a.id != ?
        ORDER BY a.temporal_anchor_start ASC, ${STATUS_ORDER} LIMIT 3`,
-      [worldId, anchor, articleId],
+      [...ownerParams(options.ownerId), worldId, ...ownerParams(options.ownerId), anchor, articleId],
     );
 
     for (const r of [...before.reverse(), ...after]) {
@@ -407,11 +415,12 @@ export async function buildContextPackage(
       `SELECT a.id, a.title, a.status, a.current_version_id, wbe.summary
        FROM article_links al
        JOIN articles a ON a.id = al.target_article_id
-       LEFT JOIN world_bible_entries wbe ON wbe.article_id = a.id
-       WHERE al.source_article_id = ? AND al.link_type = 'hierarchical' AND a.world_id = ?
+       LEFT JOIN world_bible_entries wbe ON wbe.article_id = a.id${ownerPredicate('wbe', options.ownerId)}
+       WHERE al.source_article_id = ? AND al.link_type = 'hierarchical'
+         AND ${worldOwnerPredicate('a', options.ownerId)}${ownerPredicate('al', options.ownerId)}
        ORDER BY ${STATUS_ORDER}, a.title
        LIMIT 12`,
-      [articleId, worldId],
+      [...ownerParams(options.ownerId), articleId, ...worldOwnerParams(worldId, options.ownerId), ...ownerParams(options.ownerId)],
     );
 
     for (const r of rows) {
@@ -434,16 +443,23 @@ export async function buildContextPackage(
   // Siblings — other children of the same parents (skip in shallow mode)
   if (parents.length > 0 && contextDepth !== 'shallow') {
     const placeholders = parents.map(() => '?').join(', ');
+    // DISTINCT + ORDER BY on a CASE expression that isn't in the select list is
+    // rejected by Postgres ("for SELECT DISTINCT, ORDER BY expressions must
+    // appear in select list") — the dedup happens in the inner query, then the
+    // outer query is free to order by any expression since it has no DISTINCT.
     const siblingRows = await exec.all<Record<string, unknown>>(
-      `SELECT DISTINCT a.id, a.title, a.status, a.current_version_id, wbe.summary
-       FROM article_links al
-       JOIN articles a ON a.id = al.target_article_id
-       LEFT JOIN world_bible_entries wbe ON wbe.article_id = a.id
-       WHERE al.source_article_id IN (${placeholders})
-         AND al.link_type = 'hierarchical' AND a.id != ? AND a.world_id = ?
-       ORDER BY ${STATUS_ORDER}, a.title
+      `SELECT * FROM (
+         SELECT DISTINCT a.id, a.title, a.status, a.current_version_id, wbe.summary
+         FROM article_links al
+         JOIN articles a ON a.id = al.target_article_id
+         LEFT JOIN world_bible_entries wbe ON wbe.article_id = a.id${ownerPredicate('wbe', options.ownerId)}
+         WHERE al.source_article_id IN (${placeholders})
+           AND al.link_type = 'hierarchical' AND a.id != ?
+           AND ${worldOwnerPredicate('a', options.ownerId)}${ownerPredicate('al', options.ownerId)}
+       ) sub
+       ORDER BY ${STATUS_ORDER.replace(/a\.status/g, 'sub.status')}, sub.title
        LIMIT 6`,
-      [...parents.map((p) => p.id), articleId, worldId],
+      [...ownerParams(options.ownerId), ...parents.map((p) => p.id), articleId, ...worldOwnerParams(worldId, options.ownerId), ...ownerParams(options.ownerId)],
     );
 
     for (const r of siblingRows) {
@@ -465,11 +481,11 @@ export async function buildContextPackage(
     const fixedRows = await exec.all<Record<string, unknown>>(
       `SELECT a.id, a.title, a.status, a.current_version_id, wbe.summary
        FROM articles a
-       LEFT JOIN world_bible_entries wbe ON wbe.article_id = a.id
-       WHERE a.world_id = ? AND a.is_fixed_point = 1 AND a.id != ?
+       LEFT JOIN world_bible_entries wbe ON wbe.article_id = a.id${ownerPredicate('wbe', options.ownerId)}
+       WHERE ${worldOwnerPredicate('a', options.ownerId)} AND a.is_fixed_point = 1 AND a.id != ?
        ORDER BY ${STATUS_ORDER}, a.title
        LIMIT 10`,
-      [worldId, articleId],
+      [...ownerParams(options.ownerId), ...worldOwnerParams(worldId, options.ownerId), articleId],
     );
 
     for (const r of fixedRows) {
@@ -487,9 +503,10 @@ export async function buildContextPackage(
       `SELECT a.id, a.title, a.current_version_id
        FROM article_links al
        JOIN articles a ON a.id = al.target_article_id
-       WHERE al.source_article_id = ? AND al.link_type = 'references' AND a.world_id = ?
+       WHERE al.source_article_id = ? AND al.link_type = 'references'
+         AND ${worldOwnerPredicate('a', options.ownerId)}${ownerPredicate('al', options.ownerId)}
        LIMIT 10`,
-      [articleId, worldId],
+      [articleId, ...worldOwnerParams(worldId, options.ownerId), ...ownerParams(options.ownerId)],
     );
 
     for (const r of refRows) {

@@ -225,6 +225,7 @@ describe('buildContextPackageNode caching guard', () => {
       const result = await buildContextPackageNode({
         worldId: 'build-context-package-miss',
         articleId: 'build-context-package-miss-article-0',
+        ownerId: OWNER_ID,
         contextPackage: undefined,
         contextMode: 'default',
         contextDepth: 'mid',

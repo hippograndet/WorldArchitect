@@ -89,6 +89,7 @@ export interface Run {
   errorMessage: string | null;
   itemsCompleted: number;
   itemsTotal: number;
+  itemsFailed: number;
   createdAt: number;
   updatedAt: number;
 }

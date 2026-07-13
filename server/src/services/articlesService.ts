@@ -1,6 +1,6 @@
 import { nanoid } from 'nanoid';
 import { getDbClient } from '../db/client.js';
-import { upsertEntry } from './worldBible.js';
+import { upsertEntry, getEntrySummary } from './worldBible.js';
 import { runSyncRules } from './syncRules.js';
 import { reindexArticle } from './searchIndex.js';
 import { GeneratedDraftContentSchema } from './articlesSchemas.js';
@@ -205,8 +205,8 @@ export async function updateArticle(input: UpdateArticleInput) {
   }
 
   const current = article.current_version_id
-    ? await exec.get<{ introduction: string; description: string; chronology: string }>(
-        'SELECT introduction, description, chronology FROM article_versions WHERE id = ? AND owner_id = ?',
+    ? await exec.get<{ description: string; chronology: string }>(
+        'SELECT description, chronology FROM article_versions WHERE id = ? AND owner_id = ?',
         [article.current_version_id, input.ownerId],
       )
     : undefined;
@@ -215,7 +215,10 @@ export async function updateArticle(input: UpdateArticleInput) {
   const versionId = nanoid();
   const versionNumber = await getNextVersionNumber(exec, input.articleId);
   const description = bodyToDescription(input.body, input.description);
-  const newIntroduction = input.introduction ?? current?.introduction ?? '';
+  // Sourced from the World Bible entry, not article_versions.introduction —
+  // see the matching comment in acceptDraft() above for why the version-table
+  // copy can't be trusted as "the current introduction".
+  const newIntroduction = input.introduction ?? await getEntrySummary(exec, input.worldId, input.articleId);
   const newDescription = description ?? current?.description ?? '';
   const newChronology = input.chronology ?? current?.chronology ?? '';
   const hasContent = newDescription.trim() || newChronology.trim() || newIntroduction.trim();
@@ -296,6 +299,11 @@ export async function revertArticleVersion(input: RevertArticleInput) {
       revertedFromVersionId: input.versionId,
       now,
     });
+    // Keeps the World Bible entry (the article page's displayed introduction)
+    // in sync with whatever version just became current — otherwise a revert
+    // would restore the old introduction into article_versions while the
+    // Bible entry kept showing whatever was there before the revert.
+    await upsertEntry(tx, input.worldId, input.articleId, target.introduction as string);
   });
 
   await reindexArticle(input.worldId, input.articleId);
@@ -428,14 +436,21 @@ export async function acceptDraft(input: AcceptDraftInput) {
   const touchedArticleIds = new Set<string>([articleId]);
 
   const currentVersion = article.current_version_id
-    ? await exec.get<{ introduction: string; description: string; chronology: string }>(
-        'SELECT introduction, description, chronology FROM article_versions WHERE id = ? AND owner_id = ?',
+    ? await exec.get<{ description: string; chronology: string }>(
+        'SELECT description, chronology FROM article_versions WHERE id = ? AND owner_id = ?',
         [article.current_version_id, ownerId],
       )
     : undefined;
   const currentDescription = currentVersion?.description ?? '';
   const currentChronology = currentVersion?.chronology ?? '';
-  const currentIntroduction = currentVersion?.introduction ?? '';
+  // Sourced from the World Bible entry, not article_versions.introduction:
+  // Inception's accept path (forgeGraph/nodes.ts) only writes the introduction
+  // there, never to article_versions, so the version-table copy goes stale as
+  // soon as Inception accepts a new introduction. Reading the Bible entry here
+  // is what keeps a later Expansion-draft accept from carrying forward and
+  // re-committing that stale value (which would also silently revert the
+  // Bible entry back to it via the upsertEntry call below).
+  const currentIntroduction = await getEntrySummary(exec, worldId, articleId);
 
   let newDescription: string;
   let newChronology: string;

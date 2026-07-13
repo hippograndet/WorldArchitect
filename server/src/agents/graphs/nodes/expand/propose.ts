@@ -1,4 +1,5 @@
 import { getDbClient } from '../../../../db/client.js';
+import { worldOwnerParams, worldOwnerPredicate } from '../../../../db/tenantScope.js';
 import { MuseAgent } from '../../../muse.js';
 import { CuratorAgent } from '../../../curator.js';
 import { callCtx } from '../shared.js';
@@ -30,8 +31,8 @@ export async function curatorAutoSelectNode(state: OrchestrationState): Promise<
   if (!state.autoSelect || state.ideas.length === 0) return {};
 
   const article = await getDbClient().get<{ title: string; template_type: string }>(
-    'SELECT title, template_type FROM articles WHERE id = ? AND world_id = ?',
-    [state.articleId, state.worldId],
+    `SELECT title, template_type FROM articles WHERE id = ? AND ${worldOwnerPredicate('articles', state.ownerId)}`,
+    [state.articleId, ...worldOwnerParams(state.worldId, state.ownerId)],
   );
 
   const agent = new CuratorAgent();

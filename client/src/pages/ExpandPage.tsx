@@ -20,6 +20,9 @@ import {
   runDurationMs,
   startStepFromPipelineType,
   buildAgentStages,
+  runPipelineSteps,
+  runStepProgress,
+  runAgentPassProgress,
 } from '../components/expand/stageModel.ts';
 import type { PipelineStartStep } from '../components/expand/stageModel.ts';
 
@@ -476,13 +479,21 @@ export default function ExpandPage() {
   };
 
   const selectedRunForDetails = selectedRun?.id === selectedRunId ? selectedRun : null;
-  const selectedRunFailedEvent = selectedRunForDetails?.events.find((event) => !event.ok);
+  // events are fetched newest-first; reverse to surface the earliest failure
+  // (the root cause) instead of a later, possibly-cascading one.
+  const selectedRunFailedEvent = [...(selectedRunForDetails?.events ?? [])].reverse().find((event) => !event.ok);
   const selectedPendingReview = selectedRunForDetails?.reviewItems.find((item) => item.status === 'pending') ?? null;
   const selectedRunCanResume = selectedRunForDetails?.status === 'paused';
   const selectedRunArticleSummary = selectedRunForDetails ? getRunArticleSummary(selectedRunForDetails) : null;
   const selectedRunAgentStages = selectedRunForDetails
     ? buildAgentStages(selectedRunForDetails, selectedRunArticleSummary?.currentOrSelectedId ?? null)
     : [];
+  const selectedRunStepProgress = selectedRunForDetails
+    ? runStepProgress(runPipelineSteps(selectedRunForDetails), selectedRunAgentStages)
+    : null;
+  const selectedRunAgentPassProgress = selectedRunForDetails
+    ? runAgentPassProgress(selectedRunAgentStages)
+    : null;
   const selectedRunStage = selectedRunAgentStages.find((stage) => stage.key === selectedRunStageKey) ?? null;
   const visibleLlmTraces = selectedRunStage
     ? llmTraces.filter((trace) => (
@@ -658,8 +669,11 @@ export default function ExpandPage() {
                     </div>
                     <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
                       <div>
-                        <p className="text-[10px] uppercase tracking-wide text-gray-400">Progress</p>
-                        <p className="font-semibold text-gray-700">{run.itemsCompleted} / {run.itemsTotal}</p>
+                        <p className="text-[10px] uppercase tracking-wide text-gray-400">Articles</p>
+                        <p className="font-semibold text-gray-700">
+                          {run.itemsCompleted - run.itemsFailed} / {run.itemsTotal}
+                          {run.itemsFailed > 0 && <span className="text-red-600 font-normal"> ({run.itemsFailed} failed)</span>}
+                        </p>
                       </div>
                       <div>
                         <p className="text-[10px] uppercase tracking-wide text-gray-400">Tokens</p>
@@ -687,7 +701,7 @@ export default function ExpandPage() {
                 </h2>
                 <p className="text-sm text-gray-500 mt-1">
                   {activeRun && selectedRunId === activeRun.id
-                    ? `${RUN_STATUS_LABELS[activeRun.status]} · ${activeRun.itemsCompleted} / ${activeRun.itemsTotal} items · started ${formatTime(activeRun.createdAt)} · runtime ${formatDuration(runDurationMs(activeRun))}`
+                    ? `${RUN_STATUS_LABELS[activeRun.status]} · ${activeRun.itemsCompleted - activeRun.itemsFailed} / ${activeRun.itemsTotal} articles · started ${formatTime(activeRun.createdAt)} · runtime ${formatDuration(runDurationMs(activeRun))}`
                     : selectedRunForDetails
                       ? `${RUN_STATUS_LABELS[selectedRunForDetails.status]} · started ${formatTime(selectedRunForDetails.createdAt)} · runtime ${formatDuration(runDurationMs(selectedRunForDetails))}`
                       : 'Select a run in the inbox, or start a new one from the settings panel.'}
@@ -748,7 +762,7 @@ export default function ExpandPage() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-4 gap-3 p-4 border-b border-gray-100">
+                <div className="grid grid-cols-3 gap-3 p-4 border-b border-gray-100">
                   <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
                     <p className="text-[10px] uppercase tracking-wide text-gray-400">Start Node</p>
                     <p className="text-sm font-semibold text-gray-900 mt-1 truncate" title={selectedRunForDetails.articleIds[0] ?? selectedRunForDetails.id}>
@@ -764,9 +778,24 @@ export default function ExpandPage() {
                     <p className="text-sm font-semibold text-gray-900 mt-1">{formatDuration(runDurationMs(selectedRunForDetails))}</p>
                   </div>
                   <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
-                    <p className="text-[10px] uppercase tracking-wide text-gray-400">Progress</p>
+                    <p className="text-[10px] uppercase tracking-wide text-gray-400">Articles</p>
                     <p className="text-sm font-semibold text-gray-900 mt-1">
-                      {selectedRunForDetails.itemsCompleted} / {selectedRunForDetails.itemsTotal}
+                      {selectedRunForDetails.itemsCompleted - selectedRunForDetails.itemsFailed} / {selectedRunForDetails.itemsTotal}
+                      {selectedRunForDetails.itemsFailed > 0 && (
+                        <span className="text-xs font-normal text-red-600 ml-1">({selectedRunForDetails.itemsFailed} failed)</span>
+                      )}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                    <p className="text-[10px] uppercase tracking-wide text-gray-400">Steps</p>
+                    <p className="text-sm font-semibold text-gray-900 mt-1">
+                      {selectedRunStepProgress ? `${selectedRunStepProgress.completed} / ${selectedRunStepProgress.total}` : '—'}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                    <p className="text-[10px] uppercase tracking-wide text-gray-400">Agent Passes</p>
+                    <p className="text-sm font-semibold text-gray-900 mt-1">
+                      {selectedRunAgentPassProgress ? `${selectedRunAgentPassProgress.completed} / ${selectedRunAgentPassProgress.total}` : '—'}
                     </p>
                   </div>
                 </div>

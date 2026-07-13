@@ -457,7 +457,7 @@ export async function branchingNode(state: ForgeState): Promise<Partial<ForgeSta
       const shouldQueueChildren = state.forgeContinuationMode === 'recursive';
       await logEvent(state, 'Branching', item.title, true, `Created ${newItems.length} child article${newItems.length === 1 ? '' : 's'}.`);
       const total = shouldQueueChildren ? state.total + newItems.length : state.total;
-      await updateRunProgress(state.worldId, state.ownerId, state.runId, state.completed, total);
+      await updateRunProgress(state.worldId, state.ownerId, state.runId, state.completed, total, state.failedItemCount);
       return {
         signal: 'continue',
         queue: shouldQueueChildren
@@ -587,6 +587,6 @@ export async function finishItemNode(state: ForgeState): Promise<Partial<ForgeSt
   // lastStepError here is non-fatal — the item was still counted "completed"
   // for progress purposes, but its step failed and finalizeRun needs to know.
   const failedItemCount = state.failedItemCount + (state.lastStepError ? 1 : 0);
-  await updateRunProgress(state.worldId, state.ownerId, state.runId, completed, state.total);
+  await updateRunProgress(state.worldId, state.ownerId, state.runId, completed, state.total, failedItemCount);
   return { completed, failedItemCount, currentItem: undefined, currentItemStepsDone: [] };
 }

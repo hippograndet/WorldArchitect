@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { getDbClient } from '../db/client.js';
 import { setupPostgresTestHarness, type PostgresTestHarness } from '../test/postgresHarness.js';
-import { createArticle, updateArticle } from './articlesService.js';
-import { upsertEntry, renderBible, getBibleMeta } from './worldBible.js';
+import { createArticle, updateArticle, acceptDraft, revertArticleVersion } from './articlesService.js';
+import { savePendingDraft } from './draftsService.js';
+import { upsertEntry, renderBible, getBibleMeta, getEntries } from './worldBible.js';
 import { cancelRun, createRun, RunConflictError } from './runsService.js';
 import { readEffectiveProviderSettings, writeProviderSettings } from '../providers/index.js';
 import { runWithUserContext } from '../requestContext.js';
@@ -187,6 +188,57 @@ describe('core services on Postgres', () => {
     );
     expect(stored?.config).not.toContain(rawKey);
     expect(stored?.config).toContain('enc:v1:');
+  });
+
+  it('does not let an Expansion draft accept revert an Inception-accepted introduction', async ({ skip }) => {
+    if (skipIfUnavailable(skip)) return;
+
+    await runWithUserContext(OWNER_ID, async () => {
+      const created = await createArticle({
+        worldId: WORLD_ID,
+        ownerId: OWNER_ID,
+        categoryId: CAT_HISTORY,
+        title: 'The Old Gate',
+        templateType: 'general',
+        introduction: 'An old, rough introduction.',
+        body: 'Some existing description.',
+        chronology: '',
+        isFixedPoint: false,
+      });
+      const articleId = String(created.article.id);
+
+      // Simulates Inception's intro_review accept path (forgeGraph/nodes.ts):
+      // it only calls upsertEntry, never writes an article_versions row.
+      await upsertEntry(getDbClient(), WORLD_ID, articleId, 'A much better introduction.');
+
+      // Simulates an Expansion draft accept for the same article, which
+      // doesn't carry its own introduction — it should fall back to whatever
+      // the introduction currently is, not to the stale pre-Inception value.
+      await savePendingDraft({
+        worldId: WORLD_ID,
+        ownerId: OWNER_ID,
+        articleId,
+        pipelineType: 'expand_description',
+        phase: 'done',
+        draftContent: { description: 'A new description from Expansion.' },
+      });
+      const { version } = await acceptDraft({ worldId: WORLD_ID, articleId, ownerId: OWNER_ID });
+
+      expect(version.introduction).toBe('A much better introduction.');
+      const bibleEntries = await getEntries(WORLD_ID, OWNER_ID);
+      expect(bibleEntries.find((e) => e.articleId === articleId)?.summary).toBe('A much better introduction.');
+
+      // Reverting to the original (pre-Inception) version should also pull
+      // the Bible entry back in sync with it, not leave it pointing at
+      // whatever was last accepted.
+      const firstVersion = await getDbClient().get<{ id: string }>(
+        'SELECT id FROM article_versions WHERE article_id = ? AND version_number = 1',
+        [articleId],
+      );
+      await revertArticleVersion({ worldId: WORLD_ID, articleId, versionId: firstVersion!.id, ownerId: OWNER_ID });
+      const revertedEntries = await getEntries(WORLD_ID, OWNER_ID);
+      expect(revertedEntries.find((e) => e.articleId === articleId)?.summary).toBe('An old, rough introduction.');
+    });
   });
 });
 

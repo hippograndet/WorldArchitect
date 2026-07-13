@@ -11,17 +11,18 @@ const DATABASE_URL = process.env.DRIFT_TEST_DATABASE_URL
   ?? 'postgres://worldarchitect:worldarchitect@localhost:5432/worldarchitect';
 const REQUIRE_POSTGRES = process.env.CI === 'true';
 
-async function searchTitlesPostgres(client: pg.Client, worldId: string, query: string): Promise<string[]> {
+async function searchTitlesPostgres(client: pg.Client, worldId: string, ownerId: string, query: string): Promise<string[]> {
   // Mirrors the postgres branch of executeContextTool's search_articles case
   // in context.ts. Keep these in sync if that query changes.
   const res = await client.query(
     `SELECT a.title
      FROM article_search_index s
      JOIN articles a ON a.id = s.article_id
-     WHERE s.world_id = $1 AND s.search_vector @@ plainto_tsquery('english', $2)
-     ORDER BY ts_rank(s.search_vector, plainto_tsquery('english', $2)) DESC
+     WHERE s.world_id = $1 AND a.owner_id = $2
+       AND s.search_vector @@ plainto_tsquery('english', $3)
+     ORDER BY ts_rank(s.search_vector, plainto_tsquery('english', $3)) DESC
      LIMIT 10`,
-    [worldId, query],
+    [worldId, ownerId, query],
   );
   return res.rows.map((r: { title: string }) => r.title);
 }
@@ -85,7 +86,7 @@ describe('search_articles (Postgres tsvector)', () => {
              ('a2', 'w1', 'The Ash Fields', 'A phoenix was once seen here.', 0)
     `);
 
-    const titles = await searchTitlesPostgres(client!, 'w1', 'phoenix');
+    const titles = await searchTitlesPostgres(client!, 'w1', 'owner1', 'phoenix');
     expect(titles[0]).toBe('Phoenix');
   });
 
@@ -95,8 +96,8 @@ describe('search_articles (Postgres tsvector)', () => {
       return;
     }
 
-    await expect(searchTitlesPostgres(client!, 'w1', 'dragon" OR 1=1')).resolves.toBeDefined();
-    await expect(searchTitlesPostgres(client!, 'w1', '-keep & | !')).resolves.toBeDefined();
-    await expect(searchTitlesPostgres(client!, 'w1', '')).resolves.toEqual([]);
+    await expect(searchTitlesPostgres(client!, 'w1', 'owner1', 'dragon" OR 1=1')).resolves.toBeDefined();
+    await expect(searchTitlesPostgres(client!, 'w1', 'owner1', '-keep & | !')).resolves.toBeDefined();
+    await expect(searchTitlesPostgres(client!, 'w1', 'owner1', '')).resolves.toEqual([]);
   });
 });

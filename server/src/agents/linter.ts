@@ -41,6 +41,7 @@ export interface LinterInput {
   worldId:     string;
   articleId:   string;
   worldContext: WorldContext;
+  ownerId:     string;
 }
 
 // ---------------------------------------------------------------------------
@@ -61,7 +62,7 @@ export class LinterAgent extends BaseAgent<LinterInput, LinterOutput> {
   protected async buildMessages(worldId: string, input: LinterInput): Promise<ChatMessage[]> {
     let contextPackage;
     try {
-      contextPackage = await buildContextPackage(worldId, input.articleId, { contextDepth: 'mid' });
+      contextPackage = await buildContextPackage(worldId, input.articleId, { contextDepth: 'mid', ownerId: input.ownerId });
     } catch {
       return [
         { role: 'system', content: buildLinterSystemPrompt(input.worldContext) },
@@ -101,8 +102,8 @@ export class LinterAgent extends BaseAgent<LinterInput, LinterOutput> {
    */
   async runAndPersist(worldId: string, articleId: string, worldContext: WorldContext): Promise<void> {
     const exec = getDbClient();
-    const result = await this.run(worldId, { worldId, articleId, worldContext });
     const ownerId = await ownerIdForWorld(exec, worldId);
+    const result = await this.run(worldId, { worldId, articleId, worldContext, ownerId }, { articleId, ownerId });
 
     await recordArticleIssues(exec, {
       worldId,

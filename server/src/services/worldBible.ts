@@ -1,5 +1,6 @@
 import { nanoid } from 'nanoid';
 import { getDbClient } from '../db/client.js';
+import { ownerParams, ownerPredicate } from '../db/tenantScope.js';
 import type { QueryExecutor } from '../db/executor.js';
 
 export interface BibleEntry {
@@ -19,11 +20,11 @@ async function getEntriesWithExecutor(exec: QueryExecutor, worldId: string, owne
            a.title AS article_title, c.name AS category_name
     FROM world_bible_entries wbe
     JOIN articles a ON a.id = wbe.article_id
-    LEFT JOIN categories c ON c.id = a.category_id
+    LEFT JOIN categories c ON c.id = a.category_id${ownerPredicate('c', ownerId)}
     WHERE wbe.world_id = ?
       ${ownerClause}
     ORDER BY wbe.sort_order, c.name, a.title
-  `, ownerId ? [worldId, ownerId, ownerId] : [worldId]);
+  `, ownerId ? [...ownerParams(ownerId), worldId, ownerId, ownerId] : [worldId]);
 
   return rows.map((r) => ({
     id:           r.id as string,
@@ -83,7 +84,7 @@ export async function upsertEntry(
   const article = await exec.get<{ id: string; sort_order: number; owner_id: string }>(`
     SELECT a.id, a.owner_id, COALESCE(c.sort_order, 9999) AS sort_order
     FROM articles a
-    LEFT JOIN categories c ON c.id = a.category_id
+    LEFT JOIN categories c ON c.id = a.category_id AND c.owner_id = a.owner_id
     WHERE a.id = ? AND a.world_id = ?
   `, [articleId, worldId]);
 
@@ -99,6 +100,22 @@ export async function upsertEntry(
   `, [nanoid(), worldId, article.owner_id, articleId, summary, article.sort_order, now]);
 
   await refreshTokenCountWithExecutor(exec, worldId, article.owner_id);
+}
+
+/**
+ * Read the current World Bible summary for a single article — the same
+ * "current introduction" value the article page and Inception's accept path
+ * both read/write. Callers that need "whatever the introduction currently
+ * is" (e.g. carrying it forward into a new article_versions row) should use
+ * this instead of `article_versions.introduction`, which is only a point-in-
+ * time snapshot and does not get updated when Inception accepts a new one.
+ */
+export async function getEntrySummary(exec: QueryExecutor, worldId: string, articleId: string): Promise<string> {
+  const row = await exec.get<{ summary: string }>(
+    'SELECT summary FROM world_bible_entries WHERE world_id = ? AND article_id = ?',
+    [worldId, articleId],
+  );
+  return row?.summary ?? '';
 }
 
 /**

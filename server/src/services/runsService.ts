@@ -16,6 +16,7 @@ export interface RunRow {
   errorMessage: string | null;
   itemsCompleted: number;
   itemsTotal: number;
+  itemsFailed: number;
   createdAt: number;
   updatedAt: number;
 }
@@ -46,6 +47,7 @@ function parseRun(row: Record<string, unknown>): RunRow {
     errorMessage: (row.error_message as string | null) ?? null,
     itemsCompleted: (row.items_completed as number | null) ?? 0,
     itemsTotal: (row.items_total as number | null) ?? 0,
+    itemsFailed: (row.items_failed as number | null) ?? 0,
     createdAt: row.created_at as number,
     updatedAt: row.updated_at as number,
   };
@@ -255,11 +257,12 @@ export async function updateRunProgress(
   runId: string,
   itemsCompleted: number,
   itemsTotal: number,
+  itemsFailed = 0,
 ): Promise<void> {
   await getDbClient().run(
-    `UPDATE runs SET items_completed = ?, items_total = ?, updated_at = ?
+    `UPDATE runs SET items_completed = ?, items_total = ?, items_failed = ?, updated_at = ?
      WHERE id = ? AND world_id = ? AND owner_id = ?`,
-    [itemsCompleted, itemsTotal, Date.now(), runId, worldId, ownerId],
+    [itemsCompleted, itemsTotal, itemsFailed, Date.now(), runId, worldId, ownerId],
   );
 }
 
