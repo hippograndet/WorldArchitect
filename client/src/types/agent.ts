@@ -1,6 +1,5 @@
 export type WordCountPreset = 'short' | 'medium' | 'long' | 'custom';
 export type DetailDepth = 'surface' | 'detailed' | 'exhaustive';
-export type ChronologicalDepth = 'none' | 'shallow' | 'deep';
 export type Breadth = 'focused' | 'connected';
 export type ContextDepth = 'shallow' | 'mid' | 'deep';
 export type SummarizerMode = 'full' | 'improve';
@@ -9,7 +8,6 @@ export interface ExpansionParams {
   wordCountPreset: WordCountPreset;
   wordCountCustom?: number;
   detailDepth: DetailDepth;
-  chronologicalDepth: ChronologicalDepth;
   breadth: Breadth;
 }
 

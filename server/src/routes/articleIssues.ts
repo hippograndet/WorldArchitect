@@ -154,8 +154,8 @@ router.post('/:aid/issues/:iid/apply-fix', asyncHandler(async (req, res) => {
   if (!issue) { res.status(404).json({ error: 'Issue not found' }); return; }
 
   const currentVersion = article.current_version_id
-    ? await exec.get<{ introduction: string; description: string; chronology: string }>(
-        'SELECT introduction, description, chronology FROM article_versions WHERE id = ?',
+    ? await exec.get<{ introduction: string; description: string }>(
+        'SELECT introduction, description FROM article_versions WHERE id = ?',
         [article.current_version_id],
       )
     : undefined;
@@ -168,7 +168,6 @@ router.post('/:aid/issues/:iid/apply-fix', asyncHandler(async (req, res) => {
   }
 
   const fixedIntro = currentVersion?.introduction ?? '';
-  const fixedChron = currentVersion?.chronology ?? '';
   const now = Date.now();
   const versionId = nanoid();
   const versionNumber = await getNextVersionNumber(exec, (req.params as Record<string, string>).aid);
@@ -181,7 +180,7 @@ router.post('/:aid/issues/:iid/apply-fix', asyncHandler(async (req, res) => {
       versionNumber,
       introduction: fixedIntro,
       description: newDesc,
-      chronology: fixedChron,
+      chronology: '',
       now,
     });
     await tx.run(`UPDATE article_issues SET status = 'fixed' WHERE id = ? AND owner_id = ?`, [(req.params as Record<string, string>).iid, tenant.ownerId]);

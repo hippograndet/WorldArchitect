@@ -44,7 +44,6 @@ describe('core services on Postgres', () => {
         templateType: 'general',
         introduction: 'The first gate marks the beginning.',
         body: 'The gate opened before the old calendar began.',
-        chronology: '',
         isFixedPoint: false,
       });
       const articleId = String(created.article.id);
@@ -58,7 +57,6 @@ describe('core services on Postgres', () => {
         articleId,
         title: 'The Renewed Gate',
         description: 'The gate was rebuilt after the winter siege.',
-        chronology: 'Year 22: reconstruction begins.',
       });
 
       const versions = await getDbClient().all<{ version_number: number }>(
@@ -90,7 +88,6 @@ describe('core services on Postgres', () => {
         templateType: 'general',
         introduction: '',
         description: 'A war over signal bells.',
-        chronology: '',
         isFixedPoint: false,
       });
       const music = await createArticle({
@@ -101,7 +98,6 @@ describe('core services on Postgres', () => {
         templateType: 'general',
         introduction: '',
         description: 'Songs sung by dockworkers.',
-        chronology: '',
         isFixedPoint: false,
       });
 
@@ -202,7 +198,6 @@ describe('core services on Postgres', () => {
         templateType: 'general',
         introduction: 'An old, rough introduction.',
         body: 'Some existing description.',
-        chronology: '',
         isFixedPoint: false,
       });
       const articleId = String(created.article.id);
@@ -281,7 +276,6 @@ function articleInput(title: string, description: string) {
     templateType: 'general',
     introduction: '',
     description,
-    chronology: '',
     isFixedPoint: false,
   };
 }

@@ -56,24 +56,11 @@ export async function runSyncRules(worldId: string, articleId: string): Promise<
   if (!article) return;
 
   const title = article.title as string;
-  const temporalStart = article.temporal_anchor_start as string | null;
-  const temporalEnd = article.temporal_anchor_end as string | null;
   const depth = article.depth as number;
   const ownerId = article.owner_id as string;
   await clearRuleIssues(articleId, ownerId);
 
-  // 1. Temporal inversion
-  if (temporalStart && temporalEnd && temporalStart > temporalEnd) {
-    await insertIssue({
-      worldId, articleId,
-      source: 'rule', severity: 'blocking', code: 'TEMPORAL_INVERSION',
-      excerpt: `Start: ${temporalStart} / End: ${temporalEnd}`,
-      explanation: `The temporal start "${temporalStart}" is after the temporal end "${temporalEnd}".`,
-      suggestion: 'Swap or correct the temporal anchor values.',
-    }, ownerId);
-  }
-
-  // 2. Dead references
+  // 1. Dead references
   const links = await exec.all<{ target_article_id: string }>(
     `SELECT al.target_article_id FROM article_links al WHERE al.source_article_id = ? AND al.owner_id = ?`,
     [articleId, ownerId],

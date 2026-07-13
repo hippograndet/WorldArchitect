@@ -8,8 +8,6 @@ export interface Article {
   status: ArticleStatus;
   templateType: TemplateType;
   depth: number;
-  temporalAnchorStart: string | null;
-  temporalAnchorEnd: string | null;
   isFixedPoint: boolean;
   currentVersionId: string | null;
   lockedByRunId: string | null;
@@ -23,7 +21,6 @@ export interface ArticleVersion {
   versionNumber: number;
   introduction: string;
   description: string;
-  chronology: string;
   expansionParams: Record<string, unknown> | null;
   proposalUsed: Record<string, unknown> | null;
   wordCount: number;
@@ -120,11 +117,9 @@ export type AcceptDraftResult =
 export interface DraftContent {
   description?: string;
   introduction?: string;
-  chronologySection?: string;
   childDescription?: string;
   parentAppend?: string;
   coherenceWarnings?: CoherenceWarning[];
   suggestedLinks?: { targetArticleTitle: string; targetArticleId: string | null }[];
-  temporalAnchor?: { start: string; end?: string } | null;
   retentionIssues?: { description: string; severity: 'warning' | 'critical' }[];
 }

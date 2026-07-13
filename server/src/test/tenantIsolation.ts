@@ -50,7 +50,6 @@ export async function createArticleFixture(
       title,
       introduction: 'A short archive note.',
       description: 'The old gate records the first treaty.',
-      chronology: 'Year 1: the treaty is signed.',
       templateType: 'general',
       isFixedPoint: false,
     }));

@@ -11,11 +11,6 @@ const SuggestedLinkSchema = z.object({
   targetArticleId: z.string().nullable().optional(),
 });
 
-const TemporalAnchorSchema = z
-  .object({ start: z.string(), end: z.string().optional() })
-  .nullable()
-  .optional();
-
 const MentionSchema = z.object({
   title: z.string().min(1).max(500),
   templateType: z.enum(['general', 'character', 'location', 'faction', 'historical_event']).default('general'),
@@ -29,7 +24,6 @@ export const GeneratedDraftContentSchema = z.object({
   parentAppend: z.string().optional(),
   coherenceWarnings: z.array(CoherenceWarningSchema).optional().default([]),
   suggestedLinks: z.array(SuggestedLinkSchema).optional().default([]),
-  temporalAnchor: TemporalAnchorSchema,
   retentionIssues: z
     .array(z.object({ description: z.string(), severity: z.enum(['warning', 'critical']) }))
     .optional()
