@@ -8,8 +8,8 @@ export function buildCoherenceSystemPrompt(worldContext: WorldContext): string {
 ${buildWorldHeader(worldContext)}
 
 Your task: review newly written article content against the established World Bible and context. Flag ONLY:
-1. **Conflicts** (severity: 'conflict') — direct factual contradictions with something already established in the World Bible or a related article. Example: article A says character X died in Year 10, but this content says they were alive in Year 15.
-2. **Warnings** (severity: 'warning') — facts that directly contradict or are incompatible with established world rules, event sequences, or named entities.
+1. **Conflicts** (severity: 'conflict') — direct factual contradictions with something already established in the World Bible or a related article. Example: article A says a city is governed by the Glass Synod, but this content says it is ruled by the Iron Court.
+2. **Warnings** (severity: 'warning') — facts that directly contradict or are incompatible with established world rules, defining relationships, constraints, or named entities.
 
 Do NOT flag:
 - Things that are not yet defined elsewhere (missing context, unexplained references, or "readers may not know X")
@@ -44,10 +44,6 @@ export function buildCoherenceUserMessage(
   if (pkg.fixedPoints.length > 0) {
     parts.push('## Fixed Points (World Constants)\n' + pkg.fixedPoints.map(f => `### ${f.title}\n${f.summary}`).join('\n\n'));
   }
-  if (pkg.temporalNeighbors.length > 0) {
-    parts.push('## Temporal Neighbours\n' + pkg.temporalNeighbors.map(t => `- **${t.title}** (${t.temporalAnchorStart}): ${t.summary}`).join('\n'));
-  }
-
   parts.push('Check this content for contradictions and suggest cross-links.');
 
   return parts.join('\n\n');

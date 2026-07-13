@@ -151,10 +151,9 @@ function toDependency(
  *
  * Default tier ordering:
  *   1. Parents (hierarchical links pointing to this article)
- *   2. Temporal neighbours (articles nearest in time, only when target has anchor)
- *   3. Siblings (other children of the same parents)
- *   4. Fixed points
- *   5. Referenced articles (titles only)
+ *   2. Siblings (other children of the same parents)
+ *   3. Fixed points
+ *   4. Referenced articles (titles only)
  *
  * Mode overrides:
  *   propose_children  — children tier added after siblings
@@ -177,8 +176,8 @@ export async function buildContextPackage(
 
   // Fetch target
   const target = await exec.get<Record<string, unknown>>(
-    `SELECT a.id, a.title, a.template_type, a.temporal_anchor_start, a.status, a.current_version_id,
-            av.introduction, av.description, av.chronology
+    `SELECT a.id, a.title, a.template_type, a.status, a.current_version_id,
+            av.introduction, av.description
      FROM articles a
      LEFT JOIN article_versions av ON av.id = a.current_version_id${ownerPredicate('av', options.ownerId)}
      WHERE a.id = ? AND ${worldOwnerPredicate('a', options.ownerId)}`,
@@ -188,27 +187,26 @@ export async function buildContextPackage(
   if (!target) throw new Error(`Article ${articleId} not found in world ${worldId}`);
 
   let targetDescription = (target.description as string) ?? '';
-  let targetChronology  = (target.chronology as string) ?? '';
+  const targetChronology = '';
   let targetIntroduction = (target.introduction as string) ?? '';
   const targetTitle = target.title as string;
   const targetTemplateType = target.template_type as string;
   const targetVersionId = (target.current_version_id as string | null) ?? null;
   const targetSubjectType = toSubjectType(targetTemplateType);
   const contextMode = toContextMode((target.status as string | null) ?? null);
-  const targetAnchor = (target.temporal_anchor_start as string | null) ?? null;
 
   const dependencies: ArticleDependencyReference[] = [];
 
   let budget = maxTokens;
   const contextDraftIds = new Set<string>();
   const latestDraftCache = new Map<string, Record<string, unknown> | undefined>();
-  const publishedVersionCache = new Map<string, { introduction: string; description: string; chronology: string } | undefined>();
+  const publishedVersionCache = new Map<string, { introduction: string; description: string } | undefined>();
 
-  const publishedVersionFor = async (targetArticleId: string): Promise<{ introduction: string; description: string; chronology: string } | undefined> => {
+  const publishedVersionFor = async (targetArticleId: string): Promise<{ introduction: string; description: string } | undefined> => {
     if (contextBasis !== 'published') return undefined;
     if (publishedVersionCache.has(targetArticleId)) return publishedVersionCache.get(targetArticleId);
-    const row = await exec.get<{ introduction: string; description: string; chronology: string }>(
-      `SELECT introduction, description, chronology
+    const row = await exec.get<{ introduction: string; description: string }>(
+      `SELECT introduction, description
        FROM article_versions
        WHERE article_id = ?${ownerPredicate('article_versions', options.ownerId)} AND is_published = 1
        ORDER BY version_number DESC
@@ -249,11 +247,6 @@ export async function buildContextPackage(
     return draftString(content, 'description') ?? draftString(content, 'childDescription') ?? fallback;
   };
 
-  if (contextBasis === 'published') {
-    const published = await publishedVersionFor(articleId);
-    if (published) targetChronology = published.chronology ?? targetChronology;
-  }
-
   const contextSummaryFor = async (targetArticleId: string, fallback: string): Promise<string> => {
     return draftIntroductionFor(targetArticleId, fallback);
   };
@@ -265,8 +258,8 @@ export async function buildContextPackage(
   targetIntroduction = await draftIntroductionFor(articleId, targetIntroduction);
   targetDescription = await draftDescriptionFor(articleId, targetDescription);
 
-  // reorganize: full description+chronology count against budget as read-only constraint
-  if (mode === 'reorganize') budget -= est(targetDescription) + est(targetChronology);
+  // Reorganize treats the current description as the read-only constraint.
+  if (mode === 'reorganize') budget -= est(targetDescription);
 
   const parents: ContextArticle[] = [];
   const siblings: ContextArticle[] = [];
@@ -367,47 +360,6 @@ export async function buildContextPackage(
     }
   };
 
-  const fillTemporalNeighbors = async (): Promise<void> => {
-    if (contextDepth === 'shallow') return;
-    const anchor = targetAnchor ?? '0000';
-
-    const before = await exec.all<Record<string, unknown>>(
-      `SELECT a.id, a.title, a.temporal_anchor_start, a.status, a.current_version_id, wbe.summary
-       FROM articles a
-       LEFT JOIN world_bible_entries wbe ON wbe.article_id = a.id${ownerPredicate('wbe', options.ownerId)}
-       WHERE a.world_id = ? AND a.temporal_anchor_start IS NOT NULL
-         ${ownerPredicate('a', options.ownerId)}
-         AND a.temporal_anchor_start < ? AND a.id != ?
-       ORDER BY a.temporal_anchor_start DESC, ${STATUS_ORDER} LIMIT 3`,
-      [...ownerParams(options.ownerId), worldId, ...ownerParams(options.ownerId), anchor, articleId],
-    );
-
-    const after = await exec.all<Record<string, unknown>>(
-      `SELECT a.id, a.title, a.temporal_anchor_start, a.status, a.current_version_id, wbe.summary
-       FROM articles a
-       LEFT JOIN world_bible_entries wbe ON wbe.article_id = a.id${ownerPredicate('wbe', options.ownerId)}
-       WHERE a.world_id = ? AND a.temporal_anchor_start IS NOT NULL
-         ${ownerPredicate('a', options.ownerId)}
-         AND a.temporal_anchor_start > ? AND a.id != ?
-       ORDER BY a.temporal_anchor_start ASC, ${STATUS_ORDER} LIMIT 3`,
-      [...ownerParams(options.ownerId), worldId, ...ownerParams(options.ownerId), anchor, articleId],
-    );
-
-    for (const r of [...before.reverse(), ...after]) {
-      const summary = await contextSummaryFor(r.id as string, (r.summary as string) ?? '');
-      const cost = est(`### ${r.title}\n${summary}\n`);
-      if (budget - cost < 0) break;
-      temporalNeighbors.push({
-        id: r.id as string,
-        title: r.title as string,
-        summary,
-        temporalAnchorStart: r.temporal_anchor_start as string,
-        source: buildContextSource(r),
-      });
-      budget -= cost;
-    }
-  };
-
   const fillChildren = async (): Promise<void> => {
     if (contextDepth === 'shallow') return;
 
@@ -438,7 +390,6 @@ export async function buildContextPackage(
   };
 
   await fillParents();
-  if (targetAnchor) await fillTemporalNeighbors();
 
   // Siblings — other children of the same parents (skip in shallow mode)
   if (parents.length > 0 && contextDepth !== 'shallow') {

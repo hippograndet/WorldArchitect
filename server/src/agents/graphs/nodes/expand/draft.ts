@@ -31,7 +31,6 @@ export async function scribeNode(state: OrchestrationState): Promise<Partial_> {
     templateType: pkg.targetTemplateType,
     currentIntroduction: pkg.targetIntroduction || undefined,
     currentDescription: pkg.targetDescription || undefined,
-    currentChronology: pkg.targetChronology || undefined,
     selectedIdeas: state.selectedIdeas,
     researchBrief: state.researchBrief,
     wordCountPreset: state.wordCountPreset,

@@ -7,12 +7,9 @@ interface ArticleExportRow {
   title: string;
   status: string;
   template_type: string;
-  temporal_anchor_start: string | null;
-  temporal_anchor_end: string | null;
   category_name: string;
   introduction: string;
   description: string;
-  chronology: string;
   summary: string;
 }
 
@@ -32,13 +29,6 @@ function buildMarkdown(row: ArticleExportRow): string {
   lines.push(`**Status:** ${row.status}`);
   lines.push(`**Template:** ${row.template_type}`);
 
-  if (row.temporal_anchor_start) {
-    const anchor = row.temporal_anchor_end
-      ? `${row.temporal_anchor_start} – ${row.temporal_anchor_end}`
-      : row.temporal_anchor_start;
-    lines.push(`**Temporal anchor:** ${anchor}`);
-  }
-
   lines.push('');
 
   const introduction = row.introduction || row.summary;
@@ -55,12 +45,6 @@ function buildMarkdown(row: ArticleExportRow): string {
     lines.push('');
     lines.push(row.description);
     lines.push('');
-  }
-
-  if (row.chronology) {
-    lines.push('## Chronology');
-    lines.push('');
-    lines.push(row.chronology);
   }
 
   return lines.join('\n');
@@ -82,12 +66,9 @@ export async function buildWorldZip(worldId: string, tenant?: TenantContext): Pr
        a.title,
        a.status,
        a.template_type,
-       a.temporal_anchor_start,
-       a.temporal_anchor_end,
        c.name AS category_name,
        COALESCE(av.introduction, '') AS introduction,
        COALESCE(av.description, '')  AS description,
-       COALESCE(av.chronology, '')   AS chronology,
        COALESCE(wbe.summary, '') AS summary
      FROM articles a
      JOIN categories c ON c.id = a.category_id

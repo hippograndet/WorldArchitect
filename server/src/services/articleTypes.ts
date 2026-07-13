@@ -60,9 +60,7 @@ export const ARTICLE_TYPES: ArticleTypeDefinition[] = [
     id: 'historical_event',
     label: 'Event',
     description: 'A significant incident, era, conflict, discovery, or turning point.',
-    metadataFields: [
-      { key: 'period', label: 'Period', scope: 'type', valueType: 'text', description: 'When this event occurs in the world chronology.' },
-    ],
+    metadataFields: [],
   },
 ];
 

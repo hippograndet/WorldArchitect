@@ -29,7 +29,7 @@ export type StyleWardenOutput = z.infer<typeof SubmitStyleCheckSchema>;
 export interface StyleWardenInput {
   articleTitle: string;
   content: string;
-  contentLabel: 'Description' | 'Chronology' | 'Introduction';
+  contentLabel: 'Description' | 'Introduction';
   worldContext: WorldContext;
 }
 

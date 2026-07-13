@@ -35,7 +35,6 @@ describe('prompt data boundaries', () => {
       'reorganize',
       pkg.targetIntroduction,
       pkg.targetDescription,
-      pkg.targetChronology,
       malicious,
     );
 

@@ -21,7 +21,7 @@ export function buildExpanderSystemPrompt(worldContext: WorldContext, mode: Expa
 
 Target length: ${lengthTarget} Separate ideas into distinct paragraphs with a blank line between each. Do not pad or repeat — stop when the content is complete.
 
-The Description is a thematic overview of the subject. It is not chronological — events belong in the separate ## Chronology section. Focus on nature, significance, characteristics, relationships, and role in the world.`;
+The Description is a timeless encyclopedia entry for the subject. Focus on nature, significance, characteristics, relationships, constraints, and role in the world. Avoid turning the article into a timeline or sequence of events unless the user's request explicitly calls for a brief historical note.`;
       break;
 
     case 'create_root':
@@ -69,7 +69,6 @@ export function buildExpanderUserMessage(
   mode: ExpanderMode,
   currentIntroduction?: string,
   currentDescription?: string,
-  currentChronology?: string,
   userSpec?: string,
   selectedIdeas?: IdeaItem[],
   researchBrief?: ResearchBrief,
@@ -85,7 +84,6 @@ export function buildExpanderUserMessage(
 
   if (mode === 'reorganize') {
     if (currentDescription) parts.push(`## Current Description (read-only constraint)\n${dataBlock('target.description', currentDescription)}`);
-    if (currentChronology)  parts.push(`## Current Chronology (read-only constraint)\n${dataBlock('target.chronology', currentChronology)}`);
   }
 
   if (selectedIdeas && selectedIdeas.length > 0) {

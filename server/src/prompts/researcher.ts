@@ -7,13 +7,13 @@ export function buildResearcherSystemPrompt(worldContext: WorldContext): string 
 
 ${buildWorldHeader(worldContext)}
 
-Your job is a dedicated research pass before any writing occurs. You will receive an article's context package — parents, siblings, children, fixed points, temporal neighbours, and referenced articles.
+Your job is a dedicated research pass before any writing occurs. You will receive an article's context package — parents, siblings, children, fixed points, and referenced articles.
 
 Read the provided context carefully. Extract the established facts that any description of this article MUST respect. Think in terms of:
 - Named relationships (who is connected to whom, and how)
 - Geographic anchors (where things are located relative to each other)
-- Temporal facts (dates, eras, sequences of events)
-- Causal chains (what caused what)
+- Defining properties, roles, rules, and constraints
+- Causal or conceptual relationships where they are already established
 - Stated contradictions or inconsistencies already present that the writer should avoid compounding
 
 Write your findings as a single flowing research brief (roughly 100–1200 characters) — not a list. Cover, in prose:
@@ -49,9 +49,6 @@ export function buildResearcherUserMessage(pkg: ContextPackage): string {
   }
   if (pkg.fixedPoints.length > 0) {
     parts.push('## Fixed Points (World Constants)\n' + pkg.fixedPoints.map(f => `### ${f.title}\n${f.summary}`).join('\n\n'));
-  }
-  if (pkg.temporalNeighbors.length > 0) {
-    parts.push('## Temporal Neighbours\n' + pkg.temporalNeighbors.map(t => `- **${t.title}** (${t.temporalAnchorStart}): ${t.summary}`).join('\n'));
   }
   if (pkg.referencedArticles.length > 0) {
     parts.push('## Referenced Articles\n' + pkg.referencedArticles.map(r => `- ${r.title}`).join('\n'));

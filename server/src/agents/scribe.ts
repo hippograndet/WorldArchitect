@@ -42,9 +42,8 @@ export type ScribeOutput =
 /**
  * No contextPackage — Scribe writes from the article's own identity/prior
  * content + Researcher's brief, not the raw neighborhood tiers. currentDescription
- * and currentChronology are only meaningful in 'reorganize' mode, where they're
- * the read-only content being reorganized (Scribe's own prior output, not
- * neighborhood data — that's why they survive here specifically).
+ * is meaningful in 'reorganize' mode, where it's the read-only content being
+ * reorganized (Scribe's own prior output, not neighborhood data).
  */
 export interface ScribeInput {
   worldContext: WorldContext;
@@ -53,7 +52,6 @@ export interface ScribeInput {
   templateType: string;
   currentIntroduction?: string;
   currentDescription?: string;
-  currentChronology?: string;
   selectedIdeas?: IdeaItem[];
   userSpec?: string;
   researchBrief?: ResearchBrief;
@@ -103,7 +101,6 @@ export class ScribeAgent extends BaseAgent<ScribeInput, ScribeOutput> {
       input.mode,
       input.currentIntroduction,
       input.currentDescription,
-      input.currentChronology,
       input.userSpec,
       input.selectedIdeas,
       input.researchBrief,

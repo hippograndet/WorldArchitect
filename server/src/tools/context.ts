@@ -105,8 +105,7 @@ export async function executeContextTool(worldId: string, call: ToolCall, ownerI
     case 'get_article': {
       const { articleId } = call.input as { articleId: string };
       const row = await exec.get<Record<string, unknown>>(
-        `SELECT a.id, a.title, a.template_type, a.temporal_anchor_start, a.temporal_anchor_end,
-                a.is_fixed_point, av.introduction, av.description, av.chronology
+        `SELECT a.id, a.title, a.template_type, a.is_fixed_point, av.introduction, av.description
          FROM articles a
          LEFT JOIN article_versions av ON av.id = a.current_version_id${ownerPredicate('av', ownerId)}
          WHERE a.id = ? AND ${worldOwnerPredicate('a', ownerId)}`,
@@ -117,12 +116,9 @@ export async function executeContextTool(worldId: string, call: ToolCall, ownerI
         id: row.id,
         title: row.title,
         templateType: row.template_type,
-        temporalAnchorStart: row.temporal_anchor_start ?? null,
-        temporalAnchorEnd: row.temporal_anchor_end ?? null,
         isFixedPoint: row.is_fixed_point === 1,
         introduction: (row.introduction as string) ?? '',
         description: (row.description as string) ?? '',
-        chronology: (row.chronology as string) ?? '',
       });
     }
 
