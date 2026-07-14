@@ -79,23 +79,6 @@ router.post('/estimate', asyncHandler(async (req, res) => {
 }));
 
 // ---------------------------------------------------------------------------
-// POST /api/worlds/:wid/agents/skeleton
-// ---------------------------------------------------------------------------
-
-router.post('/skeleton', requireLLM, checkCap, asyncHandler(async (req, res) => {
-  const parse = z.object({ seedText: z.string().min(1) }).safeParse(req.body);
-  if (!parse.success) throw new AppError(400, 'VALIDATION_ERROR', 'Invalid request', parse.error.flatten().fieldErrors);
-
-  const { worldId, ownerId } = requireTenantContext(req);
-  const world = await getDbClient().get('SELECT id FROM worlds WHERE id = ? AND owner_id = ?', [worldId, ownerId]);
-  if (!world) throw new AppError(404, 'NOT_FOUND', 'World not found');
-
-  const result = await coordinator.createWorld(worldId, parse.data.seedText);
-  const { tokenCount } = await getBibleMeta(worldId, ownerId);
-  res.json({ stubs: result.stubs, worldBibleTokenCount: tokenCount });
-}));
-
-// ---------------------------------------------------------------------------
 // POST /api/worlds/:wid/agents/propose  — Phase 1
 // Returns 5-10 thematic ideas (Muse) for the user, or Curator, to select from.
 // ---------------------------------------------------------------------------
@@ -367,8 +350,8 @@ router.post('/audit/accept-edge', asyncHandler(async (req, res) => {
   const { sourceArticleId, targetArticleId, linkType } = parse.data;
   const exec = getDbClient();
 
-  const sourceExists = await exec.get('SELECT id FROM articles WHERE id = ? AND world_id = ? AND owner_id = ?', [sourceArticleId, worldId, ownerId]);
-  const targetExists = await exec.get('SELECT id FROM articles WHERE id = ? AND world_id = ? AND owner_id = ?', [targetArticleId, worldId, ownerId]);
+  const sourceExists = await exec.get<{ current_version_id: string | null }>('SELECT current_version_id FROM articles WHERE id = ? AND world_id = ? AND owner_id = ?', [sourceArticleId, worldId, ownerId]);
+  const targetExists = await exec.get<{ current_version_id: string | null }>('SELECT current_version_id FROM articles WHERE id = ? AND world_id = ? AND owner_id = ?', [targetArticleId, worldId, ownerId]);
   if (!sourceExists || !targetExists) {
     res.status(404).json({ error: 'Source or target article not found in this world', code: 'NOT_FOUND' });
     return;
@@ -376,10 +359,10 @@ router.post('/audit/accept-edge', asyncHandler(async (req, res) => {
 
   await exec.transaction(async (tx) => {
     await tx.run(
-      `INSERT INTO article_links (source_article_id, target_article_id, owner_id, link_type)
-       VALUES (?, ?, ?, ?)
+      `INSERT INTO article_links (source_article_id, target_article_id, owner_id, link_type, source_version_id, target_version_id)
+       VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT (source_article_id, target_article_id) DO NOTHING`,
-      [sourceArticleId, targetArticleId, ownerId, linkType],
+      [sourceArticleId, targetArticleId, ownerId, linkType, sourceExists.current_version_id, targetExists.current_version_id],
     );
 
     await tx.run(

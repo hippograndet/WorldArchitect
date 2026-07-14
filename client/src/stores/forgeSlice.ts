@@ -141,7 +141,7 @@ export const forgeSlice: StateCreator<StoreState, [['zustand/immer', never]], []
       const { agentTargetArticleId, agentPipelineType, agentParams } = get();
       if (!agentTargetArticleId) return;
       const {
-        contextDepth, branchingMode, forgeMode, forgeMaxDepth, forgeMaxChildren,
+        contextDepth, contextBasis, branchingMode, forgeMode, forgeMaxDepth, forgeMaxChildren,
         coherenceCheckLevel, safetyNet,
         forgeContinuationMode, runValidationLevel,
         forgeInceptionExistingMode, forgeExpansionExistingMode, forgeBranchingExistingMode,
@@ -164,6 +164,7 @@ export const forgeSlice: StateCreator<StoreState, [['zustand/immer', never]], []
           articleIds: [agentTargetArticleId],
           pipelineType: agentPipelineType,
           contextDepth,
+          contextBasis,
           branchingMode,
           forgeMode,
           forgeMaxDepth,

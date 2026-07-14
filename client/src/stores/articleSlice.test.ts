@@ -85,6 +85,7 @@ const article1 = {
   isFixedPoint: false,
   depth: 1,
   currentVersionId: 'v1',
+  publishedVersionId: null,
   lockedByRunId: null,
   createdAt: 1000,
   updatedAt: 1000,

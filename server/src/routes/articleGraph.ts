@@ -104,8 +104,8 @@ router.post('/links', asyncHandler(async (req, res) => {
   }
 
   const exec = getDbClient();
-  const articles = await exec.all<{ id: string; depth: number }>(`
-    SELECT id, depth
+  const articles = await exec.all<{ id: string; depth: number; current_version_id: string | null }>(`
+    SELECT id, depth, current_version_id
     FROM articles
     WHERE world_id = ? AND owner_id = ? AND id IN (?, ?)
   `, [worldId, ownerId, sourceArticleId, targetArticleId]);
@@ -159,11 +159,11 @@ router.post('/links', asyncHandler(async (req, res) => {
     }
 
     await tx.run(`
-      INSERT INTO article_links (source_article_id, target_article_id, owner_id, link_type)
-      VALUES (?, ?, ?, ?)
+      INSERT INTO article_links (source_article_id, target_article_id, owner_id, link_type, source_version_id, target_version_id)
+      VALUES (?, ?, ?, ?, ?, ?)
       ON CONFLICT(source_article_id, target_article_id)
-      DO UPDATE SET link_type = excluded.link_type
-    `, [sourceArticleId, targetArticleId, ownerId, linkType]);
+      DO UPDATE SET link_type = excluded.link_type, source_version_id = excluded.source_version_id, target_version_id = excluded.target_version_id
+    `, [sourceArticleId, targetArticleId, ownerId, linkType, sourceArticle.current_version_id, targetArticle.current_version_id]);
 
     if (linkType === 'hierarchical') {
       const queue = [{ id: targetArticleId, depth: (sourceArticle.depth ?? 1) + 1 }];

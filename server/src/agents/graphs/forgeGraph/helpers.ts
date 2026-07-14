@@ -24,19 +24,31 @@ export function countWords(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length;
 }
 
-export async function getCurrentIntro(worldId: string, ownerId: string, articleId: string): Promise<string> {
-  const row = await getDbClient().get<{ summary: string }>(
-    'SELECT summary FROM world_bible_entries WHERE world_id = ? AND owner_id = ? AND article_id = ?',
-    [worldId, ownerId, articleId],
+/**
+ * "Existing content" for Inception's improve/create/skip decision. Under a
+ * published-basis run, this means the published version specifically (empty
+ * if the article was never published) — the same treatment applied to every
+ * other article pulled into this run's context (see archivist.ts) applied
+ * here to the article actually being edited, not just its neighbors.
+ */
+export async function getCurrentIntro(ownerId: string, articleId: string, contextBasis?: ForgeState['contextBasis']): Promise<string> {
+  const versionColumn = contextBasis === 'published' ? 'a.published_version_id' : 'a.current_version_id';
+  const row = await getDbClient().get<{ introduction: string }>(
+    `SELECT av.introduction
+     FROM articles a
+     LEFT JOIN article_versions av ON av.id = ${versionColumn}
+     WHERE a.id = ? AND a.owner_id = ?`,
+    [articleId, ownerId],
   );
-  return row?.summary ?? '';
+  return row?.introduction ?? '';
 }
 
-export async function getCurrentDescription(ownerId: string, articleId: string): Promise<string> {
+export async function getCurrentDescription(ownerId: string, articleId: string, contextBasis?: ForgeState['contextBasis']): Promise<string> {
+  const versionColumn = contextBasis === 'published' ? 'a.published_version_id' : 'a.current_version_id';
   const row = await getDbClient().get<{ description: string }>(
     `SELECT av.description
      FROM articles a
-     LEFT JOIN article_versions av ON av.id = a.current_version_id
+     LEFT JOIN article_versions av ON av.id = ${versionColumn}
      WHERE a.id = ? AND a.owner_id = ?`,
     [articleId, ownerId],
   );
@@ -178,6 +190,15 @@ export async function persistExpandDraft(params: {
   articleId: string;
   ownerId: string;
   description: string;
+  /**
+   * A staged Inception introduction not yet committed anywhere durable
+   * (see ForgeState.inceptionIntroChanged). Carrying it into the draft's own
+   * content means a later manual accept of this pending draft — whether from
+   * this run resuming or from the article page, outside any Forge run —
+   * still lands both pieces in one version, instead of the intro going stale
+   * or needing its own separate commit.
+   */
+  introduction?: string;
   runId?: string;
   contextBasis?: ForgeState['contextBasis'];
   contextDraftIds?: string[];
@@ -188,7 +209,10 @@ export async function persistExpandDraft(params: {
     articleId: params.articleId,
     pipelineType: 'expand_description',
     phase: 'done',
-    draftContent: { description: params.description },
+    draftContent: {
+      description: params.description,
+      ...(params.introduction !== undefined ? { introduction: params.introduction } : {}),
+    },
     sourceRunId: params.runId,
     runType: 'forge_expand',
     contextBasis: params.contextBasis,

@@ -1,4 +1,3 @@
-import { getDbClient } from '../db/client.js';
 import { getProvider, isLLMConfigured } from '../providers/index.js';
 import { renderBible } from './worldBible.js';
 
@@ -16,23 +15,6 @@ export async function estimateCallTokens(
   const bible = await renderBible(worldId, ownerId);
   const combined = [bible, extraText].filter(Boolean).join('\n\n');
   return countTokens(combined);
-}
-
-/**
- * Recompute and persist the world Bible's token count using the real provider
- * API when available. Replaces the char-based estimate written by Block 4's
- * refreshTokenCount() in worldBible.ts.
- */
-export async function updateBibleTokenCount(worldId: string, ownerId?: string): Promise<number> {
-  const rendered = await renderBible(worldId, ownerId);
-  const count = await countTokens(rendered);
-
-  await getDbClient().run(
-    `UPDATE world_bible_meta SET token_count = ?, updated_at = ? WHERE world_id = ?${ownerId ? ' AND owner_id = ?' : ''}`,
-    ownerId ? [count, Date.now(), worldId, ownerId] : [count, Date.now(), worldId],
-  );
-
-  return count;
 }
 
 // ---------------------------------------------------------------------------

@@ -10,7 +10,6 @@ interface ArticleExportRow {
   category_name: string;
   introduction: string;
   description: string;
-  summary: string;
 }
 
 function sanitizeFilename(title: string): string {
@@ -31,12 +30,10 @@ function buildMarkdown(row: ArticleExportRow): string {
 
   lines.push('');
 
-  const introduction = row.introduction || row.summary;
-
-  if (introduction) {
+  if (row.introduction) {
     lines.push('## Introduction');
     lines.push('');
-    lines.push(introduction);
+    lines.push(row.introduction);
     lines.push('');
   }
 
@@ -68,12 +65,10 @@ export async function buildWorldZip(worldId: string, tenant?: TenantContext): Pr
        a.template_type,
        c.name AS category_name,
        COALESCE(av.introduction, '') AS introduction,
-       COALESCE(av.description, '')  AS description,
-       COALESCE(wbe.summary, '') AS summary
+       COALESCE(av.description, '')  AS description
      FROM articles a
      JOIN categories c ON c.id = a.category_id
      LEFT JOIN article_versions av ON av.id = a.current_version_id
-     LEFT JOIN world_bible_entries wbe ON wbe.article_id = a.id
      WHERE a.world_id = ?
        ${tenant ? 'AND a.owner_id = ?' : ''}
      ORDER BY c.sort_order, a.title`,

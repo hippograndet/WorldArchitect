@@ -18,7 +18,10 @@ export function callCtx(state: OrchestrationState): { pipelineRunId: string; pip
 /** Returns true if the world bible has enough entries for a coherence check to be meaningful. */
 export async function hasSufficientBibleContent(worldId: string, ownerId?: string): Promise<boolean> {
   const row = await getDbClient().get<{ n: number }>(
-    `SELECT COUNT(*) AS n FROM world_bible_entries WHERE world_id = ?${ownerId ? ' AND owner_id = ?' : ''} AND summary != ''`,
+    `SELECT COUNT(*) AS n
+     FROM articles a
+     JOIN article_versions av ON av.id = a.current_version_id
+     WHERE a.world_id = ?${ownerId ? ' AND a.owner_id = ?' : ''} AND av.introduction != ''`,
     ownerId ? [worldId, ownerId] : [worldId],
   );
   return row!.n >= 5;

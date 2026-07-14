@@ -3,7 +3,6 @@ import { getDbClient } from '../db/client.js';
 import type { QueryExecutor } from '../db/executor.js';
 import { buildContextPackage } from './archivist.js';
 import { pointArticleAtVersion, writeArticleVersion } from './articleVersions.js';
-import { upsertEntry } from './worldBible.js';
 import { reindexArticle } from './searchIndex.js';
 import { runSyncRules } from './syncRules.js';
 import { MentionExtractorAgent } from '../agents/mentionExtractor.js';
@@ -166,18 +165,19 @@ export async function acceptEntityMention(input: {
   let targetArticleId = (mention.article_id as string | null) ?? null;
 
   await exec.transaction(async (tx) => {
-    const source = await tx.get<{ id: string; depth: number }>(
-      'SELECT id, depth FROM articles WHERE id = ? AND world_id = ? AND owner_id = ?',
+    const source = await tx.get<{ id: string; depth: number; current_version_id: string | null }>(
+      'SELECT id, depth, current_version_id FROM articles WHERE id = ? AND world_id = ? AND owner_id = ?',
       [mention.source_article_id as string, input.worldId, input.ownerId],
     );
     if (!source) throw new EntityMentionServiceError('Source article not found', 404, 'SOURCE_ARTICLE_NOT_FOUND');
 
-    const existing = await tx.get<{ id: string }>(
-      'SELECT id FROM articles WHERE world_id = ? AND owner_id = ? AND title = ? LIMIT 1',
+    const existing = await tx.get<{ id: string; current_version_id: string | null }>(
+      'SELECT id, current_version_id FROM articles WHERE world_id = ? AND owner_id = ? AND title = ? LIMIT 1',
       [input.worldId, input.ownerId, mention.title as string],
     );
 
     targetArticleId = existing?.id ?? targetArticleId;
+    let targetVersionId = existing?.current_version_id ?? null;
     if (!targetArticleId) {
       targetArticleId = nanoid();
       const versionId = nanoid();
@@ -205,16 +205,14 @@ export async function acceptEntityMention(input: {
         now,
       });
       await pointArticleAtVersion(tx, targetArticleId, versionId, now);
-      if (mention.summary) {
-        await upsertEntry(tx, input.worldId, targetArticleId, mention.summary as string);
-      }
+      targetVersionId = versionId;
     }
 
     await tx.run(`
-      INSERT INTO article_links (source_article_id, target_article_id, owner_id, link_type)
-      VALUES (?, ?, ?, 'references')
+      INSERT INTO article_links (source_article_id, target_article_id, owner_id, link_type, source_version_id, target_version_id)
+      VALUES (?, ?, ?, 'references', ?, ?)
       ON CONFLICT (source_article_id, target_article_id) DO NOTHING
-    `, [mention.source_article_id as string, targetArticleId, input.ownerId]);
+    `, [mention.source_article_id as string, targetArticleId, input.ownerId, source.current_version_id, targetVersionId]);
 
     await tx.run(
       `UPDATE entity_mentions SET article_id = ?, status = 'created' WHERE id = ? AND owner_id = ?`,

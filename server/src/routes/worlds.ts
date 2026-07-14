@@ -3,12 +3,10 @@ import { nanoid } from 'nanoid';
 import { z } from 'zod';
 import { getDbClient } from '../db/client.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
-import { isLLMConfigured, requireLLM } from '../providers/index.js';
-import { PipelineCoordinator } from '../agents/director.js';
+import { requireLLM } from '../providers/index.js';
 import { StylistAgent } from '../agents/stylist.js';
 import type { PromptEngineerFieldType } from '../prompts/promptEngineer.js';
 import { writeArticleVersionAndSetCurrent } from '../services/articleVersions.js';
-import { upsertEntry } from '../services/worldBible.js';
 import { reindexArticle } from '../services/searchIndex.js';
 import { getTenantContext, worldBelongsToTenant } from '../tenant.js';
 
@@ -38,7 +36,6 @@ const CreateWorldSchema = z.object({
   tone:          z.enum(['narrative', 'academic', 'terse', 'custom']).optional().default('narrative'),
   originPoint:   z.string().optional(),
   styleConfig:   StyleConfigSchema,
-  generateStubs: z.boolean().optional().default(false),
 });
 
 const DEFAULT_CATEGORIES = [
@@ -79,14 +76,13 @@ router.post('/', asyncHandler(async (req, res) => {
     return;
   }
 
-  const { name, description, tags, tone, originPoint, styleConfig, generateStubs } = parse.data;
+  const { name, description, tags, tone, originPoint, styleConfig } = parse.data;
   const exec = getDbClient();
   const ownerId = getTenantContext(req).ownerId;
   const now = Date.now();
   const worldId = nanoid();
   const articleId = nanoid();
   const versionId = nanoid();
-  const wordCount = description.split(/\s+/).filter(Boolean).length;
   const styleConfigJson = JSON.stringify(styleConfig ?? {});
 
   await exec.transaction(async (tx) => {
@@ -99,11 +95,6 @@ router.post('/', asyncHandler(async (req, res) => {
       INSERT INTO cost_settings (world_id, owner_id, daily_cap, bible_threshold)
       VALUES (?, ?, NULL, 80000)
     `, [worldId, ownerId]);
-
-    await tx.run(`
-      INSERT INTO world_bible_meta (world_id, owner_id, token_count, updated_at)
-      VALUES (?, ?, 0, ?)
-    `, [worldId, ownerId, now]);
 
     for (const [index, categoryName] of DEFAULT_CATEGORIES.entries()) {
       await tx.run(`
@@ -122,13 +113,10 @@ router.post('/', asyncHandler(async (req, res) => {
       ownerId,
       versionId,
       versionNumber: 1,
-      introduction: '',
-      description,
-      wordCount,
+      introduction: description,
+      description: '',
       now,
     });
-
-    await upsertEntry(tx, worldId, articleId, description);
   });
 
   await reindexArticle(worldId, articleId);
@@ -138,18 +126,6 @@ router.post('/', asyncHandler(async (req, res) => {
     'SELECT id, name, sort_order AS sortOrder FROM categories WHERE world_id = ? AND owner_id = ? ORDER BY sort_order',
     [worldId, ownerId],
   );
-
-  if (generateStubs && (await isLLMConfigured(ownerId))) {
-    try {
-      const seedText = [description, originPoint].filter(Boolean).join('\n\n');
-      const director = new PipelineCoordinator();
-      const skeletonResult = await director.createWorld(worldId, seedText);
-      res.status(201).json({ world: parseWorld(world!), rootArticleId: articleId, categories, stubs: skeletonResult.stubs });
-      return;
-    } catch {
-      // SkeletonAgent failure must not block world creation
-    }
-  }
 
   res.status(201).json({ world: parseWorld(world!), rootArticleId: articleId, categories });
 }));

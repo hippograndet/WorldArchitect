@@ -13,6 +13,7 @@ export interface ArticleRecord {
   depth: unknown;
   isFixedPoint: boolean;
   currentVersionId: unknown;
+  publishedVersionId: unknown;
   lockedByRunId: unknown;
   createdAt: unknown;
   updatedAt: unknown;
@@ -35,7 +36,7 @@ export interface ArticleVersionView {
   createdAt: unknown;
 }
 
-/** "The current content of an article" — the concept split across article_versions and world_bible_entries today. */
+/** "The current content of an article" — whatever articles.current_version_id points at in article_versions. */
 export interface ArticleContent {
   introduction: string;
   description: string;
@@ -52,6 +53,7 @@ export function parseArticle(row: DbRow): ArticleRecord {
     depth: row.depth ?? 1,
     isFixedPoint: row.is_fixed_point === 1,
     currentVersionId: row.current_version_id ?? null,
+    publishedVersionId: row.published_version_id ?? null,
     lockedByRunId: row.locked_by_run_id ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,

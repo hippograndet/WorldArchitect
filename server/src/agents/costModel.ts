@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { ArchitectAgent } from './architect.js';
 import { MuseAgent } from './muse.js';
 import { CuratorAgent } from './curator.js';
 import { ResearcherAgent } from './researcher.js';
@@ -84,7 +83,6 @@ export const RunEstimateRequestSchema = z.object({
 
 function allAgentInstances(): AnyAgent[] {
   return [
-    new ArchitectAgent(),
     new MuseAgent(),
     new CuratorAgent(),
     new ResearcherAgent(),

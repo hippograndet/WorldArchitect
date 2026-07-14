@@ -5,7 +5,6 @@ import type { WorldContext } from '../director.js';
 import type { ProposalMode } from '../../prompts/proposal.js';
 import type { ExpanderMode } from '../../prompts/expander.js';
 import type { AuditorArticleSummary } from '../../prompts/auditor.js';
-import type { Stub } from '../architect.js';
 import type { IdeaItem } from '../muse.js';
 import type { ChildProposalItem } from '../cartographer.js';
 import type { CoherenceWarning, SuggestedLink } from '../warden.js';
@@ -55,11 +54,6 @@ export const OrchestrationAnnotation = Annotation.Root({
   /** Correlates every agent call within this pipeline invocation in call_log — see routes/callLog.ts's /runs grouping. */
   pipelineRunId: Annotation<string>({ reducer: replace, default: () => '' }),
   pipelineType: Annotation<string>({ reducer: replace, default: () => '' }),
-
-  // --- createWorld (Architect) ---
-  seedText: Annotation<string | undefined>({ reducer: replace, default: () => undefined }),
-  categories: Annotation<Array<{ id: string; name: string }>>({ reducer: replace, default: () => [] }),
-  stubs: Annotation<Stub[]>({ reducer: replace, default: () => [] }),
 
   // --- Coherence checking — one global dial shared by Continuity Editor,
   // Grounding Check, and Dedup Check. 0 = no checkers at all. N = up to N

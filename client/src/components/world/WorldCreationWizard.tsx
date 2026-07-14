@@ -1,5 +1,5 @@
 import { FormEvent, useState, type ReactNode } from 'react';
-import { ArrowLeft, Check, Landmark, Sparkles } from 'lucide-react';
+import { ArrowLeft, Check, Sparkles } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../../stores/index.ts';
 import { api, type CharterAssistResponse } from '../../lib/api.ts';
@@ -8,38 +8,103 @@ import type { WorldStyleConfig } from '../../types/world.ts';
 interface CharterPreset {
   key: string;
   label: string;
+  text: string;
 }
 
 const PREMISE_PRESETS: CharterPreset[] = [
-  { key: 'civilization', label: 'Civilization' },
-  { key: 'conflict', label: 'Conflict' },
-  { key: 'mythology', label: 'Mythology' },
-  { key: 'frontier', label: 'Frontier' },
+  {
+    key: 'civilization',
+    label: 'Civilization',
+    text: 'A dominant civilization has organized this world around one institution - a faith, a bloodline, a technology, a law. That institution is old enough to feel permanent and is now being tested. Establish who holds power, who is starting to question it, and what founding story is used to justify the current order.',
+  },
+  {
+    key: 'conflict',
+    label: 'Conflict',
+    text: 'Two or more factions are contesting the same resource, territory, or claim to legitimacy, and neither can fully win. Establish who the sides are, what triggered the current phase of conflict, what an ordinary person stands to lose, and what an uneasy peace would require.',
+  },
+  {
+    key: 'mythology',
+    label: 'Mythology',
+    text: 'The world runs on a cosmology, pantheon, or origin myth that most people treat as literal truth. Establish what that myth claims, what it demands of believers, and where the gap between the myth and lived reality is starting to show.',
+  },
+  {
+    key: 'frontier',
+    label: 'Frontier',
+    text: 'A settled center and an unsettled edge are pulling against each other. Establish what draws people to the frontier, what authority (if any) the center still exercises there, what dangers or freedoms exist past its reach, and what is at stake for both sides as the frontier closes.',
+  },
 ];
 
 const AUTHORITY_PRESETS: CharterPreset[] = [
-  { key: 'neutral_reference', label: 'Neutral Reference' },
-  { key: 'official_archive', label: 'Official Archive' },
-  { key: 'field_notes', label: 'Field Notes' },
-  { key: 'oral_history', label: 'Oral History' },
+  {
+    key: 'neutral_reference',
+    label: 'Neutral Reference',
+    text: 'Written as a neutral reference work: no visible narrator, no editorializing, claims stated as settled fact.',
+  },
+  {
+    key: 'official_archive',
+    label: 'Official Archive',
+    text: 'Written as an official state or institutional archive: formal, authoritative, and shaped by whatever that institution wants remembered.',
+  },
+  {
+    key: 'field_notes',
+    label: 'Field Notes',
+    text: 'Written as a field researcher\'s notes: firsthand, provisional, occasionally uncertain, willing to flag what is not yet confirmed.',
+  },
+  {
+    key: 'oral_history',
+    label: 'Oral History',
+    text: 'Written as transcribed oral history: passed down through speakers, carrying the biases and gaps of memory and retelling.',
+  },
 ];
 
 const ATMOSPHERE_PRESETS: CharterPreset[] = [
-  { key: 'epic_fantasy', label: 'Epic Fantasy' },
-  { key: 'gritty_realism', label: 'Gritty Realism' },
-  { key: 'cosmic_horror', label: 'Cosmic Horror' },
-  { key: 'space_opera', label: 'Space Opera' },
+  {
+    key: 'epic_fantasy',
+    label: 'Epic Fantasy',
+    text: 'Epic in scale: high stakes, clear heroism and villainy, wonder alongside danger, a sense that events here will be remembered for generations.',
+  },
+  {
+    key: 'gritty_realism',
+    label: 'Gritty Realism',
+    text: 'Grounded and unglamorous: scarcity is real, victories are costly and partial, morality is compromised more often than clean.',
+  },
+  {
+    key: 'cosmic_horror',
+    label: 'Cosmic Horror',
+    text: 'Dread beneath the surface: the world is larger and older than anyone understands, and understanding too much comes at a cost.',
+  },
+  {
+    key: 'space_opera',
+    label: 'Space Opera',
+    text: 'Sweeping and dramatic across vast distance: factions, fleets, and personal loyalty matter as much as technology or scale.',
+  },
 ];
 
 const PROSE_PRESETS: CharterPreset[] = [
-  { key: 'elevated', label: 'Elevated' },
-  { key: 'lean_visceral', label: 'Lean & Visceral' },
-  { key: 'slow_dread', label: 'Slow Dread' },
-  { key: 'cinematic', label: 'Cinematic' },
+  {
+    key: 'elevated',
+    label: 'Elevated',
+    text: 'Elevated and formal: measured sentences, precise vocabulary, restrained metaphor, an unhurried and dignified pace.',
+  },
+  {
+    key: 'lean_visceral',
+    label: 'Lean & Visceral',
+    text: 'Lean and visceral: short sentences, concrete nouns, minimal adornment, immediate physical detail over abstraction.',
+  },
+  {
+    key: 'slow_dread',
+    label: 'Slow Dread',
+    text: 'Slow and accumulating: long, patient sentences that withhold and imply, letting unease build before anything is stated outright.',
+  },
+  {
+    key: 'cinematic',
+    label: 'Cinematic',
+    text: 'Cinematic and scene-driven: vivid imagery, brisk pacing, sensory detail that reads like it is being watched rather than summarized.',
+  },
 ];
 
 const ARCHITECTURE_PRESETS: CharterPreset[] = [
-  { key: 'basic', label: 'Basic' },
+  { key: 'basic', label: 'Basic', text: '' },
 ];
 
 interface CharterPresetButtonsProps {
@@ -213,9 +278,16 @@ export default function WorldCreationWizard() {
 
   const valid = name.trim().length > 0 && description.trim().length >= 20;
 
-  const applyPreset = (presets: CharterPreset[], key: string, select: (key: string) => void) => {
-    if (!presets.some((p) => p.key === key)) return;
+  const applyPreset = (
+    presets: CharterPreset[],
+    key: string,
+    select: (key: string) => void,
+    setValue?: (value: string) => void,
+  ) => {
+    const preset = presets.find((p) => p.key === key);
+    if (!preset) return;
     select(key);
+    setValue?.(preset.text);
   };
 
   const presetNameFor = (presets: CharterPreset[], selectedKey: string, currentValue: string) => {
@@ -320,25 +392,20 @@ export default function WorldCreationWizard() {
 
   return (
     <div className="min-h-screen bg-gray-100 text-gray-950">
-      <div className="mx-auto flex w-full max-w-7xl flex-col gap-8 px-4 py-8 sm:px-6 lg:px-8">
-        <button
-          type="button"
-          onClick={() => navigate('/')}
-          className="inline-flex w-fit items-center gap-2 rounded-md border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-gray-600 shadow-sm hover:bg-gray-50 hover:text-gray-950"
-        >
-          <ArrowLeft size={16} aria-hidden="true" />
-          Worlds
-        </button>
-
-        <header className="border-b border-gray-300 pb-8">
+      <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
+        <header className="flex items-start gap-4 border-b border-gray-300 pb-6">
+          <button
+            type="button"
+            onClick={() => navigate('/')}
+            className="inline-flex w-fit shrink-0 items-center gap-2 rounded-md border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-gray-600 shadow-sm hover:bg-gray-50 hover:text-gray-950"
+          >
+            <ArrowLeft size={16} aria-hidden="true" />
+            Worlds
+          </button>
           <div className="max-w-3xl">
-            <div className="mb-4 inline-flex items-center gap-2 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-gray-600 shadow-sm">
-              <Landmark size={14} className="text-slate-700" aria-hidden="true" />
-              World Charter
-            </div>
-            <h1 className="text-4xl font-bold tracking-normal text-gray-950 sm:text-5xl">Create a world</h1>
-            <p className="mt-4 max-w-2xl text-base leading-7 text-gray-600">
-              Establish the official record: premise, voice, atmosphere, prose style, and foundational architecture.
+            <h1 className="text-2xl font-bold tracking-normal text-gray-950">Create a world</h1>
+            <p className="mt-1 text-sm leading-6 text-gray-600">
+              Define this world's premise and writing style.
             </p>
           </div>
         </header>
@@ -371,7 +438,7 @@ export default function WorldCreationWizard() {
                 rows={7}
                 className=""
                 headerMeta={<span className="text-xs font-medium text-gray-400">{description.length} chars</span>}
-                onPreset={(key) => applyPreset(PREMISE_PRESETS, key, setSelectedPremisePreset)}
+                onPreset={(key) => applyPreset(PREMISE_PRESETS, key, setSelectedPremisePreset, setDescription)}
                 onChange={setDescription}
               />
             </section>
@@ -385,7 +452,7 @@ export default function WorldCreationWizard() {
               placeholder="Define the source and authority behind the encyclopedia: neutral reference work, state archive, field researcher, oral tradition, secret dossier, unreliable scholar, or another record-keeping stance. This controls who appears to be speaking and how certain the record sounds. It does not define sentence rhythm, vocabulary density, or literary style."
               recommendation="1-3 sentences, or 3-6 authority keywords."
               rows={4}
-              onPreset={(key) => applyPreset(AUTHORITY_PRESETS, key, setSelectedTonePreset)}
+              onPreset={(key) => applyPreset(AUTHORITY_PRESETS, key, setSelectedTonePreset, setToneGuidance)}
               onChange={setToneGuidance}
             />
 
@@ -398,7 +465,7 @@ export default function WorldCreationWizard() {
               placeholder="Describe the world's dominant mood and genre forces: dread or wonder, scarcity or abundance, myth or realism, cosmic scale or local intimacy, clean heroism or moral compromise. Define the pressure the setting puts on people."
               recommendation="2-4 sentences, or 5-10 atmosphere keywords."
               rows={4}
-              onPreset={(key) => applyPreset(ATMOSPHERE_PRESETS, key, setSelectedVibePreset)}
+              onPreset={(key) => applyPreset(ATMOSPHERE_PRESETS, key, setSelectedVibePreset, setVibe)}
               onChange={setVibe}
               onRefine={handleExpandVibe}
               refining={expandingVibe}
@@ -413,7 +480,7 @@ export default function WorldCreationWizard() {
               placeholder="Define how the text should be written on the page: plain or lyrical, dense or spare, formal or conversational, fast or measured, metaphor-heavy or concrete, terse or elaborate. This controls sentence rhythm, diction, paragraph shape, and exposition habits. It does not decide who authored the record."
               recommendation="2-4 sentences, or 5-10 prose rules."
               rows={4}
-              onPreset={(key) => applyPreset(PROSE_PRESETS, key, setSelectedWritingPreset)}
+              onPreset={(key) => applyPreset(PROSE_PRESETS, key, setSelectedWritingPreset, setWritingStyle)}
               onChange={setWritingStyle}
               onRefine={handleExpandStyle}
               refining={expandingStyle}

@@ -1,7 +1,6 @@
 import { nanoid } from 'nanoid';
 import type { QueryExecutor } from '../db/executor.js';
 import { getDbClient } from '../db/client.js';
-import { upsertEntry, getEntrySummary } from './worldBible.js';
 import { runSyncRules } from './syncRules.js';
 import { reindexArticle } from './searchIndex.js';
 import { GeneratedDraftContentSchema } from './articlesSchemas.js';
@@ -30,23 +29,6 @@ export class ArticleServiceError extends Error {
 }
 
 /**
- * Agents/manual edits should not silently overwrite user-confirmed or published
- * facts — they should require an explicit override instead. Published content
- * is the only status this guards; draft/reviewed/stub can always be overwritten.
- */
-function assertNotOverwritingPublished(article: DbRow, force: boolean | undefined): void {
-  if (force) return;
-  if ((article.status as string) === 'published') {
-    throw new ArticleServiceError(
-      'This article is published. Accepting or saving this change would silently overwrite published content — pass force=true to override.',
-      409,
-      'PUBLISHED_CONTENT_OVERWRITE',
-    );
-  }
-}
-
-/**
- * Defense-in-depth alongside assertNotOverwritingPublished, same call sites:
  * routes/agents.ts's assertArticleUnlocked is the fail-fast layer before an
  * LLM call is spent, but this is the actual write chokepoint — it also
  * catches a stray manual edit racing an active Spark run. `activeRunId` lets
@@ -71,7 +53,6 @@ export interface AcceptDraftInput {
   draftId?: string;
   descriptionOverride?: string;
   introductionOverride?: string;
-  force?: boolean;
   activeRunId?: string;
 }
 
@@ -97,7 +78,6 @@ export interface UpdateArticleInput {
   status?: 'stub' | 'draft' | 'reviewed';
   title?: string;
   isFixedPoint?: boolean;
-  force?: boolean;
   activeRunId?: string;
 }
 
@@ -133,23 +113,16 @@ export interface CommitArticleContentInput {
   expansionParams?: unknown;
   proposalUsed?: unknown;
   wordCount?: number;
-  /**
-   * Whether to sync world_bible_entries with `introduction`. Defaults to true.
-   * Set false when a commit doesn't actually change the introduction (e.g. a
-   * description-only append) — upsertEntry re-renders the whole world Bible
-   * to refresh its token count, which is wasteful to trigger for no reason.
-   */
-  syncBibleIntroduction?: boolean;
 }
 
 /**
  * The single chokepoint for "commit new content onto an existing article":
  * write a new article_versions row, point articles.current_version_id at it,
- * optionally update status, and keep world_bible_entries in sync — the three
- * things updateArticle/acceptDraft/revertArticleVersion used to each do by
- * hand, in slightly different shapes. Row *creation* (createArticle,
- * batchCreateChildArticles, create_child's new article) stays outside this —
- * there's no existing current_version_id to move there.
+ * and optionally update status — the three things updateArticle/acceptDraft/
+ * revertArticleVersion used to each do by hand, in slightly different shapes.
+ * Row *creation* (createArticle, batchCreateChildArticles, create_child's new
+ * article) stays outside this — there's no existing current_version_id to
+ * move there.
  */
 async function commitArticleContent(
   exec: QueryExecutor,
@@ -174,10 +147,6 @@ async function commitArticleContent(
     await exec.run('UPDATE articles SET status = ? WHERE id = ? AND owner_id = ?', [input.status, input.articleId, input.ownerId]);
   }
 
-  if (input.syncBibleIntroduction ?? true) {
-    await upsertEntry(exec, input.worldId, input.articleId, input.introduction);
-  }
-
   return {
     versionId,
     introduction: input.introduction,
@@ -187,12 +156,8 @@ async function commitArticleContent(
 }
 
 /**
- * The matching read side: "current content" today is article_versions for
- * description, but world_bible_entries for introduction (see commitArticleContent
- * doc and dev-docs/engineering/practices.md) — this centralizes that merge
- * instead of leaving it inline in routes/articles.ts. Same semantics as
- * before: introduction prefers the Bible entry, falling back to the version's
- * own snapshot only if no Bible row exists yet.
+ * The matching read side: "current content" is just whatever
+ * articles.current_version_id points at in article_versions.
  */
 export async function getCurrentArticleContent(
   exec: QueryExecutor,
@@ -204,13 +169,9 @@ export async function getCurrentArticleContent(
         [input.currentVersionId],
       )
     : undefined;
-  const bibleEntry = await exec.get<{ summary: string }>(
-    'SELECT summary FROM world_bible_entries WHERE article_id = ? AND owner_id = ?',
-    [input.articleId, input.ownerId],
-  );
 
   return {
-    introduction: bibleEntry?.summary ?? (version?.introduction as string | undefined) ?? '',
+    introduction: (version?.introduction as string | undefined) ?? '',
     description: (version?.description as string) ?? '',
     wordCount: (version?.word_count as number) ?? 0,
   };
@@ -264,10 +225,6 @@ export async function createArticle(input: CreateArticleInput) {
       description,
       now,
     });
-
-    if (input.introduction.trim()) {
-      await upsertEntry(tx, input.worldId, articleId, input.introduction);
-    }
   });
 
   await reindexArticle(input.worldId, articleId);
@@ -282,7 +239,6 @@ export async function updateArticle(input: UpdateArticleInput) {
   const exec = getDbClient();
   const article = await requireArticleForTenant(exec, input, input.articleId);
   if (!article) throw new ArticleServiceError('Article not found', 404);
-  assertNotOverwritingPublished(article, input.force);
   assertNotLocked(article, input.activeRunId);
 
   if (
@@ -296,23 +252,21 @@ export async function updateArticle(input: UpdateArticleInput) {
   }
 
   const current = article.current_version_id
-    ? await exec.get<{ description: string }>(
-        'SELECT description FROM article_versions WHERE id = ? AND owner_id = ?',
+    ? await exec.get<{ introduction: string; description: string }>(
+        'SELECT introduction, description FROM article_versions WHERE id = ? AND owner_id = ?',
         [article.current_version_id, input.ownerId],
       )
     : undefined;
 
   const description = bodyToDescription(input.body, input.description);
-  // Sourced from the World Bible entry, not article_versions.introduction:
-  // Inception's accept path (forgeGraph/nodes.ts) still writes only there,
-  // never through commitArticleContent, so the version-table copy can go
-  // stale as soon as Inception accepts a new introduction. Once this edit
-  // does supply its own introduction, commitArticleContent (below) syncs the
-  // Bible entry to match, closing the loop for this write.
-  const newIntroduction = input.introduction ?? await getEntrySummary(exec, input.worldId, input.articleId);
+  const newIntroduction = input.introduction ?? current?.introduction ?? '';
   const newDescription = description ?? current?.description ?? '';
   const hasContent = newDescription.trim() || newIntroduction.trim();
-  const effectiveStatus = input.status ?? (hasContent ? 'draft' : 'stub');
+  // A published article stays 'published' through further edits — the
+  // published pointer is what freezes the official version, not this label.
+  // Leaving status untouched (undefined) here means commitArticleContent
+  // skips the UPDATE entirely rather than downgrading it to 'draft'.
+  const effectiveStatus = input.status ?? (article.status === 'published' ? undefined : (hasContent ? 'draft' : 'stub'));
 
   let versionId = '';
   await exec.transaction(async (tx) => {
@@ -323,7 +277,6 @@ export async function updateArticle(input: UpdateArticleInput) {
       introduction: newIntroduction,
       description: newDescription,
       status: effectiveStatus,
-      syncBibleIntroduction: input.introduction !== undefined,
     });
     versionId = result.versionId;
 
@@ -365,11 +318,6 @@ export async function revertArticleVersion(input: RevertArticleInput) {
 
   let newVersionId = '';
   await exec.transaction(async (tx) => {
-    // syncBibleIntroduction (default true) keeps the World Bible entry (the
-    // article page's displayed introduction) in sync with whatever version
-    // just became current — otherwise a revert would restore the old
-    // introduction into article_versions while the Bible entry kept showing
-    // whatever was there before the revert.
     const result = await commitArticleContent(tx, {
       worldId: input.worldId,
       articleId: input.articleId,
@@ -392,7 +340,7 @@ export async function revertArticleVersion(input: RevertArticleInput) {
 export async function batchCreateChildArticles(input: BatchCreateChildArticlesInput) {
   const exec = getDbClient();
   const parent = await exec.get<DbRow>(
-    'SELECT id, depth FROM articles WHERE id = ? AND world_id = ? AND owner_id = ?',
+    'SELECT id, depth, current_version_id FROM articles WHERE id = ? AND world_id = ? AND owner_id = ?',
     [input.parentArticleId, input.worldId, input.ownerId],
   );
   if (!parent) throw new ArticleServiceError('Parent article not found', 404);
@@ -435,12 +383,10 @@ export async function batchCreateChildArticles(input: BatchCreateChildArticlesIn
       });
 
       await tx.run(`
-        INSERT INTO article_links (source_article_id, target_article_id, owner_id, link_type)
-        VALUES (?, ?, ?, 'hierarchical')
+        INSERT INTO article_links (source_article_id, target_article_id, owner_id, link_type, source_version_id, target_version_id)
+        VALUES (?, ?, ?, 'hierarchical', ?, ?)
         ON CONFLICT (source_article_id, target_article_id) DO NOTHING
-      `, [input.parentArticleId, articleId, input.ownerId]);
-
-      await upsertEntry(tx, input.worldId, articleId, child.introduction);
+      `, [input.parentArticleId, articleId, input.ownerId, parent.current_version_id, versionId]);
 
       created.push({ id: articleId, title: child.title });
     }
@@ -458,7 +404,6 @@ export async function acceptDraft(input: AcceptDraftInput) {
   const exec = getDbClient();
   const article = await requireArticleForTenant(exec, input, articleId);
   if (!article) throw new ArticleServiceError('Article not found', 404);
-  assertNotOverwritingPublished(article, input.force);
   assertNotLocked(article, input.activeRunId);
 
   const draft = input.draftId
@@ -510,20 +455,13 @@ export async function acceptDraft(input: AcceptDraftInput) {
   const touchedArticleIds = new Set<string>([articleId]);
 
   const currentVersion = article.current_version_id
-    ? await exec.get<{ description: string }>(
-        'SELECT description FROM article_versions WHERE id = ? AND owner_id = ?',
+    ? await exec.get<{ introduction: string; description: string }>(
+        'SELECT introduction, description FROM article_versions WHERE id = ? AND owner_id = ?',
         [article.current_version_id, ownerId],
       )
     : undefined;
   const currentDescription = currentVersion?.description ?? '';
-  // Sourced from the World Bible entry, not article_versions.introduction:
-  // Inception's accept path (forgeGraph/nodes.ts) only writes the introduction
-  // there, never to article_versions, so the version-table copy goes stale as
-  // soon as Inception accepts a new introduction. Reading the Bible entry here
-  // is what keeps a later Expansion-draft accept from carrying forward and
-  // re-committing that stale value (which would also silently revert the
-  // Bible entry back to it via the upsertEntry call below).
-  const currentIntroduction = await getEntrySummary(exec, worldId, articleId);
+  const currentIntroduction = currentVersion?.introduction ?? '';
 
   let newDescription: string;
   let newIntroduction: string;
@@ -567,29 +505,23 @@ export async function acceptDraft(input: AcceptDraftInput) {
       });
 
       await tx.run(`
-        INSERT INTO article_links (source_article_id, target_article_id, owner_id, link_type)
-        VALUES (?, ?, ?, 'hierarchical')
+        INSERT INTO article_links (source_article_id, target_article_id, owner_id, link_type, source_version_id, target_version_id)
+        VALUES (?, ?, ?, 'hierarchical', ?, ?)
         ON CONFLICT (source_article_id, target_article_id) DO NOTHING
-      `, [articleId, childId, ownerId]);
-
-      if (newIntroduction) {
-        await upsertEntry(tx, worldId, childId, newIntroduction);
-      }
+      `, [articleId, childId, ownerId, article.current_version_id, childVersionId]);
 
       if (parentUpdate?.appendText) {
         const appendedDesc = currentDescription
           ? `${currentDescription}\n\n${parentUpdate.appendText}`
           : parentUpdate.appendText;
 
-        // Parent's introduction is unchanged here — carrying currentIntroduction
-        // through without re-syncing the Bible entry avoids a wasted rewrite.
+        // Parent's introduction is unchanged here — just appending to its description.
         await commitArticleContent(tx, {
           worldId,
           articleId,
           ownerId,
           introduction: currentIntroduction,
           description: appendedDesc,
-          syncBibleIntroduction: false,
         });
       }
 
@@ -602,10 +534,11 @@ export async function acceptDraft(input: AcceptDraftInput) {
         ownerId,
         introduction: newIntroduction,
         description: newDescription,
-        status: 'draft',
+        // A published article stays 'published' through further accepts —
+        // see the matching comment in updateArticle.
+        status: (article.status as string) === 'published' ? undefined : 'draft',
         expansionParams: draft.expansion_params,
         proposalUsed: draft.selected_proposal,
-        syncBibleIntroduction: Boolean(newIntroduction),
       });
       versionId = result.versionId;
     }
@@ -620,11 +553,15 @@ export async function acceptDraft(input: AcceptDraftInput) {
 
     for (const link of suggestedLinks) {
       if (!link.targetArticleId) continue;
+      const targetRow = await tx.get<{ current_version_id: string | null }>(
+        'SELECT current_version_id FROM articles WHERE id = ? AND owner_id = ?',
+        [link.targetArticleId, ownerId],
+      );
       await tx.run(`
-        INSERT INTO article_links (source_article_id, target_article_id, owner_id, link_type)
-        VALUES (?, ?, ?, 'references')
+        INSERT INTO article_links (source_article_id, target_article_id, owner_id, link_type, source_version_id, target_version_id)
+        VALUES (?, ?, ?, 'references', ?, ?)
         ON CONFLICT (source_article_id, target_article_id) DO NOTHING
-      `, [articleId, link.targetArticleId, ownerId]);
+      `, [articleId, link.targetArticleId, ownerId, versionId || article.current_version_id, targetRow?.current_version_id ?? null]);
     }
 
     await markDraftAccepted({ worldId, articleId, ownerId, draftId, exec: tx });

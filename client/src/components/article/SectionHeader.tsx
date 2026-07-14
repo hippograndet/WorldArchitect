@@ -1,13 +1,11 @@
-import { Pencil, Plus } from 'lucide-react';
+import { Plus } from 'lucide-react';
 
 export default function SectionHeader({
   title,
-  onEdit,
   onAdd,
   pending,
 }: {
   title: string;
-  onEdit?: () => void;
   onAdd?: () => void;
   pending?: boolean;
 }) {
@@ -29,15 +27,6 @@ export default function SectionHeader({
           title={`Add to ${title}`}
         >
           <Plus size={14} />
-        </button>
-      )}
-      {onEdit && (
-        <button
-          onClick={onEdit}
-          className="flex items-center gap-1 text-xs text-gray-400 hover:text-blue-600 transition-colors"
-          title={`Edit ${title}`}
-        >
-          <Pencil size={14} />
         </button>
       )}
     </div>

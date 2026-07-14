@@ -1,4 +1,4 @@
-export type ArticleStatus = 'stub' | 'draft' | 'reviewed';
+export type ArticleStatus = 'stub' | 'draft' | 'reviewed' | 'published';
 export type TemplateType = 'general' | 'character' | 'location' | 'faction' | 'historical_event';
 
 export interface Article {
@@ -10,6 +10,7 @@ export interface Article {
   depth: number;
   isFixedPoint: boolean;
   currentVersionId: string | null;
+  publishedVersionId: string | null;
   lockedByRunId: string | null;
   createdAt: number;
   updatedAt: number;

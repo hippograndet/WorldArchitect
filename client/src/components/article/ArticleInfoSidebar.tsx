@@ -22,6 +22,7 @@ export default function ArticleInfoSidebar() {
   const references = links.filter((l) => l.linkType === 'references');
 
   const wordCount = version?.wordCount ?? 0;
+  const hasUnpublishedChanges = Boolean(article.publishedVersionId) && article.publishedVersionId !== article.currentVersionId;
 
   return (
     <aside className="w-60 shrink-0 sticky top-8 flex flex-col gap-4 text-xs">
@@ -88,11 +89,18 @@ export default function ArticleInfoSidebar() {
         <div className="flex justify-between">
           <span className="text-gray-400">Status</span>
           <span className={`font-medium ${
-            article.status === 'reviewed' ? 'text-green-600' :
-            article.status === 'draft'    ? 'text-blue-600' :
-                                            'text-gray-500'
+            article.status === 'published' ? 'text-purple-600' :
+            article.status === 'reviewed'  ? 'text-green-600' :
+            article.status === 'draft'     ? 'text-blue-600' :
+                                              'text-gray-500'
           }`}>{article.status}</span>
         </div>
+        {hasUnpublishedChanges && (
+          <div className="flex justify-between">
+            <span className="text-gray-400">Since publish</span>
+            <span className="font-medium text-amber-600">unpublished edits</span>
+          </div>
+        )}
         <div className="flex justify-between">
           <span className="text-gray-400">Type</span>
           <span>{article.templateType}</span>

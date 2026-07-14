@@ -1,3 +1,4 @@
+import { forwardRef, useImperativeHandle } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { Markdown } from 'tiptap-markdown';
@@ -11,11 +12,13 @@ const TOOLBAR: { label: string; title: string; active: (editor: ReturnType<typeo
 
 interface Props {
   initialContent: string;
-  onSave: (markdown: string) => Promise<void>;
-  onCancel: () => void;
 }
 
-export default function MarkdownSectionEditor({ initialContent, onSave, onCancel }: Props) {
+export interface MarkdownSectionEditorHandle {
+  getMarkdown: () => string;
+}
+
+const MarkdownSectionEditor = forwardRef<MarkdownSectionEditorHandle, Props>(({ initialContent }, ref) => {
   const editor = useEditor({
     extensions: [
       StarterKit,
@@ -24,11 +27,9 @@ export default function MarkdownSectionEditor({ initialContent, onSave, onCancel
     content: initialContent,
   });
 
-  const handleSave = async () => {
-    if (!editor) return;
-    const md = editor.storage.markdown.getMarkdown() as string;
-    await onSave(md.trim());
-  };
+  useImperativeHandle(ref, () => ({
+    getMarkdown: () => ((editor?.storage.markdown.getMarkdown() as string | undefined) ?? '').trim(),
+  }), [editor]);
 
   return (
     <div className="border border-blue-300 rounded-xl overflow-hidden">
@@ -51,22 +52,10 @@ export default function MarkdownSectionEditor({ initialContent, onSave, onCancel
         editor={editor}
         className="prose prose-gray max-w-none p-4 min-h-[200px] [&_.ProseMirror]:outline-none [&_.ProseMirror]:min-h-[180px]"
       />
-
-      {/* Actions */}
-      <div className="flex items-center gap-2 px-4 py-2 border-t border-gray-100 bg-gray-50">
-        <button
-          onClick={handleSave}
-          className="px-4 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium"
-        >
-          Save
-        </button>
-        <button
-          onClick={onCancel}
-          className="px-3 py-1.5 text-sm text-gray-500 hover:text-gray-700"
-        >
-          Cancel
-        </button>
-      </div>
     </div>
   );
-}
+});
+
+MarkdownSectionEditor.displayName = 'MarkdownSectionEditor';
+
+export default MarkdownSectionEditor;

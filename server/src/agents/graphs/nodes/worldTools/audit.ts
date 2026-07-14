@@ -1,5 +1,4 @@
 import { getDbClient } from '../../../../db/client.js';
-import { ownerParams, ownerPredicate } from '../../../../db/tenantScope.js';
 import { AuditorAgent } from '../../../auditor.js';
 import { callCtx } from '../shared.js';
 import type { OrchestrationState } from '../../state.js';
@@ -34,12 +33,12 @@ export async function loadAuditSummariesNode(state: OrchestrationState): Promise
   }
 
   const rows = await exec.all<{ id: string; title: string; summary: string | null }>(
-    `SELECT a.id, a.title, wbe.summary
+    `SELECT a.id, a.title, av.introduction AS summary
      FROM articles a
-     LEFT JOIN world_bible_entries wbe ON wbe.article_id = a.id${ownerPredicate('wbe', state.ownerId)}
+     LEFT JOIN article_versions av ON av.id = a.current_version_id
      WHERE ${articleFilters.join(' AND ')}
      ORDER BY a.depth ASC, a.title ASC`,
-    [...ownerParams(state.ownerId), ...articleParams],
+    articleParams,
   );
 
   const linkRows = await exec.all<{

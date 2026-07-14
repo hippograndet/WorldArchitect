@@ -67,6 +67,17 @@ export const ForgeAnnotation = Annotation.Root({
   currentItem: Annotation<ForgeQueueItem | undefined>({ reducer: replace, default: () => undefined }),
   inceptionIntro: Annotation<string | undefined>({ reducer: replace, default: () => undefined }),
   /**
+   * True from the moment Inception accepts a new introduction for
+   * currentItem until something durably carries it forward — either
+   * Expansion's own commit (which consumes it via acceptDraft's
+   * introductionOverride and clears this flag) or, if Expansion never
+   * reaches a commit this cycle (one_step runs, a rejected/errored
+   * Expansion), finishItemNode committing it alone. Left false when
+   * inceptionIntro was only carried for context (e.g. the skip_existing
+   * branch), since nothing actually changed there.
+   */
+  inceptionIntroChanged: Annotation<boolean>({ reducer: replace, default: () => false }),
+  /**
    * Context package built while processing currentItem — set by inceptionNode
    * (patched with the freshly-written intro) when Inception runs, reused by
    * expansionNode instead of rebuilding; reset alongside inceptionIntro each

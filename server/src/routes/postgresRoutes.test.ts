@@ -158,7 +158,7 @@ describe('core routes on Postgres', () => {
     });
   });
 
-  it('commits a manual introduction edit as a real version, blocked while locked or published', async ({ skip }) => {
+  it('commits a manual introduction edit as a real version, blocked while locked, and a new draft on top of a published version leaves the published pointer untouched', async ({ skip }) => {
     if (skipIfUnavailable(skip)) return;
 
     const { world, categories } = await createTenantFixture(request!, 'user-a', 'Lantern Reach');
@@ -210,21 +210,100 @@ describe('core routes on Postgres', () => {
     );
 
     await runWithUserContext('user-a', () =>
-      getDbClient().run(`UPDATE articles SET status = 'published' WHERE id = ?`, [articleId]),
+      getDbClient().run(`UPDATE articles SET status = 'published', published_version_id = current_version_id WHERE id = ?`, [articleId]),
     );
-    const publishedAttempt = await request!
-      .patch(`/api/worlds/${world.id}/articles/${articleId}`)
-      .set(asUser('user-a'))
-      .send({ introduction: 'Should not be saved without force.' })
-      .expect(409);
-    expect(publishedAttempt.body.code).toBe('PUBLISHED_CONTENT_OVERWRITE');
+    const beforeEdit = await runWithUserContext('user-a', () =>
+      getDbClient().get<{ current_version_id: string; published_version_id: string }>(
+        'SELECT current_version_id, published_version_id FROM articles WHERE id = ?',
+        [articleId],
+      ),
+    );
+    expect(beforeEdit?.current_version_id).toBe(beforeEdit?.published_version_id);
 
-    const forced = await request!
+    // Editing a published article just works — no block, no force needed —
+    // and proposes a new version without touching the published pointer.
+    const editedAfterPublish = await request!
       .patch(`/api/worlds/${world.id}/articles/${articleId}`)
       .set(asUser('user-a'))
-      .send({ introduction: 'Saved with an explicit override.', force: true })
+      .send({ introduction: 'A new draft proposed on top of the published version.' })
       .expect(200);
-    expect(forced.body.version.introduction).toBe('Saved with an explicit override.');
+    expect(editedAfterPublish.body.version.introduction).toBe('A new draft proposed on top of the published version.');
+    expect(editedAfterPublish.body.version.versionNumber).toBe(3);
+
+    const afterEdit = await runWithUserContext('user-a', () =>
+      getDbClient().get<{ current_version_id: string; published_version_id: string }>(
+        'SELECT current_version_id, published_version_id FROM articles WHERE id = ?',
+        [articleId],
+      ),
+    );
+    expect(afterEdit?.published_version_id).toBe(beforeEdit?.published_version_id);
+    expect(afterEdit?.current_version_id).not.toBe(afterEdit?.published_version_id);
+  });
+
+  it('publishes an article, drops it from staged, and resurfaces it after a further edit', async ({ skip }) => {
+    if (skipIfUnavailable(skip)) return;
+
+    const { world, categories } = await createTenantFixture(request!, 'user-a', 'Copperlight Marsh');
+    const created = await createArticleFixture(request!, 'user-a', world.id, categories[0].id, 'Marsh Charter');
+    const articleId = created.article.id;
+
+    const stagedBefore = await request!
+      .get(`/api/worlds/${world.id}/publish/staged`)
+      .set(asUser('user-a'))
+      .expect(200);
+    expect(stagedBefore.body.map((a: { id: string }) => a.id)).toContain(articleId);
+
+    const committed = await request!
+      .post(`/api/worlds/${world.id}/publish/commit`)
+      .set(asUser('user-a'))
+      .send({ articleIds: [articleId] })
+      .expect(200);
+    expect(committed.body.published).toEqual([articleId]);
+
+    const stagedAfterPublish = await request!
+      .get(`/api/worlds/${world.id}/publish/staged`)
+      .set(asUser('user-a'))
+      .expect(200);
+    expect(stagedAfterPublish.body.map((a: { id: string }) => a.id)).not.toContain(articleId);
+
+    const published = await runWithUserContext('user-a', () =>
+      getDbClient().get<{ current_version_id: string; published_version_id: string }>(
+        'SELECT current_version_id, published_version_id FROM articles WHERE id = ?',
+        [articleId],
+      ),
+    );
+    expect(published?.published_version_id).toBe(published?.current_version_id);
+
+    // Editing past the published version resurfaces it as republishable.
+    await request!
+      .patch(`/api/worlds/${world.id}/articles/${articleId}`)
+      .set(asUser('user-a'))
+      .send({ introduction: 'A revision proposed after publishing.' })
+      .expect(200);
+
+    const stagedAfterEdit = await request!
+      .get(`/api/worlds/${world.id}/publish/staged`)
+      .set(asUser('user-a'))
+      .expect(200);
+    const staged = stagedAfterEdit.body.find((a: { id: string }) => a.id === articleId);
+    expect(staged).toBeDefined();
+    expect(staged.previouslyPublished).toBe(true);
+
+    const republished = await request!
+      .post(`/api/worlds/${world.id}/publish/commit`)
+      .set(asUser('user-a'))
+      .send({ articleIds: [articleId] })
+      .expect(200);
+    expect(republished.body.published).toEqual([articleId]);
+
+    const afterRepublish = await runWithUserContext('user-a', () =>
+      getDbClient().get<{ current_version_id: string; published_version_id: string }>(
+        'SELECT current_version_id, published_version_id FROM articles WHERE id = ?',
+        [articleId],
+      ),
+    );
+    expect(afterRepublish?.published_version_id).toBe(afterRepublish?.current_version_id);
+    expect(afterRepublish?.published_version_id).not.toBe(published?.published_version_id);
   });
 
   it('creates runs, preserves lock rollback on conflict, and releases locks on cancel', async ({ skip }) => {

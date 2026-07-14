@@ -200,21 +200,40 @@ export async function buildContextPackage(
   let budget = maxTokens;
   const contextDraftIds = new Set<string>();
   const latestDraftCache = new Map<string, Record<string, unknown> | undefined>();
-  const publishedVersionCache = new Map<string, { introduction: string; description: string } | undefined>();
+  const publishedVersionCache = new Map<string, { id: string; introduction: string; description: string } | undefined>();
 
-  const publishedVersionFor = async (targetArticleId: string): Promise<{ introduction: string; description: string } | undefined> => {
+  // Exact, unambiguous lookup via articles.published_version_id — a single
+  // pointer, not a scan over a flag that could (before this) end up set on
+  // more than one version of the same article.
+  const publishedVersionFor = async (targetArticleId: string): Promise<{ id: string; introduction: string; description: string } | undefined> => {
     if (contextBasis !== 'published') return undefined;
     if (publishedVersionCache.has(targetArticleId)) return publishedVersionCache.get(targetArticleId);
-    const row = await exec.get<{ introduction: string; description: string }>(
-      `SELECT introduction, description
-       FROM article_versions
-       WHERE article_id = ?${ownerPredicate('article_versions', options.ownerId)} AND is_published = 1
-       ORDER BY version_number DESC
-       LIMIT 1`,
+    const row = await exec.get<{ id: string; introduction: string; description: string }>(
+      `SELECT av.id, av.introduction, av.description
+       FROM articles a
+       JOIN article_versions av ON av.id = a.published_version_id
+       WHERE a.id = ?${ownerPredicate('a', options.ownerId)}`,
       [targetArticleId, ...ownerParams(options.ownerId)],
     );
     publishedVersionCache.set(targetArticleId, row);
     return row;
+  };
+
+  // Resolves which version id actually backed a piece of substituted text —
+  // the published version's own id when contextBasis is 'published' and one
+  // exists, null when it doesn't (never silently falls back to current: an
+  // unpublished article under a published-basis run has no version to point
+  // at, same as its text being treated as empty), otherwise the fallback.
+  const resolveVersionIdFor = async (targetArticleId: string, fallbackVersionId: string | null): Promise<string | null> => {
+    if (contextBasis !== 'published') return fallbackVersionId;
+    const published = await publishedVersionFor(targetArticleId);
+    return published?.id ?? null;
+  };
+
+  const resolveContextSource = async (row: Record<string, unknown>): Promise<ArticleContextSource> => {
+    const base = buildContextSource(row);
+    const versionId = await resolveVersionIdFor(row.id as string, base.versionId ?? null);
+    return { ...base, versionId };
   };
 
   const latestDraftFor = async (targetArticleId: string): Promise<Record<string, unknown> | undefined> => {
@@ -231,17 +250,26 @@ export async function buildContextPackage(
     return row;
   };
 
+  // Published basis is a hard switch, not another fallback tier: an article
+  // with no published version is treated as empty (a stub), not silently
+  // read from its current draft — that's what makes "Grow on published"
+  // mean "the Bible only shows published content" for every article pulled
+  // into context, not just the one being edited.
   const draftIntroductionFor = async (targetArticleId: string, fallback: string): Promise<string> => {
-    const published = await publishedVersionFor(targetArticleId);
-    if (published) return published.introduction ?? fallback;
+    if (contextBasis === 'published') {
+      const published = await publishedVersionFor(targetArticleId);
+      return published?.introduction ?? '';
+    }
     const draft = await latestDraftFor(targetArticleId);
     const content = parseDraftContent(draft);
     return draftString(content, 'introduction') ?? draftString(content, 'childDescription') ?? fallback;
   };
 
   const draftDescriptionFor = async (targetArticleId: string, fallback: string): Promise<string> => {
-    const published = await publishedVersionFor(targetArticleId);
-    if (published) return published.description ?? fallback;
+    if (contextBasis === 'published') {
+      const published = await publishedVersionFor(targetArticleId);
+      return published?.description ?? '';
+    }
     const draft = await latestDraftFor(targetArticleId);
     const content = parseDraftContent(draft);
     return draftString(content, 'description') ?? draftString(content, 'childDescription') ?? fallback;
@@ -257,6 +285,7 @@ export async function buildContextPackage(
 
   targetIntroduction = await draftIntroductionFor(articleId, targetIntroduction);
   targetDescription = await draftDescriptionFor(articleId, targetDescription);
+  const resolvedTargetVersionId = await resolveVersionIdFor(articleId, targetVersionId);
 
   // Reorganize treats the current description as the read-only constraint.
   if (mode === 'reorganize') budget -= est(targetDescription);
@@ -308,25 +337,25 @@ export async function buildContextPackage(
     if (contextDepth === 'shallow') {
       // Shallow: only direct parents, intro only
       const rows = await exec.all<Record<string, unknown>>(
-        `SELECT a.id, a.title, a.status, a.current_version_id, wbe.summary
+        `SELECT a.id, a.title, a.status, a.current_version_id, av.introduction AS summary
          FROM article_links al
          JOIN articles a ON a.id = al.source_article_id
-         LEFT JOIN world_bible_entries wbe ON wbe.article_id = a.id${ownerPredicate('wbe', options.ownerId)}
+         LEFT JOIN article_versions av ON av.id = a.current_version_id
          WHERE al.target_article_id = ? AND al.link_type = 'hierarchical'
            AND ${worldOwnerPredicate('a', options.ownerId)}${ownerPredicate('al', options.ownerId)}
          ORDER BY ${STATUS_ORDER}, a.title
          LIMIT 2`,
-        [...ownerParams(options.ownerId), articleId, ...worldOwnerParams(worldId, options.ownerId), ...ownerParams(options.ownerId)],
+        [articleId, ...worldOwnerParams(worldId, options.ownerId), ...ownerParams(options.ownerId)],
       );
 
       for (const r of rows) {
         const summary = await contextSummaryFor(r.id as string, (r.summary as string) ?? '');
         const cost = est(`### ${r.title}\n${summary}\n`);
         if (budget - cost < 0) break;
-        parents.push({ id: r.id as string, title: r.title as string, summary, source: buildContextSource(r) });
+        parents.push({ id: r.id as string, title: r.title as string, summary, source: await resolveContextSource(r) });
         dependencies.push(toDependency(
-          { id: r.id as string, versionId: r.current_version_id as string | null },
-          { id: articleId, versionId: targetVersionId },
+          { id: r.id as string, versionId: await resolveVersionIdFor(r.id as string, r.current_version_id as string | null) },
+          { id: articleId, versionId: resolvedTargetVersionId },
           'hierarchy',
         ));
         budget -= cost;
@@ -335,25 +364,25 @@ export async function buildContextPackage(
     }
 
     const rows = await exec.all<Record<string, unknown>>(
-      `SELECT a.id, a.title, a.status, a.current_version_id, wbe.summary
+      `SELECT a.id, a.title, a.status, a.current_version_id, av.introduction AS summary
        FROM article_links al
        JOIN articles a ON a.id = al.source_article_id
-       LEFT JOIN world_bible_entries wbe ON wbe.article_id = a.id${ownerPredicate('wbe', options.ownerId)}
+       LEFT JOIN article_versions av ON av.id = a.current_version_id
        WHERE al.target_article_id = ? AND al.link_type = 'hierarchical'
          AND ${worldOwnerPredicate('a', options.ownerId)}${ownerPredicate('al', options.ownerId)}
        ORDER BY ${STATUS_ORDER}, a.title
        LIMIT 4`,
-      [...ownerParams(options.ownerId), articleId, ...worldOwnerParams(worldId, options.ownerId), ...ownerParams(options.ownerId)],
+      [articleId, ...worldOwnerParams(worldId, options.ownerId), ...ownerParams(options.ownerId)],
     );
 
     for (const r of rows) {
       const summary = await contextSummaryFor(r.id as string, (r.summary as string) ?? '');
       const { description, cost } = await withDeepDescription(r, `### ${r.title}\n${summary}\n`, budget);
       if (budget - cost < 0) break;
-      parents.push({ id: r.id as string, title: r.title as string, summary, description, source: buildContextSource(r) });
+      parents.push({ id: r.id as string, title: r.title as string, summary, description, source: await resolveContextSource(r) });
       dependencies.push(toDependency(
-        { id: r.id as string, versionId: r.current_version_id as string | null },
-        { id: articleId, versionId: targetVersionId },
+        { id: r.id as string, versionId: await resolveVersionIdFor(r.id as string, r.current_version_id as string | null) },
+        { id: articleId, versionId: resolvedTargetVersionId },
         'hierarchy',
       ));
       budget -= cost;
@@ -364,25 +393,25 @@ export async function buildContextPackage(
     if (contextDepth === 'shallow') return;
 
     const rows = await exec.all<Record<string, unknown>>(
-      `SELECT a.id, a.title, a.status, a.current_version_id, wbe.summary
+      `SELECT a.id, a.title, a.status, a.current_version_id, av.introduction AS summary
        FROM article_links al
        JOIN articles a ON a.id = al.target_article_id
-       LEFT JOIN world_bible_entries wbe ON wbe.article_id = a.id${ownerPredicate('wbe', options.ownerId)}
+       LEFT JOIN article_versions av ON av.id = a.current_version_id
        WHERE al.source_article_id = ? AND al.link_type = 'hierarchical'
          AND ${worldOwnerPredicate('a', options.ownerId)}${ownerPredicate('al', options.ownerId)}
        ORDER BY ${STATUS_ORDER}, a.title
        LIMIT 12`,
-      [...ownerParams(options.ownerId), articleId, ...worldOwnerParams(worldId, options.ownerId), ...ownerParams(options.ownerId)],
+      [articleId, ...worldOwnerParams(worldId, options.ownerId), ...ownerParams(options.ownerId)],
     );
 
     for (const r of rows) {
       const summary = await contextSummaryFor(r.id as string, (r.summary as string) ?? '');
       const { description, cost } = await withDeepDescription(r, `- ${r.title}: ${summary}\n`, budget);
       if (budget - cost < 0) break;
-      children.push({ id: r.id as string, title: r.title as string, summary, description, source: buildContextSource(r) });
+      children.push({ id: r.id as string, title: r.title as string, summary, description, source: await resolveContextSource(r) });
       dependencies.push(toDependency(
-        { id: articleId, versionId: targetVersionId },
-        { id: r.id as string, versionId: r.current_version_id as string | null },
+        { id: articleId, versionId: resolvedTargetVersionId },
+        { id: r.id as string, versionId: await resolveVersionIdFor(r.id as string, r.current_version_id as string | null) },
         'hierarchy',
       ));
       budget -= cost;
@@ -400,24 +429,24 @@ export async function buildContextPackage(
     // outer query is free to order by any expression since it has no DISTINCT.
     const siblingRows = await exec.all<Record<string, unknown>>(
       `SELECT * FROM (
-         SELECT DISTINCT a.id, a.title, a.status, a.current_version_id, wbe.summary
+         SELECT DISTINCT a.id, a.title, a.status, a.current_version_id, av.introduction AS summary
          FROM article_links al
          JOIN articles a ON a.id = al.target_article_id
-         LEFT JOIN world_bible_entries wbe ON wbe.article_id = a.id${ownerPredicate('wbe', options.ownerId)}
+         LEFT JOIN article_versions av ON av.id = a.current_version_id
          WHERE al.source_article_id IN (${placeholders})
            AND al.link_type = 'hierarchical' AND a.id != ?
            AND ${worldOwnerPredicate('a', options.ownerId)}${ownerPredicate('al', options.ownerId)}
        ) sub
        ORDER BY ${STATUS_ORDER.replace(/a\.status/g, 'sub.status')}, sub.title
        LIMIT 6`,
-      [...ownerParams(options.ownerId), ...parents.map((p) => p.id), articleId, ...worldOwnerParams(worldId, options.ownerId), ...ownerParams(options.ownerId)],
+      [...parents.map((p) => p.id), articleId, ...worldOwnerParams(worldId, options.ownerId), ...ownerParams(options.ownerId)],
     );
 
     for (const r of siblingRows) {
       const summary = await contextSummaryFor(r.id as string, (r.summary as string) ?? '');
       const { description, cost } = await withDeepDescription(r, `- ${r.title}: ${summary}\n`, budget);
       if (budget - cost < 0) break;
-      siblings.push({ id: r.id as string, title: r.title as string, summary, description, source: buildContextSource(r) });
+      siblings.push({ id: r.id as string, title: r.title as string, summary, description, source: await resolveContextSource(r) });
       budget -= cost;
     }
   }
@@ -430,20 +459,20 @@ export async function buildContextPackage(
   // Fixed points — skip in shallow mode (L2+)
   if (contextDepth !== 'shallow') {
     const fixedRows = await exec.all<Record<string, unknown>>(
-      `SELECT a.id, a.title, a.status, a.current_version_id, wbe.summary
+      `SELECT a.id, a.title, a.status, a.current_version_id, av.introduction AS summary
        FROM articles a
-       LEFT JOIN world_bible_entries wbe ON wbe.article_id = a.id${ownerPredicate('wbe', options.ownerId)}
+       LEFT JOIN article_versions av ON av.id = a.current_version_id
        WHERE ${worldOwnerPredicate('a', options.ownerId)} AND a.is_fixed_point = 1 AND a.id != ?
        ORDER BY ${STATUS_ORDER}, a.title
        LIMIT 10`,
-      [...ownerParams(options.ownerId), ...worldOwnerParams(worldId, options.ownerId), articleId],
+      [...worldOwnerParams(worldId, options.ownerId), articleId],
     );
 
     for (const r of fixedRows) {
       const summary = await contextSummaryFor(r.id as string, (r.summary as string) ?? '');
       const cost = est(`### ${r.title}\n${summary}\n`);
       if (budget - cost < 0) break;
-      fixedPoints.push({ id: r.id as string, title: r.title as string, summary, source: buildContextSource(r) });
+      fixedPoints.push({ id: r.id as string, title: r.title as string, summary, source: await resolveContextSource(r) });
       budget -= cost;
     }
   }
@@ -465,8 +494,8 @@ export async function buildContextPackage(
       if (budget - cost < 0) break;
       referencedArticles.push({ id: r.id as string, title: r.title as string });
       dependencies.push(toDependency(
-        { id: articleId, versionId: targetVersionId },
-        { id: r.id as string, versionId: r.current_version_id as string | null },
+        { id: articleId, versionId: resolvedTargetVersionId },
+        { id: r.id as string, versionId: await resolveVersionIdFor(r.id as string, r.current_version_id as string | null) },
         'reference',
       ));
       budget -= cost;
@@ -475,7 +504,7 @@ export async function buildContextPackage(
 
   return {
     targetId: articleId,
-    targetVersionId,
+    targetVersionId: resolvedTargetVersionId,
     targetTitle,
     targetTemplateType,
     targetSubjectType,

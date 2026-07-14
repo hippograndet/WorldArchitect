@@ -3,7 +3,7 @@ import { getDbClient } from '../db/client.js';
 import { setupPostgresTestHarness, type PostgresTestHarness } from '../test/postgresHarness.js';
 import { createArticle, updateArticle, acceptDraft, revertArticleVersion } from './articlesService.js';
 import { savePendingDraft } from './draftsService.js';
-import { upsertEntry, renderBible, getBibleMeta, getEntries } from './worldBible.js';
+import { renderBible, getBibleMeta } from './worldBible.js';
 import { cancelRun, createRun, RunConflictError } from './runsService.js';
 import { readEffectiveProviderSettings, writeProviderSettings } from '../providers/index.js';
 import { runWithUserContext } from '../requestContext.js';
@@ -80,29 +80,26 @@ describe('core services on Postgres', () => {
     if (skipIfUnavailable(skip)) return;
 
     await runWithUserContext(OWNER_ID, async () => {
-      const battle = await createArticle({
+      await createArticle({
         worldId: WORLD_ID,
         ownerId: OWNER_ID,
         categoryId: CAT_HISTORY,
         title: 'The Bell War',
         templateType: 'general',
-        introduction: '',
+        introduction: 'The Bell War settled control of the northern towers.',
         description: 'A war over signal bells.',
         isFixedPoint: false,
       });
-      const music = await createArticle({
+      await createArticle({
         worldId: WORLD_ID,
         ownerId: OWNER_ID,
         categoryId: CAT_CULTURE,
         title: 'Harbor Songs',
         templateType: 'general',
-        introduction: '',
+        introduction: 'Dockworkers keep rhythm with call-and-response songs.',
         description: 'Songs sung by dockworkers.',
         isFixedPoint: false,
       });
-
-      await upsertEntry(getDbClient(), WORLD_ID, String(music.article.id), 'Dockworkers keep rhythm with call-and-response songs.');
-      await upsertEntry(getDbClient(), WORLD_ID, String(battle.article.id), 'The Bell War settled control of the northern towers.');
 
       const rendered = await renderBible(WORLD_ID);
       expect(rendered.indexOf('## History')).toBeLessThan(rendered.indexOf('## Culture'));
@@ -186,7 +183,7 @@ describe('core services on Postgres', () => {
     expect(stored?.config).toContain('enc:v1:');
   });
 
-  it('does not let an Expansion draft accept revert an Inception-accepted introduction', async ({ skip }) => {
+  it('carries a staged Inception introduction into the same version as an Expansion draft accept', async ({ skip }) => {
     if (skipIfUnavailable(skip)) return;
 
     await runWithUserContext(OWNER_ID, async () => {
@@ -202,13 +199,11 @@ describe('core services on Postgres', () => {
       });
       const articleId = String(created.article.id);
 
-      // Simulates Inception's intro_review accept path (forgeGraph/nodes.ts):
-      // it only calls upsertEntry, never writes an article_versions row.
-      await upsertEntry(getDbClient(), WORLD_ID, articleId, 'A much better introduction.');
-
-      // Simulates an Expansion draft accept for the same article, which
-      // doesn't carry its own introduction — it should fall back to whatever
-      // the introduction currently is, not to the stale pre-Inception value.
+      // Simulates one Forge cycle where Inception accepts a new introduction
+      // (forgeGraph/nodes.ts stages it in ForgeState.inceptionIntro without
+      // writing it anywhere durable) and Expansion's accept absorbs it into
+      // the same version via introductionOverride — one version for the
+      // whole run, not a separate write per step.
       await savePendingDraft({
         worldId: WORLD_ID,
         ownerId: OWNER_ID,
@@ -217,22 +212,25 @@ describe('core services on Postgres', () => {
         phase: 'done',
         draftContent: { description: 'A new description from Expansion.' },
       });
-      const { version } = await acceptDraft({ worldId: WORLD_ID, articleId, ownerId: OWNER_ID });
+      const { version } = await acceptDraft({
+        worldId: WORLD_ID,
+        articleId,
+        ownerId: OWNER_ID,
+        introductionOverride: 'A much better introduction.',
+      });
 
       expect(version.introduction).toBe('A much better introduction.');
-      const bibleEntries = await getEntries(WORLD_ID, OWNER_ID);
-      expect(bibleEntries.find((e) => e.articleId === articleId)?.summary).toBe('A much better introduction.');
+      expect(version.description).toBe('A new description from Expansion.');
 
-      // Reverting to the original (pre-Inception) version should also pull
-      // the Bible entry back in sync with it, not leave it pointing at
-      // whatever was last accepted.
+      // Reverting to the original version restores both fields together,
+      // straight from article_versions — no separate table to fall out of sync.
       const firstVersion = await getDbClient().get<{ id: string }>(
         'SELECT id FROM article_versions WHERE article_id = ? AND version_number = 1',
         [articleId],
       );
-      await revertArticleVersion({ worldId: WORLD_ID, articleId, versionId: firstVersion!.id, ownerId: OWNER_ID });
-      const revertedEntries = await getEntries(WORLD_ID, OWNER_ID);
-      expect(revertedEntries.find((e) => e.articleId === articleId)?.summary).toBe('An old, rough introduction.');
+      const reverted = await revertArticleVersion({ worldId: WORLD_ID, articleId, versionId: firstVersion!.id, ownerId: OWNER_ID });
+      expect(reverted.introduction).toBe('An old, rough introduction.');
+      expect(reverted.description).toBe('Some existing description.');
     });
   });
 });
@@ -257,10 +255,6 @@ async function seedWorld(): Promise<void> {
     INSERT INTO categories (id, owner_id, world_id, name, sort_order, created_at)
     VALUES (?, ?, ?, 'History', 0, ?), (?, ?, ?, 'Culture', 1, ?)
   `, [CAT_HISTORY, OWNER_ID, WORLD_ID, now, CAT_CULTURE, OWNER_ID, WORLD_ID, now]);
-  await exec.run(`
-    INSERT INTO world_bible_meta (world_id, owner_id, token_count, updated_at)
-    VALUES (?, ?, 0, ?)
-  `, [WORLD_ID, OWNER_ID, now]);
   await exec.run(`
     INSERT INTO cost_settings (world_id, owner_id, daily_cap, bible_threshold)
     VALUES (?, ?, NULL, 80000)

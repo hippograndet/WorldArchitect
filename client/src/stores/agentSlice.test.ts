@@ -16,11 +16,11 @@ const mockApi = vi.hoisted(() => ({
   },
   articles: {
     batch: vi.fn(),
+    update: vi.fn(),
     draft: { accept: vi.fn(), discard: vi.fn() },
   },
   bible: {
     getMeta: vi.fn(),
-    updateEntry: vi.fn(),
   },
   runs: {
     create: vi.fn(),

@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react';
-import { ExternalLink, Settings } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { ExternalLink, Pencil, Settings } from 'lucide-react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useStore } from '../../stores/index.ts';
-import MarkdownSectionEditor from './MarkdownSectionEditor.tsx';
+import MarkdownSectionEditor, { type MarkdownSectionEditorHandle } from './MarkdownSectionEditor.tsx';
 import VersionHistoryPanel from './VersionHistoryPanel.tsx';
 import AddSubsectionDialog from './AddSubsectionDialog.tsx';
 import ArticleInfoSidebar from './ArticleInfoSidebar.tsx';
@@ -12,26 +12,25 @@ import SectionHeader from './SectionHeader.tsx';
 import DraftBundlePanel from './DraftBundlePanel.tsx';
 import type { PendingDraft } from '../../types/article.ts';
 
-type EditingSection = 'introduction' | 'description' | null;
-
 export default function ArticlePage() {
   const { wid, aid } = useParams<{ wid: string; aid: string }>();
   const navigate = useNavigate();
   const {
     selectArticle, currentArticleDetail, currentArticleId,
     saveManualEdit, loadTree, addToast, checkDraft,
-    drafts, acceptDraft, discardDraft,
+    drafts, acceptDraft, discardDraft, showConfirm,
   } = useStore();
 
-  const [editingSection, setEditingSection] = useState<EditingSection>(null);
-  const [introText, setIntroText]           = useState('');
-  const [savingIntro, setSavingIntro]       = useState(false);
-  const [showHistory, setShowHistory]       = useState(false);
+  const [isEditing, setIsEditing]     = useState(false);
+  const [introText, setIntroText]     = useState('');
+  const [savingEdit, setSavingEdit]   = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
   const [showAddSubsection, setShowAddSubsection] = useState(false);
+  const descriptionEditorRef = useRef<MarkdownSectionEditorHandle>(null);
 
   useEffect(() => {
     if (!wid || !aid) return;
-    setEditingSection(null);
+    setIsEditing(false);
     setShowHistory(false);
     selectArticle(wid, aid).catch(console.error);
     checkDraft(wid, aid).catch(console.error);
@@ -67,7 +66,7 @@ export default function ArticlePage() {
     navigate(`/worlds/${wid}/expand?start=${encodeURIComponent(aid)}`);
   };
 
-  const handleAcceptDraft = async (draft: PendingDraft) => {
+  const doAcceptDraft = async (draft: PendingDraft) => {
     if (!wid || !aid) return;
     try {
       await acceptDraft(wid, aid, draft.id);
@@ -76,6 +75,24 @@ export default function ArticlePage() {
     } catch (err) {
       addToast({ message: (err as Error).message, type: 'error' });
     }
+  };
+
+  const handleAcceptDraft = (draft: PendingDraft) => {
+    // First edit past a published version — the article stays on its published
+    // version until this accept, so this is the one moment it's about to diverge.
+    // Once diverged, publishedVersionId !== currentVersionId and this won't fire
+    // again until the article is republished.
+    if (article.publishedVersionId && article.publishedVersionId === article.currentVersionId) {
+      showConfirm({
+        title: 'Propose a new version?',
+        message: 'This article is published. Accepting creates a new draft on top of it — the published version stays live until you publish again.',
+        confirmLabel: 'Accept',
+        variant: 'neutral',
+        onConfirm: () => doAcceptDraft(draft),
+      });
+      return;
+    }
+    void doAcceptDraft(draft);
   };
 
   const handleDiscardDraft = async (draft: PendingDraft) => {
@@ -94,37 +111,33 @@ export default function ArticlePage() {
   };
 
   // ---------------------------------------------------------------------------
-  // Save handlers
+  // Edit handlers
   // ---------------------------------------------------------------------------
 
-  const handleSaveDescription = async (newMarkdown: string) => {
-    if (!wid || !aid) return;
-    try {
-      await saveManualEdit(wid, aid, { description: newMarkdown });
-      setEditingSection(null);
-      addToast({ message: 'Saved as a pending edit — accept it below to apply.', type: 'success' });
-    } catch (err) {
-      addToast({ message: (err as Error).message, type: 'error' });
-    }
+  const handleStartEdit = () => {
+    setIntroText(pendingIntro ?? introduction);
+    setIsEditing(true);
   };
 
-  const handleSaveIntro = async () => {
-    if (!wid || !aid || savingIntro) return;
-    setSavingIntro(true);
+  const handleCancelEdit = () => {
+    setIsEditing(false);
+  };
+
+  const handleSaveArticle = async () => {
+    if (!wid || !aid || savingEdit) return;
+    setSavingEdit(true);
     try {
-      await saveManualEdit(wid, aid, { introduction: introText.trim() });
-      setEditingSection(null);
+      await saveManualEdit(wid, aid, {
+        introduction: introText.trim(),
+        description: descriptionEditorRef.current?.getMarkdown() ?? description,
+      });
+      setIsEditing(false);
       addToast({ message: 'Saved as a pending edit — accept it below to apply.', type: 'success' });
     } catch (err) {
       addToast({ message: (err as Error).message, type: 'error' });
     } finally {
-      setSavingIntro(false);
+      setSavingEdit(false);
     }
-  };
-
-  const startEditIntro = () => {
-    setIntroText(pendingIntro ?? introduction);
-    setEditingSection('introduction');
   };
 
   return (
@@ -149,6 +162,30 @@ export default function ArticlePage() {
           )}
         </div>
         <div className="flex items-center gap-2 shrink-0">
+          {isEditing ? (
+            <>
+              <button
+                onClick={handleSaveArticle}
+                disabled={savingEdit}
+                className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium disabled:opacity-50"
+              >
+                {savingEdit ? 'Saving…' : 'Save Draft'}
+              </button>
+              <button
+                onClick={handleCancelEdit}
+                className="px-3 py-1.5 text-xs border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-500"
+              >
+                Cancel
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={handleStartEdit}
+              className="px-3 py-1.5 text-xs border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-600 flex items-center gap-1"
+            >
+              <Pencil size={14} /> Edit
+            </button>
+          )}
           <button
             onClick={handleOpenHistory}
             className="px-3 py-1.5 text-xs border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-500"
@@ -182,56 +219,37 @@ export default function ArticlePage() {
 
       {/* Introduction */}
       <section className="mb-8">
-        <SectionHeader title="Introduction" onEdit={startEditIntro} pending={pendingIntro !== undefined} />
-        {editingSection === 'introduction' ? (
-          <div className="flex flex-col gap-2">
-            <textarea
-              value={introText}
-              onChange={(e) => setIntroText(e.target.value)}
-              rows={4}
-              className="w-full px-3 py-2 border border-blue-300 rounded-lg text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-400"
-              placeholder="One-paragraph introduction for this article…"
-            />
-            <div className="flex gap-2">
-              <button
-                onClick={handleSaveIntro}
-                disabled={savingIntro}
-                className="px-4 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium disabled:opacity-50"
-              >
-                {savingIntro ? 'Saving…' : 'Save'}
-              </button>
-              <button onClick={() => setEditingSection(null)} className="text-sm text-gray-500 hover:text-gray-700">
-                Cancel
-              </button>
-            </div>
-          </div>
+        <SectionHeader title="Introduction" pending={pendingIntro !== undefined} />
+        {isEditing ? (
+          <textarea
+            value={introText}
+            onChange={(e) => setIntroText(e.target.value)}
+            rows={4}
+            className="w-full px-3 py-2 border border-blue-300 rounded-lg text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-400"
+            placeholder="One-paragraph introduction for this article…"
+          />
         ) : introduction ? (
           <p className="text-gray-700 leading-relaxed">{introduction}</p>
         ) : (
-          <p className="text-sm text-gray-400 italic">No introduction yet. Click ✏ to write one.</p>
+          <p className="text-sm text-gray-400 italic">No introduction yet. Click Edit to write one.</p>
         )}
       </section>
 
       {/* Description */}
       <section className="mb-8">
-        <SectionHeader
-          title="Description"
-          onEdit={() => setEditingSection(editingSection === 'description' ? null : 'description')}
-          pending={pendingDescription !== undefined}
-        />
-        {editingSection === 'description' ? (
+        <SectionHeader title="Description" pending={pendingDescription !== undefined} />
+        {isEditing ? (
           <MarkdownSectionEditor
+            ref={descriptionEditorRef}
             key={version?.id}
             initialContent={pendingDescription ?? description}
-            onSave={handleSaveDescription}
-            onCancel={() => setEditingSection(null)}
           />
         ) : description ? (
           <div className="prose prose-gray max-w-none text-gray-700 leading-relaxed whitespace-pre-wrap">
             {description}
           </div>
         ) : (
-          <p className="text-sm text-gray-400 italic">No description yet. Click ✏ to write one.</p>
+          <p className="text-sm text-gray-400 italic">No description yet. Click Edit to write one.</p>
         )}
       </section>
 

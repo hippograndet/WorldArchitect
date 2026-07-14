@@ -39,7 +39,7 @@ beforeEach(() => {
   completeMock.mockReset();
 });
 
-/** Seeds a world with N articles, each backed by a world_bible_entries row with a non-empty summary. */
+/** Seeds a world with N articles, each with a current version carrying a non-empty introduction. */
 async function seedWorldWithBibleEntries(worldId: string, nonEmptySummaryCount: number): Promise<void> {
   const db = getDbClient();
   await db.run(
@@ -49,15 +49,16 @@ async function seedWorldWithBibleEntries(worldId: string, nonEmptySummaryCount: 
   );
   for (let i = 0; i < nonEmptySummaryCount; i++) {
     const articleId = `${worldId}-article-${i}`;
+    const versionId = `${articleId}-version`;
     await db.run(
-      `INSERT INTO articles (id, owner_id, world_id, title, status, template_type, depth, created_at, updated_at)
-       VALUES (?, ?, ?, ?, 'draft', 'general', 1, 0, 0)`,
-      [articleId, OWNER_ID, worldId, `Article ${i}`],
+      `INSERT INTO articles (id, owner_id, world_id, title, status, template_type, depth, current_version_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 'draft', 'general', 1, ?, 0, 0)`,
+      [articleId, OWNER_ID, worldId, `Article ${i}`, versionId],
     );
     await db.run(
-      `INSERT INTO world_bible_entries (id, owner_id, world_id, article_id, summary, sort_order, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, 0)`,
-      [`${articleId}-bible`, OWNER_ID, worldId, articleId, `Summary for article ${i}`, i],
+      `INSERT INTO article_versions (id, owner_id, article_id, version_number, introduction, created_at)
+       VALUES (?, ?, ?, 1, ?, 0)`,
+      [versionId, OWNER_ID, articleId, `Summary for article ${i}`],
     );
   }
 }

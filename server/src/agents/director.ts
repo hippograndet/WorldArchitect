@@ -1,12 +1,7 @@
-import { nanoid } from 'nanoid';
 import { getDbClient } from '../db/client.js';
 import { ownerIdForWorld } from '../db/ownership.js';
-import { upsertEntry } from '../services/worldBible.js';
-import { reindexArticle } from '../services/searchIndex.js';
 import { type ContextDepth } from '../services/archivist.js';
 import type { DraftContextBasis } from '../services/draftsService.js';
-import { writeArticleVersion } from '../services/articleVersions.js';
-import type { Stub } from './architect.js';
 import type { MentionItem } from './scribe.js';
 import type { ChildProposalItem } from './cartographer.js';
 import type { CoherenceWarning, SuggestedLink, WardenOutput } from './warden.js';
@@ -19,7 +14,6 @@ import type { EdgeProposal, GlobalWarning } from './auditor.js';
 import type { ProposalMode } from '../prompts/proposal.js';
 import type { ExpanderMode } from '../prompts/expander.js';
 import type { WorldStyleConfig } from '../services/worldStylePresets.js';
-import { runCreateWorldGraph } from './graphs/pipelines/createWorld.js';
 import { runProposeGraph } from './graphs/pipelines/propose.js';
 import { runExpandGraph } from './graphs/pipelines/expand.js';
 import { runSummarizeGraph } from './graphs/pipelines/summarize.js';
@@ -183,71 +177,6 @@ export interface AuditOutput {
 // ---------------------------------------------------------------------------
 
 export class PipelineCoordinator {
-  // ---------------------------------------------------------------------------
-  // create_world pipeline — Architect
-  // ---------------------------------------------------------------------------
-
-  async createWorld(
-    worldId: string,
-    seedText: string,
-  ): Promise<{ stubs: Stub[]; tokensIn: number; tokensOut: number }> {
-    const exec = getDbClient();
-    const ownerId = await ownerIdForWorld(exec, worldId);
-
-    const categories = await exec.all<{ id: string; name: string }>(
-      'SELECT id, name FROM categories WHERE world_id = ? AND owner_id = ? ORDER BY sort_order',
-      [worldId, ownerId],
-    );
-
-    if (categories.length === 0) throw new Error('World has no categories');
-
-    const result = await runCreateWorldGraph({ worldId, ownerId, seedText, categories });
-    const { stubs } = result;
-
-    const categoryMap = new Map(categories.map((c) => [c.name.toLowerCase(), c.id]));
-    const now = Date.now();
-    const createdArticleIds: string[] = [];
-
-    await exec.transaction(async (tx) => {
-      for (const stub of stubs) {
-        const categoryId = categoryMap.get(stub.categoryName.toLowerCase());
-        if (!categoryId) continue;
-
-        const articleId = nanoid();
-        const versionId = nanoid();
-
-        await tx.run(
-          `INSERT INTO articles
-             (id, world_id, owner_id, category_id, title, status, template_type,
-              depth, current_version_id, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, 'stub', ?, 2, ?, ?, ?)`,
-          [articleId, worldId, ownerId, categoryId, stub.title, stub.templateType, versionId, now, now],
-        );
-
-        await writeArticleVersion(tx, {
-          articleId,
-          ownerId,
-          versionId,
-          versionNumber: 1,
-          introduction: stub.summary,
-          description: '',
-          chronology: '',
-          wordCount: 0,
-          now,
-        });
-
-        await upsertEntry(tx, worldId, articleId, stub.summary);
-        createdArticleIds.push(articleId);
-      }
-    });
-
-    for (const articleId of createdArticleIds) {
-      await reindexArticle(worldId, articleId);
-    }
-
-    return { stubs, tokensIn: result.tokensIn, tokensOut: result.tokensOut };
-  }
-
   // ---------------------------------------------------------------------------
   // Phase 1: propose — Muse (+ optional Curator auto-select)
   // ---------------------------------------------------------------------------

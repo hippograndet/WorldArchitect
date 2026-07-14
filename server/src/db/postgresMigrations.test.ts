@@ -66,8 +66,6 @@ describe('Postgres migrations', () => {
       'articles',
       'article_versions',
       'article_links',
-      'world_bible_entries',
-      'world_bible_meta',
       'cost_settings',
       'provider_settings',
       'call_log',

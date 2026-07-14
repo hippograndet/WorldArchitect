@@ -23,21 +23,6 @@ const suggestedLinkSchema: ToolParamSchema = {
   required: ['targetArticleTitle'],
 };
 
-const stubItemSchema: ToolParamSchema = {
-  type: 'object',
-  properties: {
-    categoryName: { type: 'string', description: 'Category this stub belongs to (exact name)' },
-    title: { type: 'string', description: 'Specific, evocative article title' },
-    summary: { type: 'string', description: '1-paragraph Introduction for the World Bible' },
-    templateType: {
-      type: 'string',
-      enum: ['general', 'character', 'location', 'faction'],
-      description: 'Article template type',
-    },
-  },
-  required: ['categoryName', 'title', 'summary', 'templateType'],
-};
-
 const childProposalItemSchema: ToolParamSchema = {
   type: 'object',
   properties: {
@@ -129,23 +114,6 @@ const globalWarningSchema: ToolParamSchema = {
 // ---------------------------------------------------------------------------
 
 export const OUTPUT_TOOLS: Record<string, Tool> = {
-  // Architect: initial world stubs
-  submit_stubs: {
-    name: 'submit_stubs',
-    description: 'Submit the generated article stubs for the new world.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        stubs: {
-          type: 'array',
-          description: 'Array of article stubs, 2–4 per category',
-          items: stubItemSchema,
-        },
-      },
-      required: ['stubs'],
-    },
-  },
-
   // Scribe: writes the ## Description section (expand_description / create_root modes)
   submit_description: {
     name: 'submit_description',

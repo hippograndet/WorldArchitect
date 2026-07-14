@@ -113,7 +113,6 @@ export interface CreateWorldInput {
   tone?: WorldTone;
   originPoint?: string;
   styleConfig?: Partial<WorldStyleConfig>;
-  generateStubs?: boolean;
 }
 
 export interface BibleMeta {

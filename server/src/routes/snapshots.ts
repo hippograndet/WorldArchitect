@@ -48,7 +48,6 @@ interface SnapshotVersionRow {
   proposal_used: string | null;
   word_count: number;
   is_revert: number;
-  is_published: number;
   reverted_from_version_id: string | null;
   created_at: number;
 }
@@ -58,20 +57,8 @@ interface SnapshotLinkRow {
   target_article_id: string;
   owner_id: string;
   link_type: string;
-}
-
-interface SnapshotBibleEntryRow {
-  id: string;
-  world_id: string;
-  owner_id: string;
-  article_id: string;
-  summary: string;
-  updated_at: number;
-}
-
-interface SnapshotBibleMetaRow {
-  token_count: number;
-  updated_at: number;
+  source_version_id: string | null;
+  target_version_id: string | null;
 }
 
 interface SnapshotWarningRow {
@@ -89,8 +76,6 @@ interface SnapshotData {
   articles: SnapshotArticleRow[];
   versions: SnapshotVersionRow[];
   links: SnapshotLinkRow[];
-  bible_entries: SnapshotBibleEntryRow[];
-  bible_meta: SnapshotBibleMetaRow | null;
   warnings: SnapshotWarningRow[];
 }
 
@@ -120,16 +105,6 @@ async function captureSnapshot(exec: QueryExecutor, worldId: string, ownerId: st
       )
     : [];
 
-  const bible_entries = await exec.all<SnapshotBibleEntryRow>(
-    `SELECT * FROM world_bible_entries WHERE world_id = ? AND owner_id = ?`,
-    [worldId, ownerId],
-  );
-
-  const bible_meta = (await exec.get<SnapshotBibleMetaRow>(
-    `SELECT token_count, updated_at FROM world_bible_meta WHERE world_id = ? AND owner_id = ?`,
-    [worldId, ownerId],
-  )) ?? null;
-
   const warnings = articleIds.length > 0
     ? await exec.all<SnapshotWarningRow>(
         `SELECT * FROM coherence_warnings WHERE owner_id = ? AND article_id IN (${articleIds.map(() => '?').join(',')})`,
@@ -137,7 +112,7 @@ async function captureSnapshot(exec: QueryExecutor, worldId: string, ownerId: st
       )
     : [];
 
-  return { articles, versions, links, bible_entries, bible_meta, warnings };
+  return { articles, versions, links, warnings };
 }
 
 async function persistSnapshot(
@@ -258,9 +233,8 @@ router.post('/:sid/restore', asyncHandler(async (req, res) => {
   const target = JSON.parse(row.data) as SnapshotData;
 
   await exec.transaction(async (tx) => {
-    // Wipe current world content (CASCADE handles versions, links, warnings, bible_entries, pending_drafts)
+    // Wipe current world content (CASCADE handles versions, links, warnings, pending_drafts)
     await tx.run(`DELETE FROM articles WHERE world_id = ? AND owner_id = ?`, [worldId, ownerId]);
-    await tx.run(`DELETE FROM world_bible_entries WHERE world_id = ? AND owner_id = ?`, [worldId, ownerId]);
 
     // Restore articles
     for (const a of target.articles) {
@@ -283,11 +257,11 @@ router.post('/:sid/restore', asyncHandler(async (req, res) => {
       await tx.run(
         `INSERT INTO article_versions
            (id, article_id, owner_id, version_number, introduction, description, chronology, expansion_params,
-            proposal_used, word_count, is_revert, is_published, reverted_from_version_id, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            proposal_used, word_count, is_revert, reverted_from_version_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           v.id, v.article_id, ownerId, v.version_number, v.introduction, v.description, v.chronology, v.expansion_params,
-          v.proposal_used, v.word_count, v.is_revert, v.is_published, v.reverted_from_version_id, v.created_at,
+          v.proposal_used, v.word_count, v.is_revert, v.reverted_from_version_id, v.created_at,
         ],
       );
     }
@@ -295,29 +269,10 @@ router.post('/:sid/restore', asyncHandler(async (req, res) => {
     // Restore links
     for (const l of target.links) {
       await tx.run(
-        `INSERT INTO article_links (source_article_id, target_article_id, owner_id, link_type)
-         VALUES (?, ?, ?, ?)
+        `INSERT INTO article_links (source_article_id, target_article_id, owner_id, link_type, source_version_id, target_version_id)
+         VALUES (?, ?, ?, ?, ?, ?)
          ON CONFLICT (source_article_id, target_article_id) DO NOTHING`,
-        [l.source_article_id, l.target_article_id, ownerId, l.link_type],
-      );
-    }
-
-    // Restore bible entries
-    for (const e of target.bible_entries) {
-      await tx.run(
-        `INSERT INTO world_bible_entries (id, world_id, owner_id, article_id, summary, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-        [e.id, worldId, ownerId, e.article_id, e.summary, e.updated_at],
-      );
-    }
-
-    // Restore bible meta
-    if (target.bible_meta) {
-      await tx.run(
-        `INSERT INTO world_bible_meta (world_id, owner_id, token_count, updated_at)
-         VALUES (?, ?, ?, ?)
-         ON CONFLICT(world_id) DO UPDATE SET token_count = excluded.token_count, updated_at = excluded.updated_at`,
-        [worldId, ownerId, target.bible_meta.token_count, target.bible_meta.updated_at],
+        [l.source_article_id, l.target_article_id, ownerId, l.link_type, l.source_version_id ?? null, l.target_version_id ?? null],
       );
     }
 

@@ -78,7 +78,6 @@ World-level tools review the encyclopedia as a graph. They can look for missing 
 
 WorldArchitect uses specialized agents for different jobs:
 
-- **Architect** creates initial article stubs during world creation.
 - **Muse** proposes thematic ideas grounded in the world and the article's own identity.
 - **Curator** selects the best ideas, weighing user preference when given.
 - **Researcher** extracts constraints before drafting.

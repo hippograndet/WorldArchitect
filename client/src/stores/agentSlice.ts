@@ -503,62 +503,86 @@ export const agentSlice: StateCreator<StoreState, [['zustand/immer', never]], []
     },
 
     agentCommit: async (worldId) => {
-      const { agentTargetArticleId, agentPipelineType, agentDraftResult, agentPanelMode, agentParams, agentLoadedDraftId } = get();
+      const { agentTargetArticleId, agentPipelineType, agentDraftResult, agentPanelMode, agentParams, agentLoadedDraftId, currentArticleDetail } = get();
       if (!agentTargetArticleId) return;
 
-      try {
-        if (agentPipelineType === 'summarize' || agentPipelineType === 'improve_intro') {
-          await api.bible.updateEntry(worldId, agentTargetArticleId, agentDraftResult?.introduction ?? '');
-          await get().loadBibleMeta(worldId);
-          await get().selectArticle(worldId, agentTargetArticleId);
-        } else if (agentPipelineType === 'cohere') {
-          // Warnings are display-only — nothing to commit
-        } else if (DRAFT_PIPELINE_MAP[agentPipelineType]) {
-          await get().acceptDraft(worldId, agentTargetArticleId, agentLoadedDraftId ?? undefined);
-          await get().loadTree(worldId);
-        }
+      const doCommit = async () => {
+        try {
+          if (agentPipelineType === 'summarize' || agentPipelineType === 'improve_intro') {
+            await api.articles.update(worldId, agentTargetArticleId, { introduction: agentDraftResult?.introduction ?? '' });
+            await get().loadBibleMeta(worldId);
+            await get().selectArticle(worldId, agentTargetArticleId);
+          } else if (agentPipelineType === 'cohere') {
+            // Warnings are display-only — nothing to commit
+          } else if (DRAFT_PIPELINE_MAP[agentPipelineType]) {
+            await get().acceptDraft(worldId, agentTargetArticleId, agentLoadedDraftId ?? undefined);
+            await get().loadTree(worldId);
+          }
 
-        get().addToast({ message: 'Content accepted.', type: 'success' });
+          get().addToast({ message: 'Content accepted.', type: 'success' });
 
-        const nextSteps = suggestNextSteps(agentPipelineType, agentPanelMode, agentDraftResult);
+          const nextSteps = suggestNextSteps(agentPipelineType, agentPanelMode, agentDraftResult);
 
-        // Auto-chain: skip ContinuationView and start next Spark step immediately
-        if (agentPanelMode === 'spark' && agentParams.autoChain && nextSteps.length > 0) {
-          const next = nextSteps[0];
+          // Auto-chain: skip ContinuationView and start next Spark step immediately
+          if (agentPanelMode === 'spark' && agentParams.autoChain && nextSteps.length > 0) {
+            const next = nextSteps[0];
+            set((s) => {
+              Object.assign(s, defaultAgentRuntime);
+              s.agentPipelineType = next.pipeline;
+            });
+            get().runAgentGenerate(worldId).catch(console.error);
+            return;
+          }
+
           set((s) => {
             Object.assign(s, defaultAgentRuntime);
-            s.agentPipelineType = next.pipeline;
+
+            if (agentPanelMode === 'spark' && nextSteps.length > 0) {
+              // Return to SparkConfigView with the next task pre-selected
+              s.agentPipelineType = nextSteps[0].pipeline;
+              s.agentNextSteps = [];
+              s.agentPhase = 'configuring';
+            } else if (agentPanelMode === 'spark') {
+              // All Spark steps done — close panel
+              s.agentPhase = 'idle';
+              s.agentPanelOpen = false;
+              s.agentNextSteps = [];
+            } else if (nextSteps.length > 0) {
+              s.agentNextSteps = nextSteps;
+              s.agentPhase = 'continuing';
+            } else {
+              s.agentPhase = 'idle';
+              s.agentPanelOpen = false;
+              s.agentNextSteps = [];
+            }
           });
-          get().runAgentGenerate(worldId).catch(console.error);
-          return;
+        } catch (err) {
+          get().addToast({ message: (err as Error).message, type: 'error' });
+          set((s) => { s.agentPhase = 'error'; s.agentError = (err as Error).message; });
         }
+      };
 
-        set((s) => {
-          Object.assign(s, defaultAgentRuntime);
+      // First edit past a published version — same one-time check as the
+      // manual-edit accept flow in ArticlePage.tsx. 'cohere' is display-only,
+      // never diverges anything, so it's exempt.
+      const article = currentArticleDetail?.article;
+      const isFirstEditSincePublish = agentPipelineType !== 'cohere'
+        && article?.id === agentTargetArticleId
+        && Boolean(article?.publishedVersionId)
+        && article?.publishedVersionId === article?.currentVersionId;
 
-          if (agentPanelMode === 'spark' && nextSteps.length > 0) {
-            // Return to SparkConfigView with the next task pre-selected
-            s.agentPipelineType = nextSteps[0].pipeline;
-            s.agentNextSteps = [];
-            s.agentPhase = 'configuring';
-          } else if (agentPanelMode === 'spark') {
-            // All Spark steps done — close panel
-            s.agentPhase = 'idle';
-            s.agentPanelOpen = false;
-            s.agentNextSteps = [];
-          } else if (nextSteps.length > 0) {
-            s.agentNextSteps = nextSteps;
-            s.agentPhase = 'continuing';
-          } else {
-            s.agentPhase = 'idle';
-            s.agentPanelOpen = false;
-            s.agentNextSteps = [];
-          }
+      if (isFirstEditSincePublish) {
+        get().showConfirm({
+          title: 'Propose a new version?',
+          message: 'This article is published. Accepting creates a new draft on top of it — the published version stays live until you publish again.',
+          confirmLabel: 'Accept',
+          variant: 'neutral',
+          onConfirm: doCommit,
         });
-      } catch (err) {
-        get().addToast({ message: (err as Error).message, type: 'error' });
-        set((s) => { s.agentPhase = 'error'; s.agentError = (err as Error).message; });
+        return;
       }
+
+      await doCommit();
     },
 
     agentDiscard: async (worldId) => {

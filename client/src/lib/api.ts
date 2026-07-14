@@ -227,8 +227,6 @@ export const api = {
 
   bible: {
     getMeta:     (wid: string)                        => get<BibleMeta>(`/worlds/${wid}/bible`),
-    updateEntry: (wid: string, aid: string, summary: string) =>
-      patch<BibleMeta>(`/worlds/${wid}/bible/${aid}`, { summary }),
     render:      (wid: string)                        => get<{ markdown: string } & BibleMeta>(`/worlds/${wid}/bible/render`),
   },
 

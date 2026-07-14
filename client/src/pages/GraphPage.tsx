@@ -3,7 +3,7 @@ import { ExternalLink, GitBranch, Link as LinkIcon, Plus, RefreshCw } from 'luci
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../lib/api.ts';
 import { useStore } from '../stores/index.ts';
-import type { ArticleGraph, ArticleGraphEdge, ArticleGraphNode } from '../types/article.ts';
+import type { ArticleGraph, ArticleGraphEdge, ArticleGraphNode, ArticleStatus } from '../types/article.ts';
 
 type PositionedNode = ArticleGraphNode & { x: number; y: number };
 type LinkType = ArticleGraphEdge['linkType'];
@@ -12,7 +12,7 @@ type DragState = { pointerId: number; x: number; y: number; panX: number; panY: 
 const NODE_WIDTH = 190;
 const NODE_HEIGHT = 54;
 
-const statusStyles = {
+const statusStyles: Partial<Record<ArticleStatus, string>> = {
   stub:     'var(--graph-stub)',
   draft:    'var(--graph-draft)',
   reviewed: 'var(--graph-reviewed)',

@@ -1,6 +1,5 @@
 import { getDbClient } from '../../../db/client.js';
-import { upsertEntry } from '../../../services/worldBible.js';
-import { acceptDraft, batchCreateChildArticles } from '../../../services/articlesService.js';
+import { acceptDraft, batchCreateChildArticles, updateArticle } from '../../../services/articlesService.js';
 import { getRun, bumpRunBudget, updateRunProgress } from '../../../services/runsService.js';
 import { recordArticleIssues } from '../../../services/issueRecorder.js';
 import { createRunReviewItem, getLatestReviewDecision } from '../../../services/runReviewItems.js';
@@ -57,6 +56,7 @@ export async function dequeueNode(state: ForgeState): Promise<Partial<ForgeState
     signal: 'continue',
     lastStepError: undefined,
     inceptionIntro: undefined,
+    inceptionIntroChanged: false,
     currentItemStepsDone: [],
     currentItemContextPackage: undefined,
     currentItemResearchBrief: undefined,
@@ -112,7 +112,7 @@ export async function inceptionNode(state: ForgeState): Promise<Partial<ForgeSta
   if (item.startStep !== 'inception' || state.currentItemStepsDone.includes('inception')) return {};
 
   try {
-    const existingIntro = await getCurrentIntro(state.worldId, state.ownerId, item.articleId);
+    const existingIntro = await getCurrentIntro(state.ownerId, item.articleId, state.contextBasis);
     const hasExistingIntro = existingIntro.trim().length > 0;
     if (hasExistingIntro && (state.forgeInceptionExistingMode === 'skip_existing' || state.forgeInceptionExistingMode === 'create')) {
       await logEvent(state, 'Inception', item.title, true, 'Skipped existing introduction.');
@@ -138,11 +138,11 @@ export async function inceptionNode(state: ForgeState): Promise<Partial<ForgeSta
     }
     if (existingDecision?.status === 'accepted') {
       const acceptedIntro = stringDecision(existingDecision, 'introduction', stringPayload(existingDecision, 'introduction', existingIntro));
-      await upsertEntry(getDbClient(), state.worldId, item.articleId, acceptedIntro);
-      await logEvent(state, 'Inception', item.title, true, 'Introduction accepted and saved.');
+      await logEvent(state, 'Inception', item.title, true, 'Introduction accepted.');
       return {
         signal: 'continue',
         inceptionIntro: acceptedIntro,
+        inceptionIntroChanged: true,
         currentItemStepsDone: [...state.currentItemStepsDone, 'inception'],
         currentItemContextPackage: await resolveItemContextPackage(state, item.articleId, acceptedIntro),
       };
@@ -202,20 +202,20 @@ export async function inceptionNode(state: ForgeState): Promise<Partial<ForgeSta
         return { signal: 'continue', lastStepError: { step: 'Inception', fatal: false, message: 'Introduction rejected by user.' } };
       }
       const acceptedIntro = stringDecision(decision, 'introduction', result.introduction);
-      await upsertEntry(getDbClient(), state.worldId, item.articleId, acceptedIntro);
-      await logEvent(state, 'Inception', item.title, true, 'Introduction accepted and saved.');
+      await logEvent(state, 'Inception', item.title, true, 'Introduction accepted.');
       return {
         signal: 'continue',
         inceptionIntro: acceptedIntro,
+        inceptionIntroChanged: true,
         currentItemStepsDone: [...state.currentItemStepsDone, 'inception'],
         currentItemContextPackage: await resolveItemContextPackage(state, item.articleId, acceptedIntro, result.contextPackage),
       };
     }
 
-    await upsertEntry(getDbClient(), state.worldId, item.articleId, result.introduction);
-    await logEvent(state, 'Inception', item.title, true, `Saved ${introWordCount}-word introduction.`);
+    await logEvent(state, 'Inception', item.title, true, `Generated a ${introWordCount}-word introduction.`);
     return {
       inceptionIntro: result.introduction,
+      inceptionIntroChanged: true,
       currentItemStepsDone: [...state.currentItemStepsDone, 'inception'],
       currentItemContextPackage: await resolveItemContextPackage(state, item.articleId, result.introduction, result.contextPackage),
     };
@@ -231,7 +231,7 @@ export async function expansionNode(state: ForgeState): Promise<Partial<ForgeSta
   if (item.startStep === 'branching' || state.currentItemStepsDone.includes('expansion')) return {};
 
   try {
-    const existingDescription = await getCurrentDescription(state.ownerId, item.articleId);
+    const existingDescription = await getCurrentDescription(state.ownerId, item.articleId, state.contextBasis);
     if (existingDescription.trim() && (state.forgeExpansionExistingMode === 'skip_existing' || state.forgeExpansionExistingMode === 'create')) {
       await logEvent(state, 'Expansion', item.title, true, 'Skipped existing description.');
       return { currentItemStepsDone: [...state.currentItemStepsDone, 'expansion'] };
@@ -257,13 +257,20 @@ export async function expansionNode(state: ForgeState): Promise<Partial<ForgeSta
         articleId: item.articleId,
         ownerId: state.ownerId,
         description: acceptedDescription,
+        introduction: state.inceptionIntroChanged ? state.inceptionIntro : undefined,
         runId: state.runId,
         contextBasis: state.contextBasis,
         contextDraftIds: state.currentItemContextPackage?.contextDraftIds ?? [],
       });
-      await acceptDraft({ worldId: state.worldId, articleId: item.articleId, ownerId: state.ownerId, activeRunId: state.runId });
+      await acceptDraft({
+        worldId: state.worldId,
+        articleId: item.articleId,
+        ownerId: state.ownerId,
+        activeRunId: state.runId,
+        introductionOverride: state.inceptionIntroChanged ? state.inceptionIntro : undefined,
+      });
       await logEvent(state, 'Expansion', item.title, true, 'Draft accepted and saved.');
-      return { signal: 'continue', currentItemStepsDone: [...state.currentItemStepsDone, 'expansion'] };
+      return { signal: 'continue', inceptionIntroChanged: false, currentItemStepsDone: [...state.currentItemStepsDone, 'expansion'] };
     }
 
     const ideaDecision = requiresUserReview(state)
@@ -383,13 +390,20 @@ export async function expansionNode(state: ForgeState): Promise<Partial<ForgeSta
         articleId: item.articleId,
         ownerId: state.ownerId,
         description: acceptedDescription,
+        introduction: state.inceptionIntroChanged ? state.inceptionIntro : undefined,
         runId: state.runId,
         contextBasis: state.contextBasis,
         contextDraftIds: expandResult.contextDraftIds ?? contextPackage.contextDraftIds ?? [],
       });
-      await acceptDraft({ worldId: state.worldId, articleId: item.articleId, ownerId: state.ownerId, activeRunId: state.runId });
+      await acceptDraft({
+        worldId: state.worldId,
+        articleId: item.articleId,
+        ownerId: state.ownerId,
+        activeRunId: state.runId,
+        introductionOverride: state.inceptionIntroChanged ? state.inceptionIntro : undefined,
+      });
       await logEvent(state, 'Expansion', item.title, true, 'Draft accepted and saved.');
-      return { signal: 'continue', currentItemStepsDone: [...state.currentItemStepsDone, 'expansion'] };
+      return { signal: 'continue', inceptionIntroChanged: false, currentItemStepsDone: [...state.currentItemStepsDone, 'expansion'] };
     }
 
     await persistExpandDraft({
@@ -397,17 +411,29 @@ export async function expansionNode(state: ForgeState): Promise<Partial<ForgeSta
       articleId: item.articleId,
       ownerId: state.ownerId,
       description: expandResult.description,
+      introduction: state.inceptionIntroChanged ? state.inceptionIntro : undefined,
       runId: state.runId,
       contextBasis: state.contextBasis,
       contextDraftIds: expandResult.contextDraftIds ?? contextPackage.contextDraftIds ?? [],
     });
 
     if (state.commitPolicy === 'auto_commit') {
-      await acceptDraft({ worldId: state.worldId, articleId: item.articleId, ownerId: state.ownerId, activeRunId: state.runId });
+      await acceptDraft({
+        worldId: state.worldId,
+        articleId: item.articleId,
+        ownerId: state.ownerId,
+        activeRunId: state.runId,
+        introductionOverride: state.inceptionIntroChanged ? state.inceptionIntro : undefined,
+      });
       await logEvent(state, 'Expansion', item.title, true, 'Description saved.');
-    } else {
-      await logEvent(state, 'Expansion', item.title, true, 'Draft ready for review.');
+      return { inceptionIntroChanged: false, currentItemStepsDone: [...state.currentItemStepsDone, 'expansion'] };
     }
+    // Not auto-committing: the draft sits pending, carrying inceptionIntro
+    // (if any) forward via persistExpandDraft above — a later manual accept
+    // (from this run resuming, or from the article page) lands both pieces
+    // in one version. Leave inceptionIntroChanged true so finishItemNode
+    // knows NOT to commit it separately.
+    await logEvent(state, 'Expansion', item.title, true, 'Draft ready for review.');
     return { currentItemStepsDone: [...state.currentItemStepsDone, 'expansion'] };
   } catch (err) {
     const fatal = isFatal(err);
@@ -582,11 +608,35 @@ export async function branchingNode(state: ForgeState): Promise<Partial<ForgeSta
 }
 
 export async function finishItemNode(state: ForgeState): Promise<Partial<ForgeState>> {
+  let lastStepError = state.lastStepError;
+
+  // Inception accepted a new introduction this cycle, but nothing durable
+  // absorbed it — Expansion never reached its own commit (one_step runs, or
+  // a rejected/errored Expansion left no pending draft to carry it forward).
+  // Commit it alone here so the run still produces exactly one new version
+  // for this item, never zero and never a second one racing a later accept.
+  if (state.inceptionIntroChanged && !state.currentItemStepsDone.includes('expansion') && state.currentItem) {
+    const item = state.currentItem;
+    try {
+      await updateArticle({
+        worldId: state.worldId,
+        articleId: item.articleId,
+        ownerId: state.ownerId,
+        introduction: state.inceptionIntro ?? '',
+        activeRunId: state.runId,
+      });
+      await logEvent(state, 'Inception', item.title, true, 'Introduction committed.');
+    } catch (err) {
+      lastStepError = { step: 'Inception', fatal: false, message: errorMessage(err) };
+      await logEvent(state, 'Inception', item.title, false, errorMessage(err));
+    }
+  }
+
   const completed = state.completed + 1;
   // Fatal errors never reach this node (they route straight to END_KEY), so any
   // lastStepError here is non-fatal — the item was still counted "completed"
   // for progress purposes, but its step failed and finalizeRun needs to know.
-  const failedItemCount = state.failedItemCount + (state.lastStepError ? 1 : 0);
+  const failedItemCount = state.failedItemCount + (lastStepError ? 1 : 0);
   await updateRunProgress(state.worldId, state.ownerId, state.runId, completed, state.total, failedItemCount);
-  return { completed, failedItemCount, currentItem: undefined, currentItemStepsDone: [] };
+  return { completed, failedItemCount, currentItem: undefined, currentItemStepsDone: [], inceptionIntroChanged: false };
 }

@@ -43,7 +43,15 @@ export async function logLlmTrace(entry: {
   if (!isLlmTraceEnabled()) return;
 
   const exec = getDbClient();
-  const ownerId = await ownerIdForWorld(exec, entry.worldId);
+  let ownerId: string;
+  try {
+    ownerId = await ownerIdForWorld(exec, entry.worldId);
+  } catch {
+    // Pre-creation calls (e.g. the wizard's charter-assist) use a sentinel
+    // worldId with no backing row yet. Tracing is best-effort diagnostics
+    // and must never break the agent call it's observing.
+    return;
+  }
   const request = redactSecrets({
     messages: entry.messages,
     options: entry.options,

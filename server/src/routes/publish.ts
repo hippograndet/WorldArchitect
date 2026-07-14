@@ -20,6 +20,7 @@ router.get('/staged', asyncHandler(async (req, res) => {
 
   const articles = await getDbClient().all<DbRow>(`
     SELECT a.id, a.title, a.status, a.template_type, a.depth, a.updated_at,
+           a.published_version_id IS NOT NULL AS previously_published,
            COALESCE(blocking.cnt, 0) AS blocking_issues,
            COALESCE(warn.cnt, 0) AS warning_issues
     FROM articles a
@@ -33,7 +34,8 @@ router.get('/staged', asyncHandler(async (req, res) => {
       FROM article_issues WHERE owner_id = ? AND severity = 'warning' AND status = 'open'
       GROUP BY article_id
     ) warn ON warn.article_id = a.id
-    WHERE a.world_id = ? AND a.owner_id = ? AND a.status = 'draft'
+    WHERE a.world_id = ? AND a.owner_id = ?
+      AND (a.status = 'draft' OR (a.status = 'published' AND a.current_version_id IS DISTINCT FROM a.published_version_id))
     ORDER BY a.depth ASC, a.title ASC
   `, [ownerId, ownerId, worldId, ownerId]);
 
@@ -44,6 +46,7 @@ router.get('/staged', asyncHandler(async (req, res) => {
     templateType: a.template_type,
     depth: a.depth,
     updatedAt: a.updated_at,
+    previouslyPublished: Boolean(a.previously_published),
     blockingIssues: a.blocking_issues,
     warningIssues: a.warning_issues,
     health: (a.blocking_issues as number) > 0 ? 'blocking'
@@ -155,11 +158,10 @@ router.post('/commit', asyncHandler(async (req, res) => {
       );
       if (!article) continue;
 
-      await tx.run(`UPDATE articles SET status = 'published', updated_at = ? WHERE id = ? AND owner_id = ?`, [now, aid, ownerId]);
-
-      if (article.current_version_id) {
-        await tx.run(`UPDATE article_versions SET is_published = 1 WHERE id = ? AND owner_id = ?`, [article.current_version_id, ownerId]);
-      }
+      await tx.run(
+        `UPDATE articles SET status = 'published', published_version_id = ?, updated_at = ? WHERE id = ? AND owner_id = ?`,
+        [article.current_version_id ?? null, now, aid, ownerId],
+      );
 
       await tx.run(`
         INSERT INTO publish_history (id, world_id, owner_id, article_id, version_id, published_at)

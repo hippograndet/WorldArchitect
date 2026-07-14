@@ -53,7 +53,6 @@ const ManualEditSchema = z.object({
   status: z.enum(['stub', 'draft', 'reviewed']).optional(),
   title: z.string().min(1).max(500).optional(),
   isFixedPoint: z.boolean().optional(),
-  force: z.boolean().optional().default(false),
 });
 
 const SaveDraftSchema = z.object({
@@ -88,7 +87,6 @@ const SaveDraftSchema = z.object({
 const AcceptDraftSchema = z.object({
   descriptionOverride: z.string().optional(),
   introductionOverride: z.string().optional(),
-  force: z.boolean().optional().default(false),
 });
 
 const DraftStatusQuerySchema = z.enum(['pending', 'accepted', 'discarded', 'all']).optional().default('pending');
@@ -136,11 +134,11 @@ router.get('/:aid', asyncHandler(async (req, res) => {
   });
 
   const links = await exec.all<DbRow>(`
-    SELECT a.id, a.title, wbe.summary AS introduction,
+    SELECT a.id, a.title, av.introduction AS introduction,
            al.link_type AS linkType
     FROM article_links al
     JOIN articles a ON a.id = al.target_article_id
-    LEFT JOIN world_bible_entries wbe ON wbe.article_id = a.id
+    LEFT JOIN article_versions av ON av.id = a.current_version_id
     WHERE al.source_article_id = ? AND al.owner_id = ?
   `, [(req.params as Record<string, string>).aid, tenant.ownerId]);
 
