@@ -12,7 +12,7 @@ Expand is the main growth surface for the MAS. It can work on one document or co
 
 An Expand run is configured by:
 
-- **Location** - the selected document, a subtree rooted at that document, or eventually broader world scopes.
+- **Location** - the selected document, or a subtree rooted at that document.
 - **Start step** - Inception, Expansion, or Branching.
 - **Continuation** - one step, finish the selected document, or recurse into created children.
 - **Validation level** - Manual, Assisted, or Autopilot.
@@ -27,7 +27,7 @@ Older screenshots and a few internal names still use Spark and Forge. In the cur
 
 The shared MAS contract is location, intent, autonomy mode, review policy, and commit policy. This keeps workflows modular while making it clear when the system should ask the user, create a pending draft, or commit automatically.
 
-Long prose and compact decisions use different output styles. Scribe writes article descriptions as normal assistant prose so long drafts do not have to be serialized inside provider function-call JSON. Compact decisions still use structured tool calls for proposal selection, checks, and Consolidate concept extraction.
+Long prose and compact decisions use different output styles. Scribe writes article descriptions as normal prose rather than packing long text into a rigid data format. Short decisions, like picking a proposal or running a check, still use a stricter structured format so they can be validated automatically.
 
 ## Main Entry Points
 
@@ -85,7 +85,9 @@ WorldArchitect uses specialized agents for different jobs:
 - **Mention Extractor** extracts compact structured concept candidates during Consolidate scans. It does not run during Expand and does not create documents by itself.
 - **Continuity Editor** checks draft contradictions before acceptance.
 - **Lorekeeper** writes compact World Bible introductions.
+- **Grounding Check** checks generated introductions before they become trusted context.
 - **Cartographer** proposes child articles.
+- **Dedup Check** filters out duplicate child proposals.
 - **Warden** checks coherence against the world.
 - **Sentinel** checks that reorganized text did not lose facts.
 - **Style Warden** reviews tone and prose fit.
@@ -113,8 +115,6 @@ WorldArchitect is intentionally explicit about AI use:
 
 The goal is not to replace the writer. The goal is to make a complex fictional world easier to grow, inspect, and maintain.
 
-## Context Package Boundary
+## Context Boundary
 
-Agents receive curated article context from the server rather than reading the database directly. Today, that package contains the target article, parents, siblings, children, referenced articles, and an estimated token budget.
-
-The context package boundary keeps agent workflows modular: agents consume one curated package instead of many low-level database, vector, and metadata tools.
+Agents work from a curated summary of the relevant part of the world — the target article, its parents, siblings, children, and referenced articles — rather than reading the database directly. This keeps agent behavior consistent and predictable across different tools and runs.

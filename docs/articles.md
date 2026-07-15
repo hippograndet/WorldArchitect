@@ -1,120 +1,55 @@
 # Article Lifecycle And Versioning
 
-WorldArchitect articles are designed to feel like wiki pages, but the server stores them as a small lifecycle: an article record, one or more immutable versions, optional pending drafts, and graph/context data around the article.
+WorldArchitect articles are designed to feel like wiki pages, but behind the scenes each one is a small lifecycle: an article, one or more saved versions, optional pending drafts awaiting review, and links to other articles.
 
-This document describes the current article lifecycle and versioning behavior.
+This document describes that lifecycle in plain terms.
 
-## Core Objects
+## Core Concepts
 
-An **article** is the stable identity of a world entry. It owns the title, internal seed group, article type, status, hierarchy depth, `current_version_id`, and `published_version_id`.
+An **article** is the stable identity of a world entry: its title, type, status, and place in the hierarchy.
 
-An **article version** is a saved content revision for one article. Versions store introduction, description, word count, created time, and optional metadata such as whether the version was created by a revert. Introduction and description live together on the same version row — there is no separate table holding a copy of either field.
+An **article version** is a saved snapshot of an article's content (introduction and description). Editing an article creates a new version rather than overwriting the old one, so nothing is lost.
 
-A **current version** is the version pointed to by `articles.current_version_id`. This is the working state: normal reads, the article page, and agent context default to it.
+The **current version** is the working version — what you see and edit day to day.
 
-A **published version** is the version pointed to by `articles.published_version_id`, set only by the Publish workflow (`POST /api/worlds/:wid/publish/commit`). It is a second, independent pointer — editing an article after publishing creates a new current version without moving the published one, so the published content stays the stable "official" version until the user explicitly publishes again. An article with unpublished edits has `current_version_id !== published_version_id`; the article page shows this as an "unpublished edits" indicator. Some MAS reads (Grow's "Context basis" setting; see below) can be pointed at the published version instead of current — an article that has never been published is treated as empty under that basis, not silently read from its current draft.
+The **published version** is a separate, independent pointer set only when you explicitly publish an article. Editing a published article creates a new current version without touching what's published, so the published content stays stable until you choose to publish again. The article page shows a clear indicator when there are unpublished edits.
 
-A **draft bundle** is a review unit for one article, either agent-generated (Expand/Consolidate/Inception) or a manual edit (`pipelineType: 'manual_edit'`, from the Introduction/Description pencil icon on the article page). Multiple pending bundles can exist — e.g. an Expand rerun alongside a manual edit — but only one pending `manual_edit` bundle is kept per article; re-saving a manual edit before accepting updates that same bundle in place rather than creating another. Accepted and discarded bundles remain in draft history, but only pending bundles can be accepted.
+A **draft bundle** is a reviewable unit of proposed content for one article — either AI-generated (from Grow or Consolidate) or your own manual edit staged for review. Nothing becomes part of the article until a draft is accepted.
 
-The **World Bible** is a rendered view over every article's current (or published, depending on context basis) version — not a separately stored or synced table. It always reflects whatever the relevant version's introduction currently is.
+The **World Bible** is a live summary view built from every article's current (or published) introduction — not something you maintain separately. It always reflects whatever your articles currently say.
 
-An **entity mention** is a Consolidate concept candidate found in accepted article prose. Pending mentions do not change the article graph. When the user accepts one, the app creates or reuses a same-depth article stub and adds a reference edge from the source article.
+A **concept candidate** is a named person, place, or thing that Consolidate noticed in your accepted prose and thinks might deserve its own article. These are suggestions only — accepting one creates or links a new stub article; ignoring one does nothing.
 
-An **article type** is a predefined concept hint such as General, Person / Character, Location, Organization / Faction, or Event. It guides the small infobox-style Details fields on the article page.
+An **article type** is a predefined hint such as General, Person / Character, Location, Organization / Faction, or Event, used to guide the small infobox-style Details fields on the article page.
 
 ## Current Lifecycle
 
 ```text
 stub article
-  -> manual edit or AI draft, staged as a pending draft bundle
-  -> accepted, creating a draft article with current version
+  -> manual edit or AI draft, staged for review
+  -> accepted, creating a new version
   -> reviewed article
-  -> published article/version through publish workflow
+  -> published through the Publish workflow
 ```
 
-The current app supports `stub`, `draft`, `reviewed`, and `published` article statuses. Publishing is tracked through `articles.published_version_id`: once set, it stays put through further edits (`status` stays `'published'` too — editing a published article does not revert its status), and only moves when the article is published again.
+Articles move through `stub`, `draft`, `reviewed`, and `published` statuses. Once an article is published, editing it further does not change its published status or content — it just creates a new current version, and the article page will show that current and published now differ until you re-publish.
 
-Editing a published article is not blocked. It creates a new current version the same way any other edit does; the published version remains what Publish-based reads see until the user re-publishes. The client shows a one-time confirmation the first time an edit diverges an article from its published version, just to make the "this proposes a new version, it doesn't touch the published one" behavior visible in the moment.
+Grow's "Context basis" setting controls whether an AI run reads an article's current (in-progress) content or only its officially published content — useful when you want AI generation to build only on reviewed, published material rather than works in progress.
 
-Agents reason from the current working version by default. A run's **context basis** (`current` / `latest_draft` / `published`) controls this per run — Grow's "Context basis" setting lets a run read every article it touches (the one being edited and everything pulled in as context) from its published version instead, treating never-published articles as empty rather than falling back to their drafts.
+## Draft And Concept Review
 
-## Draft Acceptance
+Accepting a draft bundle validates the proposed content, creates a new version (or a new child article, for branching), and refreshes the World Bible automatically. The accepted draft moves into draft history; other pending drafts for the same article are unaffected.
 
-Accepting a draft bundle is a controlled write:
+Concept candidates are reviewed separately from drafts: accepting one reuses an existing article of the same title if one exists, or creates a new stub article and links it from the source article.
 
-- The generated draft payload is validated.
-- A new article version is created for normal article expansion.
-- For `create_child`, a child article and child version are created.
-- Optional parent append text creates a new parent version.
-- Suggested links and warnings are written; the World Bible reflects the new content automatically since it reads off the version just committed. Inferred concept mentions are handled later through Consolidate scans.
-- The accepted bundle is marked as history after a successful accept; other pending bundles for the article are left alone.
-- Sync rules run after the commit.
+## Versioning
 
-The public accept endpoint remains:
+Versions are append-only — editing never destroys a prior version. Reverting to an older version is non-destructive too: it creates a new version copied from the old one rather than deleting anything in between, so version history stays a complete, linear record you can always step back through.
 
-```text
-POST /api/worlds/:wid/articles/:aid/accept
-```
+## Canon And Coherence
 
-New draft-id routes are used by the app for deterministic review:
+WorldArchitect does not track exact "this article was checked against that specific version of another article" dependencies. That means if one article changes, related articles aren't automatically flagged as needing a re-check purely because of that link. Coherence is instead handled by automatic checks, issue tracking, and agent review passes — see [Multi-Agent System Overview](mas-overview.md).
 
-```text
-GET  /api/worlds/:wid/articles/:aid/drafts?status=pending|accepted|discarded|all
-POST /api/worlds/:wid/articles/:aid/drafts/:draftId/accept
-POST /api/worlds/:wid/articles/:aid/drafts/:draftId/discard
-```
+## Retention
 
-Normal accept returns:
-
-```json
-{ "article": "...", "version": "..." }
-```
-
-Child creation accept returns:
-
-```json
-{ "article": "...", "childArticle": "...", "childVersion": "..." }
-```
-
-## Concept Candidate Acceptance
-
-Concept candidates are handled outside draft acceptance. Consolidate can scan accepted descriptions and store pending entity mentions. Accepting a mention:
-
-- Reuses an exact-title article when one already exists.
-- Otherwise creates a `stub` article at the source article's depth.
-- Uses the mention summary as the new article introduction.
-- Adds a `references` edge from the source article to the concept article.
-- Marks the mention as `created`; ignored candidates are marked `ignored`.
-
-## Versioning Rules
-
-Article versions are append-only for normal editing. Reverting is non-destructive: the server creates a new version copied from the selected older version, marks it as a revert, and points the article at the new version.
-
-This means version history is useful for undo/review. It is separate from canon dependency tracking.
-
-Current version creation paths include:
-
-- draft acceptance — the article page's Introduction/Description pencil icon now saves a `manual_edit` draft bundle rather than writing a version directly; accepting it (or any other draft) is what creates the version. The generic `PATCH /api/worlds/:wid/articles/:aid` direct-edit endpoint (`updateArticle`) still exists server-side and still creates a version immediately, but the article page UI no longer calls it.
-- child article creation
-- parent append during child creation
-- issue fixer apply
-- revert
-- world creation root article
-
-Draft acceptance, revert, and child/parent-append creation share a `commitArticleContent` helper (`server/src/services/articlesService.ts`) that writes the version and moves `articles.current_version_id` — there is nothing else to keep in sync, since the World Bible reads straight off that same version. A `manual_edit` draft's `draftContent` always carries both `introduction` and `description`, even when only one was actually changed: draft acceptance falls back to `''` for any field missing from `draftContent`, so an edit that omitted the untouched field would silently blank it on accept. The client (`saveManualEdit` in `client/src/stores/articleSlice.ts`) fills the other field from the article's current committed content before saving.
-
-## Canon And Coherence Boundaries
-
-The app does not store exact dependency edges such as:
-
-```text
-Article A version 4 was checked against Article B version 7
-```
-
-Because of that, if Article B changes later, Article A is not automatically known to be stale because of that exact version dependency. Coherence checks are handled by sync rules, issue records, manual review, and agent workflows rather than by a full canon dependency graph.
-
-This is distinct from hierarchy/reference edges (`article_links`, shown in Graph view): those are not versioned either — an edge always resolves to whichever version of each article is current now — but each edge does record which version of its source and target were current at the moment the edge was set (`source_version_id`/`target_version_id`), as provenance metadata only. Neither mechanism notifies a linked article when the other side changes.
-
-## Retention Guidance
-
-The app keeps article versions. Database backup is the correct answer for durable retention in both local and hosted setups.
+The app keeps full article version history. Database backup is the right way to durably retain a world in both local and hosted setups — see [Local-First Data And Privacy](local-first.md).

@@ -134,6 +134,12 @@ On startup, the server creates `schema_migrations` if needed, applies any unappl
 - `006_row_level_security.sql`
 - `007_llm_traces.sql`
 - `008_run_review_items.sql`
+- `009_article_metadata_facts.sql`
+- `010_entity_mentions_pending.sql`
+- `011_draft_bundles.sql`
+- `012_run_items_failed.sql`
+- `013_drop_world_bible_entries.sql`
+- `014_publish_pointer_and_link_provenance.sql`
 
 If a migration fails, that migration transaction rolls back and the server does not record it as applied.
 

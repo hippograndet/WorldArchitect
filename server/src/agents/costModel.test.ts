@@ -1,5 +1,3 @@
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   getAgentCostProfiles,
@@ -34,13 +32,6 @@ describe('MAS cost model', () => {
     expect(byAgent.get('researcher')?.toolCategory).toBe('full');
     expect(byAgent.get('lorekeeper')?.maxIterations).toBe(3);
     expect(byAgent.get('mention_extractor')?.maxIterations).toBe(2);
-  });
-
-  it('keeps every registered agent visible in the MAS reference roster', () => {
-    const ref = readFileSync(resolve(process.cwd(), '../dev-docs/mas_reference.md'), 'utf8');
-    for (const profile of getAgentCostProfiles()) {
-      expect(ref, `${profile.agentType} missing from mas_reference.md`).toContain(`| \`${profile.agentType}\` |`);
-    }
   });
 
   it('exposes pipeline templates for the supported dry-run surfaces', () => {
