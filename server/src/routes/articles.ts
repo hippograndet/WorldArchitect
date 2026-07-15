@@ -233,13 +233,13 @@ router.get('/:aid/versions/:vid', asyncHandler(async (req, res) => {
 router.post('/:aid/revert/:vid', asyncHandler(async (req, res) => {
   const { worldId, ownerId } = requireTenantContext(req);
   try {
-    const version = await revertArticleVersion({
+    const result = await revertArticleVersion({
       worldId,
       articleId: (req.params as Record<string, string>).aid,
       ownerId,
       versionId: (req.params as Record<string, string>).vid,
     });
-    res.status(201).json(version);
+    res.status(201).json(result);
   } catch (err) {
     if (err instanceof ArticleServiceError) {
       sendArticleServiceError(res, err);

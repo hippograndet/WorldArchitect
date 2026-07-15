@@ -129,12 +129,14 @@ export const defaultAgentRuntime: Pick<
   agentLoadedDraftId: null,
 };
 
-// Pipelines that save a pending_draft on the server and commit via POST /accept
+// Pipelines that save a pending_draft on the server and commit via POST /accept.
+// expand_description/forge_expand write a new description directly (no persisted
+// draft, same as manual edits) — see agentCommit's direct-update branch below.
 const DRAFT_PIPELINE_MAP: Record<PipelineType, boolean> = {
-  expand_description: true,
+  expand_description: false,
   create_child: true,
   reorganize: true,
-  forge_expand: true,
+  forge_expand: false,
   propose_children: false,
   summarize: false,
   improve_intro: false,
@@ -143,6 +145,18 @@ const DRAFT_PIPELINE_MAP: Record<PipelineType, boolean> = {
   concept_scan: false,
   fix_issue: false,
 };
+
+// A generated draft only ever gets accepted/discarded in the same sitting it
+// was created in (the agent panel's own reviewing step) — never later from a
+// decoupled screen. So whenever the panel resets or reopens without the user
+// having explicitly decided, discard whatever draft is still sitting pending
+// rather than leaving it to be resolved from Inbox at some unrelated time.
+function discardLingeringDraft(get: () => StoreState): void {
+  const { currentWorldId, agentTargetArticleId, agentPipelineType, agentLoadedDraftId } = get();
+  if (currentWorldId && agentTargetArticleId && DRAFT_PIPELINE_MAP[agentPipelineType] && agentLoadedDraftId) {
+    get().discardDraft(currentWorldId, agentTargetArticleId, agentLoadedDraftId).catch(() => { /* best-effort cleanup */ });
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Continuation step suggestion logic
@@ -226,6 +240,7 @@ export const agentSlice: StateCreator<StoreState, [['zustand/immer', never]], []
     ...defaultAgentRuntime,
 
     openAgentPanel: (articleId, articleTitle, mode, pipeline) => {
+      discardLingeringDraft(get);
       const defaultPipeline = mode === 'spark' ? 'summarize' : 'reorganize';
       set((s) => {
         Object.assign(s, defaultAgentRuntime, defaultForgeRuntime);
@@ -240,6 +255,7 @@ export const agentSlice: StateCreator<StoreState, [['zustand/immer', never]], []
     },
 
     closeAgentPanel: () => {
+      discardLingeringDraft(get);
       set((s) => {
         Object.assign(s, defaultAgentRuntime, defaultForgeRuntime);
         s.agentPhase = 'idle';
@@ -275,6 +291,7 @@ export const agentSlice: StateCreator<StoreState, [['zustand/immer', never]], []
     },
 
     agentRetry: () => {
+      discardLingeringDraft(get);
       set((s) => {
         Object.assign(s, defaultAgentRuntime);
         s.agentPhase = 'configuring';
@@ -282,6 +299,7 @@ export const agentSlice: StateCreator<StoreState, [['zustand/immer', never]], []
     },
 
     continueWithStep: (step) => {
+      discardLingeringDraft(get);
       set((s) => {
         Object.assign(s, defaultAgentRuntime);
         s.agentPipelineType = step.pipeline;
@@ -512,6 +530,22 @@ export const agentSlice: StateCreator<StoreState, [['zustand/immer', never]], []
             await api.articles.update(worldId, agentTargetArticleId, { introduction: agentDraftResult?.introduction ?? '' });
             await get().loadBibleMeta(worldId);
             await get().selectArticle(worldId, agentTargetArticleId);
+          } else if (agentPipelineType === 'expand_description' || agentPipelineType === 'forge_expand') {
+            // Just writes a new description on the same article — direct
+            // write, same as a manual edit, no persisted draft to accept.
+            const result = await api.articles.update(worldId, agentTargetArticleId, {
+              description: agentDraftResult?.description ?? '',
+              ...(agentDraftResult?.introduction ? { introduction: agentDraftResult.introduction } : {}),
+            });
+            set((s) => {
+              const idx = s.articles.findIndex((a) => a.id === agentTargetArticleId);
+              if (idx !== -1) s.articles[idx] = result.article;
+              if (s.currentArticleDetail?.article.id === agentTargetArticleId) {
+                s.currentArticleDetail.article = result.article;
+                s.currentArticleDetail.version = result.version;
+                s.currentArticleDetail.introduction = result.version.introduction;
+              }
+            });
           } else if (agentPipelineType === 'cohere') {
             // Warnings are display-only — nothing to commit
           } else if (DRAFT_PIPELINE_MAP[agentPipelineType]) {

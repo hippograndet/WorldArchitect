@@ -229,8 +229,9 @@ describe('core services on Postgres', () => {
         [articleId],
       );
       const reverted = await revertArticleVersion({ worldId: WORLD_ID, articleId, versionId: firstVersion!.id, ownerId: OWNER_ID });
-      expect(reverted.introduction).toBe('An old, rough introduction.');
-      expect(reverted.description).toBe('Some existing description.');
+      expect(reverted.version.introduction).toBe('An old, rough introduction.');
+      expect(reverted.version.description).toBe('Some existing description.');
+      expect(reverted.article.currentVersionId).toBe(reverted.version.id);
     });
   });
 });

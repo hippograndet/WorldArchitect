@@ -334,7 +334,8 @@ export async function revertArticleVersion(input: RevertArticleInput) {
   await reindexArticle(input.worldId, input.articleId);
 
   const newVersion = await exec.get<DbRow>('SELECT * FROM article_versions WHERE id = ? AND owner_id = ?', [newVersionId, input.ownerId]);
-  return parseVersion(newVersion!);
+  const updatedArticle = await exec.get<DbRow>('SELECT * FROM articles WHERE id = ? AND owner_id = ?', [input.articleId, input.ownerId]);
+  return { article: parseArticle(updatedArticle!), version: parseVersion(newVersion!) };
 }
 
 export async function batchCreateChildArticles(input: BatchCreateChildArticlesInput) {

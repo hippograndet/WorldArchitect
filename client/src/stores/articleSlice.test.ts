@@ -264,66 +264,6 @@ describe('checkDraft', () => {
 });
 
 // ---------------------------------------------------------------------------
-// saveManualEdit
-// ---------------------------------------------------------------------------
-
-describe('saveManualEdit', () => {
-  const savedDraft = { ...pendingDraft, id: 'draftM1', pipelineType: 'manual_edit', displayTitle: 'Manual edit' };
-
-  beforeEach(() => {
-    store.setState((s) => {
-      s.articles = [article1];
-      s.currentArticleDetail = articleDetail;
-      s.currentWorldId = 'w1';
-    });
-    mockApi.articles.draft.save.mockResolvedValue(savedDraft);
-    mockApi.articles.draft.list.mockResolvedValue([savedDraft]);
-  });
-
-  it('creates a new manual-edit draft carrying forward the untouched field', async () => {
-    await S().saveManualEdit('w1', 'art1', { description: 'New description.' });
-    expect(mockApi.articles.draft.save).toHaveBeenCalledWith('w1', 'art1', {
-      pipelineType: 'manual_edit',
-      phase: 'draft_ready',
-      draftContent: { introduction: articleDetail.introduction, description: 'New description.' },
-      draftId: undefined,
-      displayTitle: 'Manual edit',
-    });
-  });
-
-  it('upserts onto an existing pending manual-edit draft instead of creating a second one', async () => {
-    const existing = {
-      ...pendingDraft,
-      id: 'draftM1',
-      pipelineType: 'manual_edit',
-      draftContent: { introduction: 'Staged intro.' },
-    };
-    store.setState((s) => { s.drafts = [existing]; });
-
-    await S().saveManualEdit('w1', 'art1', { description: 'New description.' });
-    expect(mockApi.articles.draft.save).toHaveBeenCalledWith('w1', 'art1', {
-      pipelineType: 'manual_edit',
-      phase: 'draft_ready',
-      draftContent: { introduction: 'Staged intro.', description: 'New description.' },
-      draftId: 'draftM1',
-      displayTitle: 'Manual edit',
-    });
-  });
-
-  it('does not touch an unrelated agent-generated pending draft', async () => {
-    store.setState((s) => { s.drafts = [pendingDraft]; });
-    await S().saveManualEdit('w1', 'art1', { introduction: 'New introduction.' });
-    expect(mockApi.articles.draft.save).toHaveBeenCalledWith('w1', 'art1', expect.objectContaining({ draftId: undefined }));
-  });
-
-  it('refreshes drafts state after saving', async () => {
-    await S().saveManualEdit('w1', 'art1', { description: 'New description.' });
-    expect(mockApi.articles.draft.list).toHaveBeenCalledWith('w1', 'art1', 'all');
-    expect(S().drafts).toEqual([savedDraft]);
-  });
-});
-
-// ---------------------------------------------------------------------------
 // revertToVersion
 // ---------------------------------------------------------------------------
 

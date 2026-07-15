@@ -3,38 +3,35 @@ import { ExternalLink, Pencil, Settings } from 'lucide-react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useStore } from '../../stores/index.ts';
 import MarkdownSectionEditor, { type MarkdownSectionEditorHandle } from './MarkdownSectionEditor.tsx';
-import VersionHistoryPanel from './VersionHistoryPanel.tsx';
 import AddSubsectionDialog from './AddSubsectionDialog.tsx';
 import ArticleInfoSidebar from './ArticleInfoSidebar.tsx';
 import ArticleIssuesButton from './ArticleIssuesButton.tsx';
 import CoherenceWarningBanner from './CoherenceWarningBanner.tsx';
 import SectionHeader from './SectionHeader.tsx';
-import DraftBundlePanel from './DraftBundlePanel.tsx';
-import type { PendingDraft } from '../../types/article.ts';
 
 export default function ArticlePage() {
   const { wid, aid } = useParams<{ wid: string; aid: string }>();
   const navigate = useNavigate();
   const {
     selectArticle, currentArticleDetail, currentArticleId,
-    saveManualEdit, loadTree, addToast, checkDraft,
-    drafts, acceptDraft, discardDraft, showConfirm,
+    commitManualEdit, addToast,
+    versions, loadVersions,
   } = useStore();
 
   const [isEditing, setIsEditing]     = useState(false);
   const [introText, setIntroText]     = useState('');
   const [savingEdit, setSavingEdit]   = useState(false);
-  const [showHistory, setShowHistory] = useState(false);
   const [showAddSubsection, setShowAddSubsection] = useState(false);
+  const [viewVersionId, setViewVersionId] = useState<string | null>(null);
   const descriptionEditorRef = useRef<MarkdownSectionEditorHandle>(null);
 
   useEffect(() => {
     if (!wid || !aid) return;
     setIsEditing(false);
-    setShowHistory(false);
+    setViewVersionId(null);
     selectArticle(wid, aid).catch(console.error);
-    checkDraft(wid, aid).catch(console.error);
-  }, [wid, aid, selectArticle, checkDraft]);
+    loadVersions(wid, aid).catch(console.error);
+  }, [wid, aid, selectArticle, loadVersions]);
 
   if (!currentArticleDetail || currentArticleId !== aid) {
     return <div className="p-8 text-sm text-gray-400">Loading…</div>;
@@ -43,66 +40,23 @@ export default function ArticlePage() {
   const { article, version, introduction, links, openWarnings } = currentArticleDetail;
   const description = version?.description ?? '';
 
-  const pendingManualDraft = drafts.find(
-    (d) => d.pipelineType === 'manual_edit' && d.status === 'pending',
-  );
-  // saveManualEdit always carries the full {introduction, description} pair into
-  // draftContent, even for a field the user didn't touch (see articleSlice.ts —
-  // acceptDraft would otherwise wipe an omitted field to ''). So "present in
-  // draftContent" doesn't mean "changed" — compare against the committed value
-  // to find what's actually pending, for the badge and the edit-mode seed below.
-  const draftIntro = pendingManualDraft?.draftContent?.introduction;
-  const draftDescription = pendingManualDraft?.draftContent?.description;
-  const pendingIntro = draftIntro !== undefined && draftIntro !== introduction ? draftIntro : undefined;
-  const pendingDescription = draftDescription !== undefined && draftDescription !== description ? draftDescription : undefined;
+  // The version selector is a pure viewer: pick a draft, see its content. No
+  // separate "Current" entry — the latest draft in the stack IS current, so
+  // it's just the top row here. No diff, no accept/discard — Edit always
+  // acts on the latest draft regardless of what's being viewed.
+  const selectedVersionId = viewVersionId ?? article.currentVersionId;
+  const viewedVersion = selectedVersionId ? versions.find((v) => v.id === selectedVersionId) ?? null : null;
+  const displayIntroduction = viewedVersion ? viewedVersion.introduction : introduction;
+  const displayDescription = viewedVersion ? viewedVersion.description : description;
 
-  const handleOpenHistory = () => {
-    setShowHistory(true);
-  };
+  function draftPhase(v: { introduction: string; description: string; id: string }): string {
+    if (!v.introduction && !v.description) return 'stub';
+    return v.id === article.publishedVersionId ? 'published' : 'draft';
+  }
 
   const handleOpenExpand = () => {
     if (!wid || !aid) return;
-    setShowHistory(false);
     navigate(`/worlds/${wid}/expand?start=${encodeURIComponent(aid)}`);
-  };
-
-  const doAcceptDraft = async (draft: PendingDraft) => {
-    if (!wid || !aid) return;
-    try {
-      await acceptDraft(wid, aid, draft.id);
-      await loadTree(wid);
-      addToast({ message: 'Draft accepted.', type: 'success' });
-    } catch (err) {
-      addToast({ message: (err as Error).message, type: 'error' });
-    }
-  };
-
-  const handleAcceptDraft = (draft: PendingDraft) => {
-    // First edit past a published version — the article stays on its published
-    // version until this accept, so this is the one moment it's about to diverge.
-    // Once diverged, publishedVersionId !== currentVersionId and this won't fire
-    // again until the article is republished.
-    if (article.publishedVersionId && article.publishedVersionId === article.currentVersionId) {
-      showConfirm({
-        title: 'Propose a new version?',
-        message: 'This article is published. Accepting creates a new draft on top of it — the published version stays live until you publish again.',
-        confirmLabel: 'Accept',
-        variant: 'neutral',
-        onConfirm: () => doAcceptDraft(draft),
-      });
-      return;
-    }
-    void doAcceptDraft(draft);
-  };
-
-  const handleDiscardDraft = async (draft: PendingDraft) => {
-    if (!wid || !aid) return;
-    try {
-      await discardDraft(wid, aid, draft.id);
-      addToast({ message: 'Draft discarded.', type: 'success' });
-    } catch (err) {
-      addToast({ message: (err as Error).message, type: 'error' });
-    }
   };
 
   const handleOpenSolidify = () => {
@@ -115,7 +69,8 @@ export default function ArticlePage() {
   // ---------------------------------------------------------------------------
 
   const handleStartEdit = () => {
-    setIntroText(pendingIntro ?? introduction);
+    setViewVersionId(null);
+    setIntroText(introduction);
     setIsEditing(true);
   };
 
@@ -127,12 +82,12 @@ export default function ArticlePage() {
     if (!wid || !aid || savingEdit) return;
     setSavingEdit(true);
     try {
-      await saveManualEdit(wid, aid, {
+      await commitManualEdit(wid, aid, {
         introduction: introText.trim(),
         description: descriptionEditorRef.current?.getMarkdown() ?? description,
       });
       setIsEditing(false);
-      addToast({ message: 'Saved as a pending edit — accept it below to apply.', type: 'success' });
+      addToast({ message: 'Saved.', type: 'success' });
     } catch (err) {
       addToast({ message: (err as Error).message, type: 'error' });
     } finally {
@@ -150,6 +105,17 @@ export default function ArticlePage() {
       <div className="flex items-start justify-between gap-4 mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">{article.title}</h1>
+          <select
+            value={selectedVersionId ?? ''}
+            onChange={(e) => setViewVersionId(e.target.value || null)}
+            className="mt-1.5 text-xs border border-gray-300 rounded px-2 py-1 text-gray-600 bg-white"
+          >
+            {versions.map((v) => (
+              <option key={v.id} value={v.id}>
+                v{v.versionNumber} · {draftPhase(v)} · {new Date(v.createdAt).toLocaleDateString()}
+              </option>
+            ))}
+          </select>
           {article.lockedByRunId && (
             <div className="flex items-center gap-2 mt-1.5 text-xs text-gray-400">
               <span
@@ -161,65 +127,58 @@ export default function ArticlePage() {
             </div>
           )}
         </div>
-        <div className="flex items-center gap-2 shrink-0">
-          {isEditing ? (
-            <>
+        <div className="flex items-center gap-3 shrink-0">
+          <div className="flex items-center gap-2">
+            {isEditing ? (
+              <>
+                <button
+                  onClick={handleSaveArticle}
+                  disabled={savingEdit}
+                  className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium disabled:opacity-50"
+                >
+                  {savingEdit ? 'Saving…' : 'Save'}
+                </button>
+                <button
+                  onClick={handleCancelEdit}
+                  className="px-3 py-1.5 text-xs border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-500"
+                >
+                  Cancel
+                </button>
+              </>
+            ) : (
               <button
-                onClick={handleSaveArticle}
-                disabled={savingEdit}
-                className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium disabled:opacity-50"
+                onClick={handleStartEdit}
+                className="px-3 py-1.5 text-xs border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-600 flex items-center gap-1"
               >
-                {savingEdit ? 'Saving…' : 'Save Draft'}
+                <Pencil size={14} /> Edit
               </button>
-              <button
-                onClick={handleCancelEdit}
-                className="px-3 py-1.5 text-xs border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-500"
-              >
-                Cancel
-              </button>
-            </>
-          ) : (
+            )}
+          </div>
+          <div className="w-px h-5 bg-gray-200" />
+          <div className="flex items-center gap-2">
+            {wid && aid && <ArticleIssuesButton wid={wid} aid={aid} />}
             <button
-              onClick={handleStartEdit}
-              className="px-3 py-1.5 text-xs border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-600 flex items-center gap-1"
+              onClick={handleOpenSolidify}
+              className="px-3 py-1.5 text-xs border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 transition-colors flex items-center gap-1"
             >
-              <Pencil size={14} /> Edit
+              <Settings size={14} /> Solidify
             </button>
-          )}
-          <button
-            onClick={handleOpenHistory}
-            className="px-3 py-1.5 text-xs border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-500"
-          >
-            History
-          </button>
-          {wid && aid && <ArticleIssuesButton wid={wid} aid={aid} />}
-          <button
-            onClick={handleOpenSolidify}
-            className="px-3 py-1.5 text-xs border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 transition-colors flex items-center gap-1"
-          >
-            <Settings size={14} /> Solidify
-          </button>
-          <button
-            onClick={handleOpenExpand}
-            className="px-3 py-1.5 text-xs border rounded-lg font-medium transition-colors border-purple-300 text-purple-600 hover:bg-purple-50 flex items-center gap-1"
-          >
-            <ExternalLink size={14} /> Expand
-          </button>
+            <button
+              onClick={handleOpenExpand}
+              className="px-3 py-1.5 text-xs border rounded-lg font-medium transition-colors border-purple-300 text-purple-600 hover:bg-purple-50 flex items-center gap-1"
+            >
+              <ExternalLink size={14} /> Expand
+            </button>
+          </div>
         </div>
       </div>
 
       {/* Legacy coherence warnings (pre-v5 — shown if present) */}
       <CoherenceWarningBanner warnings={openWarnings} />
 
-      <DraftBundlePanel
-        drafts={drafts}
-        onAccept={handleAcceptDraft}
-        onDiscard={handleDiscardDraft}
-      />
-
       {/* Introduction */}
       <section className="mb-8">
-        <SectionHeader title="Introduction" pending={pendingIntro !== undefined} />
+        <SectionHeader title="Introduction" />
         {isEditing ? (
           <textarea
             value={introText}
@@ -228,8 +187,8 @@ export default function ArticlePage() {
             className="w-full px-3 py-2 border border-blue-300 rounded-lg text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-400"
             placeholder="One-paragraph introduction for this article…"
           />
-        ) : introduction ? (
-          <p className="text-gray-700 leading-relaxed">{introduction}</p>
+        ) : displayIntroduction ? (
+          <p className="text-gray-700 leading-relaxed">{displayIntroduction}</p>
         ) : (
           <p className="text-sm text-gray-400 italic">No introduction yet. Click Edit to write one.</p>
         )}
@@ -237,16 +196,16 @@ export default function ArticlePage() {
 
       {/* Description */}
       <section className="mb-8">
-        <SectionHeader title="Description" pending={pendingDescription !== undefined} />
+        <SectionHeader title="Description" />
         {isEditing ? (
           <MarkdownSectionEditor
             ref={descriptionEditorRef}
             key={version?.id}
-            initialContent={pendingDescription ?? description}
+            initialContent={description}
           />
-        ) : description ? (
+        ) : displayDescription ? (
           <div className="prose prose-gray max-w-none text-gray-700 leading-relaxed whitespace-pre-wrap">
-            {description}
+            {displayDescription}
           </div>
         ) : (
           <p className="text-sm text-gray-400 italic">No description yet. Click Edit to write one.</p>
@@ -279,9 +238,6 @@ export default function ArticlePage() {
           <p className="text-sm text-gray-400 italic">No child subjects yet. Click + to add one.</p>
         )}
       </section>
-
-      {/* Panels */}
-      {showHistory && <VersionHistoryPanel onClose={() => setShowHistory(false)} />}
 
       {/* Add subject dialog */}
       {showAddSubsection && wid && aid && (

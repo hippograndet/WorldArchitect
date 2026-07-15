@@ -17,7 +17,7 @@ const mockApi = vi.hoisted(() => ({
   articles: {
     batch: vi.fn(),
     update: vi.fn(),
-    draft: { accept: vi.fn(), discard: vi.fn() },
+    draft: { accept: vi.fn(), discard: vi.fn(), acceptById: vi.fn(), discardById: vi.fn() },
   },
   bible: {
     getMeta: vi.fn(),
@@ -160,6 +160,60 @@ describe('agentDiscard', () => {
     expect(S().agentPhase).toBe('idle');
     expect(S().agentPanelOpen).toBe(false);
     expect(mockApi.articles.draft.discard).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// agentCommit — expand_description/forge_expand write directly, no draft
+// ---------------------------------------------------------------------------
+
+describe('agentCommit', () => {
+  it('commits expand_description via articles.update directly, not the draft accept flow', async () => {
+    S().openAgentPanel('art1', 'Some Article', 'spark', 'expand_description');
+    store.setState((s) => {
+      s.agentDraftResult = { description: 'New description text.' };
+    });
+    mockApi.articles.update.mockResolvedValue({
+      article: { id: 'art1' },
+      version: { id: 'v2', introduction: '' },
+    });
+
+    await S().agentCommit('w1');
+
+    expect(mockApi.articles.update).toHaveBeenCalledWith('w1', 'art1', { description: 'New description text.' });
+    expect(mockApi.articles.draft.accept).not.toHaveBeenCalled();
+    expect(mockApi.articles.draft.acceptById).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Lingering draft cleanup — a create_child/reorganize draft must never
+// outlive the panel session (no separate Inbox-based accept later)
+// ---------------------------------------------------------------------------
+
+describe('lingering draft cleanup on panel reset', () => {
+  it('discards an undecided create_child draft when the panel is closed', () => {
+    S().openAgentPanel('art1', 'Some Article', 'spark', 'create_child');
+    store.setState((s) => {
+      s.currentWorldId = 'w1';
+      s.agentLoadedDraftId = 'draft1';
+    });
+
+    S().closeAgentPanel();
+
+    expect(mockApi.articles.draft.discardById).toHaveBeenCalledWith('w1', 'art1', 'draft1');
+  });
+
+  it('does not attempt to discard for expand_description, which never persists a draft', () => {
+    S().openAgentPanel('art1', 'Some Article', 'spark', 'expand_description');
+    store.setState((s) => {
+      s.currentWorldId = 'w1';
+      s.agentLoadedDraftId = 'draft1'; // should be impossible in practice, but guard against it anyway
+    });
+
+    S().closeAgentPanel();
+
+    expect(mockApi.articles.draft.discardById).not.toHaveBeenCalled();
   });
 });
 

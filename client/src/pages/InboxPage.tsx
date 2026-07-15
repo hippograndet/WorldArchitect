@@ -4,6 +4,7 @@ import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { api } from '../lib/api.ts';
 import WorkspaceLayout from '../components/shared/WorkspaceLayout.tsx';
 import LabelBadge from '../components/shared/LabelBadge.tsx';
+import PublishDiffPreview from '../components/shared/PublishDiffPreview.tsx';
 import type { InboxItem, InboxLane } from '../types/inbox.ts';
 import { useStore } from '../stores/index.ts';
 import {
@@ -317,9 +318,19 @@ export default function InboxPage() {
                     <p className="text-sm leading-relaxed text-gray-700">{payloadString(selectedItem, 'summary')}</p>
                   )}
                   {selectedItem.lane === 'publish' && (
-                    <p className="text-sm text-gray-600">
-                      {payloadNumber(selectedItem, 'blockingIssues')} blocking issue(s), {payloadNumber(selectedItem, 'warningIssues')} warning(s).
-                    </p>
+                    <>
+                      <p className="text-sm text-gray-600">
+                        {payloadNumber(selectedItem, 'blockingIssues')} blocking issue(s), {payloadNumber(selectedItem, 'warningIssues')} warning(s).
+                      </p>
+                      {selectedItem.articleIds[0] && (
+                        <PublishDiffPreview
+                          wid={wid}
+                          articleId={selectedItem.articleIds[0]}
+                          currentVersionId={payloadString(selectedItem, 'currentVersionId')}
+                          publishedVersionId={payloadString(selectedItem, 'publishedVersionId')}
+                        />
+                      )}
+                    </>
                   )}
 
                   <div className="flex flex-wrap gap-2 border-t border-gray-100 pt-4">

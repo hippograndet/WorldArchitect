@@ -78,6 +78,7 @@ export async function listInboxItems(worldId: string, ownerId: string): Promise<
 
   const publishRows = await exec.all<DbRow>(
     `SELECT a.id, a.title, a.status, a.template_type, a.depth, a.updated_at,
+            a.current_version_id, a.published_version_id,
             COALESCE(blocking.cnt, 0) AS blocking_issues,
             COALESCE(warn.cnt, 0) AS warning_issues
        FROM articles a
@@ -93,7 +94,8 @@ export async function listInboxItems(worldId: string, ownerId: string): Promise<
           WHERE owner_id = ? AND severity = 'warning' AND status = 'open'
           GROUP BY article_id
        ) warn ON warn.article_id = a.id
-      WHERE a.world_id = ? AND a.owner_id = ? AND a.status = 'draft'
+      WHERE a.world_id = ? AND a.owner_id = ?
+        AND (a.status = 'draft' OR (a.status = 'published' AND a.current_version_id IS DISTINCT FROM a.published_version_id))
       ORDER BY a.updated_at DESC
       LIMIT 100`,
     [ownerId, ownerId, worldId, ownerId],
@@ -116,6 +118,8 @@ export async function listInboxItems(worldId: string, ownerId: string): Promise<
         depth: row.depth,
         blockingIssues: blocking,
         warningIssues: warnings,
+        currentVersionId: row.current_version_id ?? null,
+        publishedVersionId: row.published_version_id ?? null,
       },
     });
   }

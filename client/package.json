@@ -17,6 +17,7 @@
     "@clerk/react": "6.11.3",
     "@tiptap/react": "^2.4.0",
     "@tiptap/starter-kit": "^2.4.0",
+    "diff": "^9.0.0",
     "immer": "^10.1.1",
     "lucide-react": "^1.14.0",
     "react": "^18.3.1",
@@ -28,6 +29,7 @@
   "devDependencies": {
     "@tailwindcss/typography": "^0.5.15",
     "@tailwindcss/vite": "^4.0.0",
+    "@types/diff": "^7.0.2",
     "@types/react": "^18.3.1",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.0",

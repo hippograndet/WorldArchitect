@@ -153,10 +153,15 @@ router.post('/expand', requireLLM, checkCap, asyncHandler(async (req, res) => {
   const sourceRunId = nanoid();
   const result = await coordinator.expand(worldId, articleId, pipelineType, userSpec, contextDepth, selectedIdeas, runStyleWarden, coherenceCheckLevel, safetyNet, wordCountPreset, contextBasis);
 
-  // Persist draft so POST /accept can commit it
-  const draftContent = pipelineType === 'create_child'
-    ? { childDescription: result.description, introduction: result.introduction }
-    : { description: result.description };
+  // expand_description just writes a new description on the same article —
+  // no persisted draft, the client commits it directly (like a manual edit)
+  // once the user accepts the reviewed result. create_child is a bigger write
+  // (new article + link, optional parent append), so it still goes through
+  // the pending-draft/accept mechanism.
+  if (pipelineType !== 'create_child') {
+    res.json(result);
+    return;
+  }
 
   const draft = await savePendingDraft({
     worldId,
@@ -165,13 +170,13 @@ router.post('/expand', requireLLM, checkCap, asyncHandler(async (req, res) => {
     pipelineType,
     phase: 'done',
     selectedProposal: selectedIdeas ? { selectedIdeas } : undefined,
-    draftContent,
+    draftContent: { childDescription: result.description, introduction: result.introduction },
     parentUpdate: result.parentUpdate ? { articleId, appendText: result.parentUpdate.appendText } : undefined,
     sourceRunId,
     runType: pipelineType,
     contextBasis,
     contextDraftIds: result.contextDraftIds ?? [],
-    displayTitle: pipelineType === 'create_child' ? 'Child subject draft' : 'Expansion draft',
+    displayTitle: 'Child subject draft',
   });
 
   res.json({ ...result, draft });
