@@ -10,6 +10,6 @@ WorldArchitect is a two-process web app: a browser app and a server that owns ev
 - **Authentication (hosted mode only)** - Clerk. Local mode has no accounts.
 - **Export** - World content can be packaged as a ZIP of Markdown files.
 - **Testing** - Vitest and Supertest cover the client and server.
-- **Hosting** - Self-deployable via Docker; Render, Railway, and Fly.io are supported hosting paths (see [DEPLOY.md](../DEPLOY.md)).
+- **Hosting** - Self-deployable via Docker; Render is the supported hosting path (see [DEPLOY.md](../DEPLOY.md)).
 
 This is the plain-language version. For exact package versions and source-of-truth file references, see the developer-only reference kept alongside the codebase.

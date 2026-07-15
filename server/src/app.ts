@@ -17,7 +17,7 @@ export function createApp(): express.Express {
   app.use(requestIdMiddleware);
 
   // Required for correct req.ip (and thus correct rate-limit keying) behind a
-  // reverse proxy (Render/Fly/Railway all sit in front of the app).
+  // reverse proxy (Render sits in front of the app).
   app.set('trust proxy', process.env.TRUST_PROXY ?? 1);
 
   // CSP is disabled only for the optional same-process STATIC_DIR SPA-fallback

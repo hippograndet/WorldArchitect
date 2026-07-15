@@ -97,7 +97,7 @@ WorldArchitect has two processes:
 
 The browser talks only to the server. The server owns the database, export system, provider settings, agent calls, and versioning.
 
-By default (`APP_MODE=local`) the server runs unauthenticated with a single implicit user against the local Postgres service defined in `docker-compose.yml`. Hosted mode (`APP_MODE=hosted`) adds Clerk-based authentication and per-user world ownership on Postgres. Hosted mode is meant for self-deployment (Docker, Render, Railway, Fly.io), not for ordinary local development — see [DEPLOY.md](DEPLOY.md) for the required environment variables and deploy steps.
+By default (`APP_MODE=local`) the server runs unauthenticated with a single implicit user against the local Postgres service defined in `docker-compose.yml`. Hosted mode (`APP_MODE=hosted`) adds Clerk-based authentication and per-user world ownership on Postgres. Hosted mode is meant for self-deployment (Docker, Render), not for ordinary local development — see [DEPLOY.md](DEPLOY.md) for the required environment variables and deploy steps.
 
 ## Documentation
 

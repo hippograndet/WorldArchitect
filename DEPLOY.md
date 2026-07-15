@@ -2,13 +2,11 @@
 
 WorldArchitect defaults to local-first mode. Hosted mode is opt-in with `APP_MODE=hosted`.
 
-This document is written for self-hosting. The recommended beta path is:
+This document is written for self-hosting. The path is:
 
 - Render for the app service
 - Neon for managed Postgres
 - Clerk for authentication
-
-Railway and Fly.io are also supported deployment targets, but the Render + Neon + Clerk path is the first one to test from a clean checkout for the self-hosted beta.
 
 ## Required Environment
 
@@ -73,7 +71,7 @@ Before serving hosted production traffic, confirm:
 
 ## Rate Limiting And Proxy Trust
 
-`/api/*` is rate-limited in hosted mode only (local mode is never throttled). Tunable via `RATE_LIMIT_WINDOW_MS` (default `60000`) and `RATE_LIMIT_MAX` (default `300`, requests per window per client). `TRUST_PROXY` (default `1`) controls Express's `trust proxy` setting, which must correctly reflect your deployment's reverse-proxy hop count (Render/Fly/Railway all sit in front of the app) for rate limiting to key on the real client IP instead of the proxy's.
+`/api/*` is rate-limited in hosted mode only (local mode is never throttled). Tunable via `RATE_LIMIT_WINDOW_MS` (default `60000`) and `RATE_LIMIT_MAX` (default `300`, requests per window per client). `TRUST_PROXY` (default `1`) controls Express's `trust proxy` setting, which must correctly reflect your deployment's reverse-proxy hop count (Render sits in front of the app) for rate limiting to key on the real client IP instead of the proxy's.
 
 ## Client environment
 
@@ -82,8 +80,6 @@ The frontend needs its own Clerk key to render the sign-in screen (separate from
 - `VITE_CLERK_PUBLISHABLE_KEY=pk_...` — from the same Clerk Dashboard "API Keys" page as `CLERK_ISSUER`/`CLERK_JWKS_URL`. Leave unset for local mode (no login).
 
 ## Render + Neon + Clerk
-
-Use this path for the first self-hosted beta deployment.
 
 ### 1. Create Neon Postgres
 
@@ -180,35 +176,9 @@ docker compose up --build
 curl http://localhost:3001/health
 ```
 
-## Railway
-
-1. Create a Railway project from this repository.
-2. Add a Postgres service.
-3. Create a restricted runtime role, grant it runtime privileges, and set its connection string as `DATABASE_URL`.
-4. Set the owner/migration connection string as `MIGRATION_DATABASE_URL`.
-5. Set the required environment variables above.
-6. Railway will build with `railway.toml` and use `/health`.
-7. Add your custom domain in Railway, then create the DNS record Railway shows.
-
-## Fly.io
-
-1. Create a Fly app and Postgres cluster.
-2. Set secrets:
-
-```sh
-fly secrets set APP_MODE=hosted DATABASE_URL='postgres://worldarchitect_app:...' \
-  MIGRATION_DATABASE_URL='postgres://owner-role:...' \
-  PUBLIC_BASE_URL='https://worldarchitect.example' \
-  PROVIDER_SETTINGS_ENCRYPTION_KEY='replace-with-random-secret' \
-  CLERK_JWKS_URL='https://example.clerk.accounts.dev/.well-known/jwks.json' \
-  CLERK_ISSUER='https://example.clerk.accounts.dev'
-```
-
-3. Deploy with `fly deploy`.
-
 ## DNS and TLS
 
-Use the host's custom-domain flow. For Railway, add the generated `CNAME` or `A/AAAA` records at your DNS provider. For Fly.io, run `fly certs add your-domain.example`, then add the shown `A/AAAA` records. Both platforms provision HTTPS certificates automatically after DNS validates.
+Add a custom domain in Render's dashboard, then create the `CNAME` record Render shows at your DNS provider. Render provisions the HTTPS certificate automatically after DNS validates.
 
 Set `PUBLIC_BASE_URL` to the final `https://` origin so CORS allows the browser app.
 
@@ -226,7 +196,7 @@ Do not rotate `PROVIDER_SETTINGS_ENCRYPTION_KEY` during an ordinary update. Stor
 
 ## Backup And Restore
 
-For hosted mode, Postgres is the system of record. Configure managed backups in Neon, Railway, Fly.io, or your chosen database host. A world ZIP export is useful, but it is not a full backup.
+For hosted mode, Postgres is the system of record. Configure managed backups in Neon or your chosen database host. A world ZIP export is useful, but it is not a full backup.
 
 Before major upgrades, create a manual backup from your database provider. A basic custom-format `pg_dump` backup looks like:
 
