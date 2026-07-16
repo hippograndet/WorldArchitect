@@ -56,7 +56,9 @@ export default function ArticlePage() {
 
   const handleOpenExpand = () => {
     if (!wid || !aid) return;
-    navigate(`/worlds/${wid}/expand?start=${encodeURIComponent(aid)}`);
+    const params = new URLSearchParams({ start: aid });
+    if (selectedVersionId) params.set('version', selectedVersionId);
+    navigate(`/worlds/${wid}/grow?${params.toString()}`);
   };
 
   const handleOpenSolidify = () => {

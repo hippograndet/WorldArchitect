@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react';
-import { createBrowserRouter, Navigate } from 'react-router-dom';
+import { createBrowserRouter, Navigate, useLocation } from 'react-router-dom';
 import App from './App.tsx';
 import AppShell from './components/layout/AppShell.tsx';
 import RouteErrorBoundary from './components/shared/RouteErrorBoundary.tsx';
@@ -30,6 +30,13 @@ function withSuspense(element: React.ReactNode) {
   return <Suspense fallback={<PageFallback />}>{element}</Suspense>;
 }
 
+// `../grow` alone would drop the query string; old /expand links and
+// in-app navigations both rely on ?start=/&version= surviving the redirect.
+function ExpandToGrowRedirect() {
+  const { search } = useLocation();
+  return <Navigate to={`../grow${search}`} replace />;
+}
+
 export const router = createBrowserRouter([
   {
     path: '/',
@@ -49,7 +56,7 @@ export const router = createBrowserRouter([
           { path: 'snapshots',     element: withSuspense(<SnapshotsPage />) },
           { path: 'usage',         element: withSuspense(<UsagePage />) },
           { path: 'grow',          element: withSuspense(<ExpandPage />) },
-          { path: 'expand',        element: <Navigate to="../grow" replace /> },
+          { path: 'expand',        element: <ExpandToGrowRedirect /> },
           { path: 'inbox',         element: withSuspense(<InboxPage />) },
           { path: 'consolidate',   element: withSuspense(<ConsolidatePage />) },
           { path: 'toolbox',       element: withSuspense(<ToolboxPage />) },

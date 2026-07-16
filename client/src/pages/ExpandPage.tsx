@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowUp, GitBranch, Play, RotateCcw, Settings, Star } from 'lucide-react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { useStore } from '../stores/index.ts';
@@ -209,6 +209,8 @@ export default function ExpandPage() {
   // see selectedContentOption below. Explicit picks persist until the node changes.
   const [selectedContentKey, setSelectedContentKey] = useState('');
   const startArticleId = searchParams.get('start');
+  const startVersionId = searchParams.get('version');
+  const startVersionAppliedRef = useRef(false);
   const resetSelectedRunDetails = useCallback(() => {
     setSelectedRunArticleId(null);
     setSelectedRunStageKey(null);
@@ -291,6 +293,25 @@ export default function ExpandPage() {
   const defaultContentKey = contentOptions[0]?.key ?? 'published';
   const effectiveContentKey = contentOptions.some((option) => option.key === selectedContentKey) ? selectedContentKey : defaultContentKey;
   const selectedContentOption = contentOptions.find((option) => option.key === effectiveContentKey) ?? null;
+
+  // Carry over the version the user was viewing on the article page (?version=)
+  // once this node's data has loaded. Runs until it finds a match or the node
+  // moves on, so it survives the two content fetches (article detail, versions)
+  // resolving at different times; the ref keeps it from re-firing after that
+  // and clobbering a manual selection.
+  useEffect(() => {
+    if (!startVersionId || startVersionAppliedRef.current) return;
+    if (startingNodeId !== startArticleId || !isCurrentNodeDetail) return;
+    const matchedKey = publishedVersion?.id === startVersionId
+      ? 'published'
+      : nodeVersions.some((version) => version.id === startVersionId)
+        ? `version:${startVersionId}`
+        : null;
+    if (matchedKey) {
+      setSelectedContentKey(matchedKey);
+      startVersionAppliedRef.current = true;
+    }
+  }, [startVersionId, startingNodeId, startArticleId, isCurrentNodeDetail, publishedVersion, nodeVersions]);
 
   const introWords = countWords(selectedContentOption?.introduction ?? '');
   const descWords = countWords(selectedContentOption?.description ?? '');
