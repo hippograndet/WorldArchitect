@@ -36,6 +36,7 @@ export async function runInceptionGraph(params: {
   contextDepth?: ContextDepth;
   coherenceCheckLevel?: number;
   safetyNet?: boolean;
+  userSpec?: string;
   pipelineRunId?: string;
   worldContext?: WorldContext;
   worldInfoContext?: WorldInfoContext;
@@ -61,6 +62,7 @@ export async function runInceptionGraph(params: {
     contextDepth: params.contextDepth ?? 'mid',
     coherenceCheckLevel: params.coherenceCheckLevel ?? 0,
     safetyNet: params.safetyNet ?? false,
+    userSpec: params.userSpec,
     ...(params.worldContext ? { worldContext: params.worldContext } : {}),
     ...(params.worldInfoContext ? { worldInfoContext: params.worldInfoContext } : {}),
     ...(params.contextPackage ? { contextPackage: params.contextPackage } : {}),

@@ -67,7 +67,8 @@ export default function RunListSidebar({
           <div className="space-y-2">
             {runs.map((run) => {
               const selected = selectedRunId === run.id;
-              const failed = run.status === 'failed' || run.status === 'stopped';
+              const failed = run.status === 'failed';
+              const cancelled = run.status === 'stopped';
               return (
                 <button
                   key={run.id}
@@ -77,7 +78,9 @@ export default function RunListSidebar({
                       ? ACCENT_CLASSES[accent]
                       : failed
                         ? 'border-red-200 bg-red-50 hover:bg-red-100/50'
-                        : 'border-gray-200 bg-white hover:bg-gray-50'
+                        : cancelled
+                          ? 'border-orange-200 bg-orange-50 hover:bg-orange-100/50'
+                          : 'border-gray-200 bg-white hover:bg-gray-50'
                   }`}
                 >
                   <div className="flex items-center justify-between gap-2">

@@ -1,4 +1,5 @@
 import type { ChildProposalItem } from '../agents/cartographer.js';
+import { dataBlock } from './shared.js';
 
 export function buildGatekeeperSystemPrompt(): string {
   return `You are Gatekeeper for WorldArchitect, a fiction world-building tool.
@@ -9,7 +10,7 @@ Flag only genuine semantic duplicates. Do NOT flag proposals that are merely rel
 
 For each duplicate you find, name the proposed title, the existing sibling title it duplicates, and a one-sentence rationale.
 
-If you find no duplicates, submit an empty list.
+If you find no duplicates, submit an empty list. If user guidance is given below and it explicitly calls for two similar-sounding children (e.g. rival factions), that is intentional — do not flag it.
 
 Call submit_dedup_check with your assessment.`;
 }
@@ -18,6 +19,7 @@ export function buildGatekeeperUserMessage(
   articleTitle: string,
   existingChildren: Array<{ title: string; summary: string }> | undefined,
   proposals: ChildProposalItem[],
+  userSpec?: string,
 ): string {
   const parts: string[] = [
     `## Parent Article: ${articleTitle}`,
@@ -32,6 +34,10 @@ export function buildGatekeeperUserMessage(
 
   parts.push('## Proposed Children\n' +
     proposals.map((p, i) => `${i + 1}. **${p.title}**: ${p.introduction}`).join('\n'));
+
+  if (userSpec) {
+    parts.push(`## User Guidance\n${dataBlock('userSpec', userSpec)}`);
+  }
 
   parts.push('Flag any proposed children that are semantic duplicates of an existing sibling. Call submit_dedup_check.');
 

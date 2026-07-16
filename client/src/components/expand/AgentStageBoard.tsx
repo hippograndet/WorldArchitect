@@ -7,9 +7,104 @@ import {
   stageTaskLabel,
   stageStatusSentence,
   stageDiagnosticNote,
-  AGENT_LABELS,
 } from './stageModel.ts';
 import type { AgentStage, AgentStageStep } from './stageModel.ts';
+
+/** Groups adjacent [generator, checker] stages into one render unit (for the curved retry-loop overlay) — everything else is its own single-stage unit. */
+function buildRenderUnits(stepStages: AgentStage[]): AgentStage[][] {
+  const units: AgentStage[][] = [];
+  for (const stage of stepStages) {
+    const prev = units[units.length - 1];
+    if (stage.retryGeneratorAgentType && prev?.[prev.length - 1]?.agentType === stage.retryGeneratorAgentType) {
+      prev.push(stage);
+    } else {
+      units.push([stage]);
+    }
+  }
+  return units;
+}
+
+function VerticalConnector() {
+  return (
+    <div className="flex justify-center text-gray-300" aria-hidden="true">
+      <span className="text-xs leading-none">↓</span>
+    </div>
+  );
+}
+
+function StageCard({ stage, selected, onToggle }: { stage: AgentStage; selected: boolean; onToggle: () => void }) {
+  return (
+    <button
+      onClick={onToggle}
+      className={`w-full rounded-md border p-2 text-left transition-colors ${
+        selected ? 'border-purple-300 bg-purple-50' : 'border-gray-200 bg-white hover:bg-gray-50'
+      }`}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5 min-w-0">
+          <p className="text-xs font-semibold text-gray-800 truncate">{stage.label}</p>
+          <span className="text-[10px] text-gray-300">-</span>
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 truncate">{stageTaskLabel(stage)}</p>
+        </div>
+        <span
+          aria-label={stageStatusLabel(stage.status)}
+          className={`h-2.5 w-2.5 rounded-full shrink-0 ${stageStatusDotClass(stage.status)}`}
+        />
+      </div>
+      <p className={`text-xs mt-2 leading-relaxed break-words ${
+        stage.status === 'failed' ? 'text-red-700' :
+        stage.status === 'running' ? 'text-amber-700' :
+        'text-gray-500'
+      }`}>
+        {stageStatusSentence(stage)}
+      </p>
+    </button>
+  );
+}
+
+/** A [generator, checker] pair with a curved arrow from checker back up to generator, labeled actual/max — the check→revise loop (Arbiter→Scribe, Gatekeeper→Cartographer). */
+function RetryLoopUnit({ unit, selectedStageKey, onToggleStage }: { unit: AgentStage[]; selectedStageKey: string | null; onToggleStage: (key: string) => void }) {
+  const checker = unit[unit.length - 1];
+  const markerId = `retry-arrow-${checker.key}`;
+  return (
+    <div className="relative pr-4">
+      <div className="flex flex-col gap-2">
+        {unit.map((stage, i) => (
+          <div key={stage.key}>
+            {i > 0 && <VerticalConnector />}
+            <StageCard stage={stage} selected={selectedStageKey === stage.key} onToggle={() => onToggleStage(stage.key)} />
+          </div>
+        ))}
+      </div>
+      <svg
+        viewBox="0 0 40 100"
+        preserveAspectRatio="none"
+        className="absolute top-0 right-0 h-full w-4 overflow-visible text-gray-300"
+        aria-hidden="true"
+      >
+        <defs>
+          <marker id={markerId} markerWidth="6" markerHeight="6" refX="4.5" refY="3" orient="auto">
+            <path d="M0,0 L6,3 L0,6 Z" fill="currentColor" />
+          </marker>
+        </defs>
+        <path
+          d="M 4 94 C 34 94, 34 6, 4 6"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          vectorEffect="non-scaling-stroke"
+          markerEnd={`url(#${markerId})`}
+        />
+      </svg>
+      <span
+        className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-3 rounded bg-white px-1 text-[9px] font-semibold text-gray-500 border border-gray-200"
+        title={`${checker.label} sends back to ${unit[0].label} for revision`}
+      >
+        {checker.retryActual ?? 0}/{checker.retryMax ?? 0}
+      </span>
+    </div>
+  );
+}
 
 export default function AgentStageBoard({
   stages,
@@ -22,6 +117,7 @@ export default function AgentStageBoard({
   selectedStage,
   contextDepth,
   validationLevel,
+  standalone = false,
 }: {
   stages: AgentStage[];
   headerLabel: string;
@@ -33,6 +129,8 @@ export default function AgentStageBoard({
   selectedStage: AgentStage | null;
   contextDepth: string;
   validationLevel: string;
+  /** Reference/generic pipeline view (e.g. the "View Pipeline" modal) — not tied to a real run, so progress counts don't apply. */
+  standalone?: boolean;
 }) {
   const selectedStageIndex = selectedStage ? stages.findIndex((stage) => stage.key === selectedStage.key) : -1;
   const selectedStageContinues = selectedStageIndex >= 0 && selectedStageIndex < stages.length - 1;
@@ -43,7 +141,9 @@ export default function AgentStageBoard({
           <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{headerLabel}</p>
           <p className="text-sm font-semibold text-gray-900 mt-0.5 truncate">{articleTitle}</p>
           <p className="text-xs text-gray-400 mt-0.5">
-            {stages.filter((stage) => stage.status === 'completed').length} / {stages.length} stages completed
+            {standalone
+              ? `${stages.length} stages`
+              : `${stages.filter((stage) => stage.status === 'completed').length} / ${stages.length} stages completed`}
           </p>
         </div>
         {canResetToCurrent && (
@@ -70,51 +170,34 @@ export default function AgentStageBoard({
                 </div>,
               );
             }
+            const stepOff = stepStages.every((stage) => stage.status === 'skipped');
+            const units = buildRenderUnits(stepStages);
             acc.push(
-              <div key={step} className="flex-1 min-w-[180px] rounded-lg border border-gray-200 bg-gray-50 p-3">
-                <p className="text-xs font-semibold text-gray-800 capitalize mb-2">{step}</p>
-                <div className="space-y-2">
-                  {stepStages.map((stage) => {
-                    const hasRetryLoop = typeof stage.retryMax === 'number' && stage.retryMax > 0;
-                    return (
-                      <button
-                        key={stage.key}
-                        onClick={() => onToggleStage(stage.key)}
-                        className={`w-full rounded-md border p-2 text-left transition-colors ${
-                          selectedStageKey === stage.key
-                            ? 'border-purple-300 bg-purple-50'
-                            : 'border-gray-200 bg-white hover:bg-gray-50'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="flex items-center gap-1.5 min-w-0">
-                            <p className="text-xs font-semibold text-gray-800 truncate">{stage.label}</p>
-                            <span className="text-[10px] text-gray-300">-</span>
-                            <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 truncate">{stageTaskLabel(stage)}</p>
-                          </div>
-                          <span
-                            aria-label={stageStatusLabel(stage.status)}
-                            className={`h-2.5 w-2.5 rounded-full shrink-0 ${stageStatusDotClass(stage.status)}`}
-                          />
-                        </div>
-                        <p className={`text-xs mt-2 leading-relaxed ${
-                          stage.status === 'failed' ? 'text-red-700' :
-                          stage.status === 'running' ? 'text-amber-700' :
-                          'text-gray-500'
-                        }`}>
-                          {stageStatusSentence(stage)}
-                        </p>
-                        {hasRetryLoop && (
-                          <p className="text-[10px] text-gray-400 mt-1.5 flex items-center gap-1" title={`Sends back to ${AGENT_LABELS[stage.retryGeneratorAgentType ?? ''] ?? stage.retryGeneratorAgentType} for revision`}>
-                            <span aria-hidden="true">↩</span>
-                            <span>
-                              {AGENT_LABELS[stage.retryGeneratorAgentType ?? ''] ?? stage.retryGeneratorAgentType} revisions: {stage.retryActual ?? 0}/{stage.retryMax}
-                            </span>
-                          </p>
-                        )}
-                      </button>
-                    );
-                  })}
+              <div
+                key={step}
+                className={`flex-1 min-w-[180px] rounded-lg border p-3 ${
+                  stepOff ? 'border-gray-100 bg-gray-50/50 opacity-60' : 'border-gray-200 bg-gray-50'
+                }`}
+              >
+                <div className="flex items-center gap-1.5 mb-2">
+                  <p className="text-xs font-semibold text-gray-800 capitalize">{step}</p>
+                  {stepOff && <span className="text-[10px] uppercase tracking-wide text-gray-400">Off</span>}
+                </div>
+                <div className="flex flex-col gap-2">
+                  {units.map((unit, unitIndex) => (
+                    <div key={unit[0].key}>
+                      {unitIndex > 0 && <VerticalConnector />}
+                      {unit.length > 1 ? (
+                        <RetryLoopUnit unit={unit} selectedStageKey={selectedStageKey} onToggleStage={onToggleStage} />
+                      ) : (
+                        <StageCard
+                          stage={unit[0]}
+                          selected={selectedStageKey === unit[0].key}
+                          onToggle={() => onToggleStage(unit[0].key)}
+                        />
+                      )}
+                    </div>
+                  ))}
                 </div>
               </div>,
             );
@@ -138,7 +221,7 @@ export default function AgentStageBoard({
                 : 'border-gray-200 bg-gray-50'
           }`}>
             <div className="flex items-start justify-between gap-3">
-              <div>
+              <div className="min-w-0">
                 <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Stage Details</p>
                 <h4 className="text-sm font-semibold text-gray-900 mt-1">{selectedStage.label}</h4>
                 <p className="text-xs text-gray-500 mt-0.5">
@@ -151,57 +234,61 @@ export default function AgentStageBoard({
               />
             </div>
 
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
-              <div>
-                <p className="text-[10px] uppercase tracking-wide text-gray-400">Task</p>
-                <p className="text-xs font-semibold text-gray-800 mt-1">{stageTaskLabel(selectedStage)}</p>
-              </div>
-              <div>
-                <p className="text-[10px] uppercase tracking-wide text-gray-400">Recorded</p>
-                <p className="text-xs font-semibold text-gray-800 mt-1">
-                  {selectedStage.call ? formatTime(selectedStage.call.createdAt) : 'Not yet'}
-                </p>
-              </div>
-              <div>
-                <p className="text-[10px] uppercase tracking-wide text-gray-400">Attempts</p>
-                <p className="text-xs font-semibold text-gray-800 mt-1">
-                  {typeof selectedStage.call?.iterations === 'number' ? selectedStage.call.iterations : '-'}
-                </p>
-              </div>
-              <div>
-                <p className="text-[10px] uppercase tracking-wide text-gray-400">Tokens</p>
-                <p className="text-xs font-semibold text-gray-800 mt-1">
-                  {selectedStage.call
-                    ? ((selectedStage.call.tokensIn ?? 0) + (selectedStage.call.tokensOut ?? 0)).toLocaleString()
-                    : '-'}
-                </p>
-              </div>
-            </div>
+            {!standalone && (
+              <>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wide text-gray-400">Task</p>
+                    <p className="text-xs font-semibold text-gray-800 mt-1">{stageTaskLabel(selectedStage)}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wide text-gray-400">Recorded</p>
+                    <p className="text-xs font-semibold text-gray-800 mt-1">
+                      {selectedStage.call ? formatTime(selectedStage.call.createdAt) : 'Not yet'}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wide text-gray-400">Attempts</p>
+                    <p className="text-xs font-semibold text-gray-800 mt-1">
+                      {typeof selectedStage.call?.iterations === 'number' ? selectedStage.call.iterations : '-'}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wide text-gray-400">Tokens</p>
+                    <p className="text-xs font-semibold text-gray-800 mt-1">
+                      {selectedStage.call
+                        ? ((selectedStage.call.tokensIn ?? 0) + (selectedStage.call.tokensOut ?? 0)).toLocaleString()
+                        : '-'}
+                    </p>
+                  </div>
+                </div>
 
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3">
-              <div>
-                <p className="text-[10px] uppercase tracking-wide text-gray-400">Agent Id</p>
-                <p className="text-xs font-semibold text-gray-800 mt-1">{selectedStage.agentType}</p>
-              </div>
-              <div>
-                <p className="text-[10px] uppercase tracking-wide text-gray-400">Context</p>
-                <p className="text-xs font-semibold text-gray-800 mt-1">{contextDepth}</p>
-              </div>
-              <div>
-                <p className="text-[10px] uppercase tracking-wide text-gray-400">Validation</p>
-                <p className="text-xs font-semibold text-gray-800 mt-1">{validationLevel}</p>
-              </div>
-              <div>
-                <p className="text-[10px] uppercase tracking-wide text-gray-400">Continue</p>
-                <p className="text-xs font-semibold text-gray-800 mt-1">{String(selectedStageContinues)}</p>
-              </div>
-            </div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3">
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wide text-gray-400">Agent Id</p>
+                    <p className="text-xs font-semibold text-gray-800 mt-1 break-words">{selectedStage.agentType}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wide text-gray-400">Context</p>
+                    <p className="text-xs font-semibold text-gray-800 mt-1">{contextDepth}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wide text-gray-400">Validation</p>
+                    <p className="text-xs font-semibold text-gray-800 mt-1">{validationLevel}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wide text-gray-400">Continue</p>
+                    <p className="text-xs font-semibold text-gray-800 mt-1">{String(selectedStageContinues)}</p>
+                  </div>
+                </div>
+              </>
+            )}
 
             <div className="mt-4">
               <p className="text-[10px] uppercase tracking-wide text-gray-400">
                 {selectedStage.status === 'failed' ? 'What went wrong' : 'Status'}
               </p>
-              <p className={`text-xs mt-1 leading-relaxed ${
+              <p className={`text-xs mt-1 leading-relaxed break-words ${
                 selectedStage.status === 'failed' ? 'text-red-700' : 'text-gray-600'
               }`}>
                 {stageDiagnosticNote(selectedStage)}

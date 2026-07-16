@@ -11,7 +11,6 @@ type Partial_ = Partial<OrchestrationState>;
 // propose — Muse (+ optional Curator auto-select)
 // ---------------------------------------------------------------------------
 
-/** Muse is grounding-only — world context, article identity, Researcher's brief. No userSpec: user preference enters downstream, via Curator. */
 export async function museProposeNode(state: OrchestrationState): Promise<Partial_> {
   const pkg = state.contextPackage!;
   const agent = new MuseAgent();
@@ -23,6 +22,7 @@ export async function museProposeNode(state: OrchestrationState): Promise<Partia
     templateType: pkg.targetTemplateType,
     currentIntroduction: pkg.targetIntroduction || undefined,
     researchBrief: state.researchBrief,
+    userSpec: state.userSpec,
   }, callCtx(state));
   return { ideas: result.output.ideas, tokensIn: result.tokensIn, tokensOut: result.tokensOut };
 }

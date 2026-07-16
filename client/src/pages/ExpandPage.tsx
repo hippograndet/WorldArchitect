@@ -17,6 +17,8 @@ import RunStatsGrid from '../components/run/RunStatsGrid.tsx';
 import { useWorkflowRuns } from '../components/run/useWorkflowRuns.ts';
 import ReviewActionPanel from '../components/expand/ReviewActionPanel.tsx';
 import AgentStageBoard from '../components/expand/AgentStageBoard.tsx';
+import RunQueueList from '../components/expand/RunQueueList.tsx';
+import PipelineOverviewModal from '../components/expand/PipelineOverviewModal.tsx';
 import LlmTraceViewer from '../components/expand/LlmTraceViewer.tsx';
 import { formatTime, formatDuration } from '../components/expand/format.ts';
 import { RUN_STATUS_LABELS, defaultRunTitle } from '../lib/runModel.ts';
@@ -25,8 +27,7 @@ import {
   runDurationMs,
   startStepFromPipelineType,
   buildAgentStages,
-  runPipelineSteps,
-  runStepProgress,
+  runWideStepProgress,
   runAgentPassProgress,
 } from '../components/expand/stageModel.ts';
 import type { PipelineStartStep } from '../components/expand/stageModel.ts';
@@ -91,10 +92,8 @@ const EXISTING_CONTENT_MODES: Array<{
   label: string;
   description: string;
 }> = [
-  { id: 'create', label: 'Create if empty', description: 'Create content when empty; skip if content already exists.' },
-  { id: 'improve', label: 'Improve current', description: 'Use existing content as context and improve it.' },
-  { id: 'replace', label: 'Replace completely', description: 'Generate a replacement instead of preserving the current wording.' },
-  { id: 'skip_existing', label: 'Skip existing', description: 'Do not run this step when content already exists.' },
+  { id: 'improve', label: 'Improve', description: 'Use existing content as context and improve it.' },
+  { id: 'replace', label: 'New', description: 'Write fresh content, ignoring anything already there.' },
 ];
 
 const VALIDATION_LEVELS: Array<{
@@ -149,10 +148,6 @@ function depthBehaviorLabel(depth: number): string {
   return `Branching continues through level +${depth}; the final created level is incepted and expanded, but not branched.`;
 }
 
-function uniqueValues<T>(values: T[]): T[] {
-  return [...new Set(values)];
-}
-
 function runDisplayName(run: Run | RunWithEvents): string {
   return defaultRunTitle(run);
 }
@@ -199,6 +194,7 @@ export default function ExpandPage() {
   const [guidance, setGuidance] = useState('');
   const [selectedRunArticleId, setSelectedRunArticleId] = useState<string | null>(null);
   const [selectedRunStageKey, setSelectedRunStageKey] = useState<string | null>(null);
+  const [pipelineOverviewOpen, setPipelineOverviewOpen] = useState(false);
   const [llmTraces, setLlmTraces] = useState<RunLlmTrace[]>([]);
   const [llmTracesLoading, setLlmTracesLoading] = useState(false);
   const [llmTraceError, setLlmTraceError] = useState<string | null>(null);
@@ -437,6 +433,8 @@ export default function ExpandPage() {
   };
 
   const getCurrentArticleId = (run: RunWithEvents): string | null => {
+    const active = run.queueItems.find((item) => item.status === 'active');
+    if (active) return active.articleId;
     const latestArticleCall = [...(run.agentCalls ?? [])].reverse().find((call) => call.articleId);
     if (latestArticleCall?.articleId) return latestArticleCall.articleId;
     return run.config.rootArticleId ?? run.articleIds[0] ?? null;
@@ -445,36 +443,19 @@ export default function ExpandPage() {
   const getRunArticleSummary = (run: RunWithEvents) => {
     const currentArticleId = getCurrentArticleId(run);
     const currentTitle = getArticleTitle(currentArticleId, run.events[0]?.title ?? getRunStartTitle(run));
-    const visitedIds = uniqueValues((run.agentCalls ?? []).map((call) => call.articleId).filter((id): id is string => Boolean(id)));
-    const knownArticleIds = visitedIds.length > 0
-      ? visitedIds
-      : (run.itemsTotal > 1 && currentArticleId ? [currentArticleId] : []);
     const currentOrSelectedId = selectedRunArticleId ?? currentArticleId;
-    const classifyArticle = (articleId: string): 'finished' | 'to_do' => {
-      const stages = buildAgentStages(run, articleId);
-      if (stages.length > 0 && stages.every((stage) => stage.status === 'completed')) return 'finished';
-      return 'to_do';
-    };
-    const finishedArticles = knownArticleIds
-      .filter((id) => id !== currentArticleId && classifyArticle(id) === 'finished')
-      .map((id) => ({ id, title: getArticleTitle(id) }));
-    const toDoArticles = knownArticleIds
-      .filter((id) => id !== currentArticleId && classifyArticle(id) !== 'finished')
-      .map((id) => ({ id, title: getArticleTitle(id) }));
-    const unknownRemainingCount = Math.max(
-      0,
-      run.itemsTotal - run.itemsCompleted - (isRunActive(run) ? 1 : 0) - toDoArticles.length,
-    );
+    // queueItems is the authoritative source for runs started after
+    // migration 016 (run_queue_items); older runs fall back to inferring
+    // "this run has article-scoped detail at all" from raw agent calls.
+    const hasArticleScopedCalls = run.queueItems.length > 0
+      || (run.agentCalls ?? []).some((call) => call.articleId);
 
     return {
       currentArticleId,
       currentOrSelectedId,
       currentTitle,
       selectedTitle: getArticleTitle(currentOrSelectedId, currentTitle),
-      finishedArticles,
-      toDoArticles,
-      unknownRemainingCount,
-      hasArticleScopedCalls: visitedIds.length > 0,
+      hasArticleScopedCalls,
     };
   };
 
@@ -489,7 +470,7 @@ export default function ExpandPage() {
     ? buildAgentStages(selectedRunForDetails, selectedRunArticleSummary?.currentOrSelectedId ?? null)
     : [];
   const selectedRunStepProgress = selectedRunForDetails
-    ? runStepProgress(runPipelineSteps(selectedRunForDetails), selectedRunAgentStages)
+    ? runWideStepProgress(selectedRunForDetails)
     : null;
   const selectedRunAgentPassProgress = selectedRunForDetails
     ? runAgentPassProgress(selectedRunAgentStages)
@@ -567,6 +548,9 @@ export default function ExpandPage() {
     const reusedCoherenceCheckLevel = config.coherenceCheckLevel ?? agentParams.coherenceCheckLevel;
     const reusedSafetyNet = config.safetyNet ?? agentParams.safetyNet;
     const reusedRunStylizer = config.runStylizer ?? agentParams.runStylizer;
+    // The UI only offers 'improve'/'replace' now — normalize older runs' 'create'/'skip_existing' values (still valid server-side) to 'replace' so the dropdown has a match.
+    const reusedInceptionMode: ExistingContentMode = config.forgeInceptionExistingMode === 'improve' ? 'improve' : 'replace';
+    const reusedExpansionMode: ExistingContentMode = config.forgeExpansionExistingMode === 'improve' ? 'improve' : 'replace';
 
     setStartStep(reusedStartStep);
     setContinuationMode(reusedContinuation);
@@ -574,8 +558,8 @@ export default function ExpandPage() {
     setCoherenceCheckLevel(reusedCoherenceCheckLevel);
     setSafetyNet(reusedSafetyNet);
     setRunStylizer(reusedRunStylizer);
-    setInceptionExistingMode(config.forgeInceptionExistingMode ?? 'improve');
-    setExpansionExistingMode(config.forgeExpansionExistingMode ?? 'improve');
+    setInceptionExistingMode(reusedInceptionMode);
+    setExpansionExistingMode(reusedExpansionMode);
     setBranchingExistingMode(config.forgeBranchingExistingMode ?? 'append_deduped');
     setGuidance('');
     setAgentParams({
@@ -589,14 +573,16 @@ export default function ExpandPage() {
       runStylizer: reusedRunStylizer,
       forgeContinuationMode: reusedContinuation,
       runValidationLevel: reusedValidation,
-      forgeInceptionExistingMode: config.forgeInceptionExistingMode ?? 'improve',
-      forgeExpansionExistingMode: config.forgeExpansionExistingMode ?? 'improve',
+      forgeInceptionExistingMode: reusedInceptionMode,
+      forgeExpansionExistingMode: reusedExpansionMode,
       forgeBranchingExistingMode: config.forgeBranchingExistingMode ?? 'append_deduped',
     });
     setSettingsOpen(true);
   };
 
   return (
+    <>
+    {pipelineOverviewOpen && <PipelineOverviewModal onClose={() => setPipelineOverviewOpen(false)} />}
     <WorkspaceLayout
       rightOpen={settingsOpen}
       left={
@@ -650,6 +636,14 @@ export default function ExpandPage() {
           emptyTitle="No run selected"
           emptyText="The latest active Grow run is selected automatically when one exists. Older runs can be opened from the run list."
           onShowSettings={() => setSettingsOpen(true)}
+          headerAction={
+            <button
+              onClick={() => setPipelineOverviewOpen(true)}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50"
+            >
+              View Pipeline
+            </button>
+          }
         >
           {selectedRunForDetails ? (
                 <>
@@ -732,85 +726,24 @@ export default function ExpandPage() {
                   <div className="mb-3">
                     <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Run View</p>
                     <p className="text-xs text-gray-400 mt-0.5">
-                      Select a known article from this run to inspect its MAS pipeline.
+                      Select an article from this run's queue to inspect its MAS pipeline.
                     </p>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
-                    <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="text-xs font-semibold text-gray-800">Articles Finished</p>
-                        <span className="text-[10px] text-gray-400">{selectedRunArticleSummary?.finishedArticles.length ?? 0}</span>
-                      </div>
-                      {selectedRunArticleSummary?.finishedArticles.length ? (
-                        <div className="mt-2 flex flex-wrap gap-1.5">
-                          {selectedRunArticleSummary.finishedArticles.slice(0, 10).map((article) => (
-                            <button
-                              key={article.id}
-                              onClick={() => {
-                                setSelectedRunArticleId(article.id);
-                                setSelectedRunStageKey(null);
-                              }}
-                              className={`max-w-full truncate rounded-md border px-2 py-1 text-[11px] ${
-                                selectedRunArticleSummary.currentOrSelectedId === article.id
-                                  ? 'border-purple-300 bg-purple-50 text-purple-700'
-                                  : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
-                              }`}
-                            >
-                              {article.title}
-                            </button>
-                          ))}
-                          {selectedRunArticleSummary.finishedArticles.length > 10 && (
-                            <span className="rounded-md bg-white border border-gray-200 px-2 py-1 text-[11px] text-gray-400">
-                              +{selectedRunArticleSummary.finishedArticles.length - 10}
-                            </span>
-                          )}
-                        </div>
-                      ) : (
-                        <p className="text-xs text-gray-400 mt-2">None.</p>
-                      )}
-                    </div>
-
-                    <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="text-xs font-semibold text-gray-800">Articles To Work On</p>
-                        <span className="text-[10px] text-gray-400">
-                          {(selectedRunArticleSummary?.toDoArticles.length ?? 0) + (selectedRunArticleSummary?.unknownRemainingCount ?? 0)}
-                        </span>
-                      </div>
-                      {selectedRunArticleSummary?.toDoArticles.length ? (
-                        <div className="mt-2 flex flex-wrap gap-1.5">
-                          {selectedRunArticleSummary.toDoArticles.slice(0, 10).map((article) => (
-                            <button
-                              key={article.id}
-                              onClick={() => {
-                                setSelectedRunArticleId(article.id);
-                                setSelectedRunStageKey(null);
-                              }}
-                              className={`max-w-full truncate rounded-md border px-2 py-1 text-[11px] ${
-                                selectedRunArticleSummary.currentOrSelectedId === article.id
-                                  ? 'border-purple-300 bg-purple-50 text-purple-700'
-                                  : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
-                              }`}
-                            >
-                              {article.title}
-                            </button>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="text-xs text-gray-400 mt-2">None known.</p>
-                      )}
-                      {selectedRunArticleSummary?.unknownRemainingCount ? (
-                        <p className="text-[10px] text-gray-400 mt-2">
-                          {selectedRunArticleSummary.unknownRemainingCount} queued article{selectedRunArticleSummary.unknownRemainingCount === 1 ? '' : 's'} not reached yet.
-                        </p>
-                      ) : null}
-                      {selectedRunArticleSummary && !selectedRunArticleSummary.hasArticleScopedCalls && (
-                        <p className="text-[10px] text-amber-600 mt-2">
-                          Older run: article-specific agent calls are best-effort.
-                        </p>
-                      )}
-                    </div>
+                  <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 mb-4 max-h-64 overflow-y-auto">
+                    <RunQueueList
+                      items={selectedRunForDetails.queueItems}
+                      selectedArticleId={selectedRunArticleSummary?.currentOrSelectedId ?? null}
+                      onSelect={(articleId) => {
+                        setSelectedRunArticleId(articleId);
+                        setSelectedRunStageKey(null);
+                      }}
+                    />
+                    {selectedRunArticleSummary && !selectedRunArticleSummary.hasArticleScopedCalls && (
+                      <p className="text-[10px] text-amber-600 mt-2">
+                        Older run: article-specific agent calls are best-effort.
+                      </p>
+                    )}
                   </div>
 
                   <div className="rounded-lg border border-gray-200 bg-white p-3">
@@ -885,36 +818,42 @@ export default function ExpandPage() {
           </div>
 
           <div className="flex-1 overflow-y-auto p-4 space-y-3">
-            <SettingGroup title="Selected Node" defaultOpen>
-                <select
-                  value={selectedNode?.id ?? ''}
-                  onChange={(event) => { markCustom(); setStartingNodeId(event.target.value); }}
-                  className="w-full px-2.5 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-purple-200"
-                >
-                  {flatNodes.map((node) => (
-                    <option key={node.id} value={node.id}>
-                      {node.title}
-                    </option>
-                  ))}
-                </select>
-                <p className="text-xs text-gray-400 mt-1.5">Defaults to the root node.</p>
-
-                <p className="text-xs text-gray-500 mt-3 mb-1">Version</p>
-                <select
-                  value={effectiveContentKey}
-                  onChange={(event) => { markCustom(); setSelectedContentKey(event.target.value); }}
-                  className="w-full px-2.5 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-purple-200"
-                >
-                  {contentOptions.map((option) => (
-                    <option key={option.key} value={option.key}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-                <p className="text-xs text-gray-400 mt-1.5">
-                  Defaults to the newest content for this node — the pending draft if one exists, otherwise the latest published version.
-                </p>
-            </SettingGroup>
+            <div className="rounded-xl border border-gray-200 bg-white p-3">
+              <p className="text-xs font-semibold text-gray-800 mb-2">Selected Node</p>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">Node</p>
+                  <select
+                    value={selectedNode?.id ?? ''}
+                    onChange={(event) => { markCustom(); setStartingNodeId(event.target.value); }}
+                    className="w-full px-2.5 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-purple-200"
+                  >
+                    {flatNodes.map((node) => (
+                      <option key={node.id} value={node.id}>
+                        {node.title}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">Version</p>
+                  <select
+                    value={effectiveContentKey}
+                    onChange={(event) => { markCustom(); setSelectedContentKey(event.target.value); }}
+                    className="w-full px-2.5 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-purple-200"
+                  >
+                    {contentOptions.map((option) => (
+                      <option key={option.key} value={option.key}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <p className="text-xs text-gray-400 mt-1.5">
+                Defaults to the root node, and its newest content — the pending draft if one exists, otherwise the latest published version.
+              </p>
+            </div>
 
             <SettingGroup title="Pipeline" defaultOpen>
               <p className="text-xs text-gray-500 mb-1">Start at</p>
@@ -969,6 +908,28 @@ export default function ExpandPage() {
               </div>
             </SettingGroup>
 
+            <SettingGroup title="User Validation">
+              <div className="space-y-2">
+                {VALIDATION_LEVELS.map((level) => {
+                  const active = validationLevel === level.id;
+                  return (
+                    <button
+                      key={level.id}
+                      onClick={() => { markCustom(); setValidationLevel(level.id); }}
+                      className={`w-full rounded-lg border p-3 text-left transition-colors ${
+                        active
+                          ? 'border-purple-400 bg-purple-50'
+                          : 'border-gray-200 hover:border-purple-200 hover:bg-gray-50'
+                      }`}
+                    >
+                      <p className={`text-xs font-semibold ${active ? 'text-purple-800' : 'text-gray-800'}`}>{level.label}</p>
+                      <p className="text-xs text-gray-500 mt-1 leading-relaxed">{level.description}</p>
+                    </button>
+                  );
+                })}
+              </div>
+            </SettingGroup>
+
             <SettingGroup title="Content Reuse Strategy" defaultOpen>
               <div className="space-y-3">
                 <div>
@@ -1013,73 +974,8 @@ export default function ExpandPage() {
                 </div>
 
                 <p className="text-xs text-gray-400 leading-relaxed">
-                  Replace asks the MAS for a fresh result. Branching only appends new child articles; cleanup belongs in Consolidate.
+                  New asks the MAS for a fresh result. Branching only appends new child articles; cleanup belongs in Consolidate.
                 </p>
-              </div>
-            </SettingGroup>
-
-            <SettingGroup title="User Validation">
-              <div className="space-y-2">
-                {VALIDATION_LEVELS.map((level) => {
-                  const active = validationLevel === level.id;
-                  return (
-                    <button
-                      key={level.id}
-                      onClick={() => { markCustom(); setValidationLevel(level.id); }}
-                      className={`w-full rounded-lg border p-3 text-left transition-colors ${
-                        active
-                          ? 'border-purple-400 bg-purple-50'
-                          : 'border-gray-200 hover:border-purple-200 hover:bg-gray-50'
-                      }`}
-                    >
-                      <p className={`text-xs font-semibold ${active ? 'text-purple-800' : 'text-gray-800'}`}>{level.label}</p>
-                      <p className="text-xs text-gray-500 mt-1 leading-relaxed">{level.description}</p>
-                    </button>
-                  );
-                })}
-              </div>
-            </SettingGroup>
-
-            <SettingGroup title="Coherence Checking">
-              <div className="space-y-3">
-                <div>
-                  <p className="text-xs text-gray-500 mb-1">
-                    Check→revise cycles for Arbiter and Gatekeeper. 0 disables both.
-                  </p>
-                  <div className="grid grid-cols-4 gap-1.5">
-                    {([0, 1, 2, 3] as const).map((level) => (
-                      <button
-                        key={level}
-                        onClick={() => { markCustom(); setCoherenceCheckLevel(level); }}
-                        className={`py-1.5 text-xs rounded-md border ${
-                          coherenceCheckLevel === level
-                            ? 'border-purple-400 bg-purple-50 text-purple-700'
-                            : 'border-gray-200 text-gray-600 hover:bg-gray-50'
-                        }`}
-                      >
-                        {level}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <label className="flex items-start gap-2 text-xs text-gray-600">
-                  <input
-                    type="checkbox"
-                    checked={safetyNet}
-                    onChange={(event) => { markCustom(); setSafetyNet(event.target.checked); }}
-                    className="mt-0.5"
-                  />
-                  <span>Safety net: one final check-only pass after the cycles above. Flags remaining issues instead of blocking.</span>
-                </label>
-                <label className="flex items-start gap-2 text-xs text-gray-600">
-                  <input
-                    type="checkbox"
-                    checked={runStylizer}
-                    onChange={(event) => { markCustom(); setRunStylizer(event.target.checked); }}
-                    className="mt-0.5"
-                  />
-                  <span>Stylizer: rewrite the finished description to match the world's style (Writing Tone, Vibe &amp; Atmosphere, Writing Style) before it's saved.</span>
-                </label>
               </div>
             </SettingGroup>
 
@@ -1125,6 +1021,49 @@ export default function ExpandPage() {
                     ))}
                   </div>
                 </div>
+              </div>
+            </SettingGroup>
+
+            <SettingGroup title="Coherence Checking">
+              <div className="space-y-3">
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">
+                    Check→revise cycles for Arbiter and Gatekeeper. 0 disables both.
+                  </p>
+                  <div className="grid grid-cols-4 gap-1.5">
+                    {([0, 1, 2, 3] as const).map((level) => (
+                      <button
+                        key={level}
+                        onClick={() => { markCustom(); setCoherenceCheckLevel(level); }}
+                        className={`py-1.5 text-xs rounded-md border ${
+                          coherenceCheckLevel === level
+                            ? 'border-purple-400 bg-purple-50 text-purple-700'
+                            : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+                        }`}
+                      >
+                        {level}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <label className="flex items-start gap-2 text-xs text-gray-600">
+                  <input
+                    type="checkbox"
+                    checked={safetyNet}
+                    onChange={(event) => { markCustom(); setSafetyNet(event.target.checked); }}
+                    className="mt-0.5"
+                  />
+                  <span>Safety net: one final check-only pass after the cycles above. Flags remaining issues instead of blocking.</span>
+                </label>
+                <label className="flex items-start gap-2 text-xs text-gray-600">
+                  <input
+                    type="checkbox"
+                    checked={runStylizer}
+                    onChange={(event) => { markCustom(); setRunStylizer(event.target.checked); }}
+                    className="mt-0.5"
+                  />
+                  <span>Stylizer: rewrite the finished description to match the world's style (Writing Tone, Vibe &amp; Atmosphere, Writing Style) before it's saved.</span>
+                </label>
               </div>
             </SettingGroup>
 
@@ -1246,7 +1185,7 @@ export default function ExpandPage() {
               </div>
             </SettingGroup>
 
-            <SettingGroup title="Guidance">
+            <SettingGroup title="User Guidance">
               <textarea
                 value={guidance}
                 onChange={(event) => { markCustom(); setGuidance(event.target.value); }}
@@ -1285,5 +1224,6 @@ export default function ExpandPage() {
         </>
       }
     />
+    </>
   );
 }

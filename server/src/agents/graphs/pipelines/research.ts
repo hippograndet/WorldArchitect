@@ -32,6 +32,7 @@ export async function runResearchGraph(params: {
   ownerId?: string;
   articleId: string;
   contextDepth?: ContextDepth;
+  userSpec?: string;
   pipelineRunId?: string;
   worldContext?: WorldContext;
   worldInfoContext?: WorldInfoContext;
@@ -49,6 +50,7 @@ export async function runResearchGraph(params: {
       commitPolicy: 'no_commit',
     })),
     contextDepth: params.contextDepth ?? 'mid',
+    userSpec: params.userSpec,
     ...(params.worldContext ? { worldContext: params.worldContext } : {}),
     ...(params.worldInfoContext ? { worldInfoContext: params.worldInfoContext } : {}),
   });

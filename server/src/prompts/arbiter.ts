@@ -1,6 +1,6 @@
 import type { WorldInfoContext } from '../services/archivist.js';
 import type { ResearchBrief } from '../agents/scribe.js';
-import { buildWorldInfoHeader } from './shared.js';
+import { buildWorldInfoHeader, dataBlock } from './shared.js';
 
 export function buildArbiterSystemPrompt(worldInfoContext: WorldInfoContext): string {
   return `You are Arbiter for WorldArchitect, a fiction world-building tool.
@@ -14,6 +14,7 @@ Focus only on contradictions — places where the draft states something that di
 - Missing information (the Scribe did not need to include everything)
 - Style or tone differences
 - Minor ambiguities
+- Anything explicitly called for by the user guidance below, if given — guidance is a deliberate creative instruction, not a contradiction to flag
 
 For each contradiction you find:
 - Quote the exact offending excerpt from the draft
@@ -30,13 +31,19 @@ export function buildArbiterUserMessage(
   articleTitle: string,
   draft: string,
   researchBrief: ResearchBrief,
+  userSpec?: string,
 ): string {
   const parts: string[] = [
     `## Article: ${articleTitle}`,
     `## Research Brief\n${researchBrief}`,
     `## Draft Description to Review\n${draft}`,
-    'Check the draft for factual contradictions against the research brief. Call submit_continuity_check.',
   ];
+
+  if (userSpec) {
+    parts.push(`## User Guidance\n${dataBlock('userSpec', userSpec)}`);
+  }
+
+  parts.push('Check the draft for factual contradictions against the research brief. Call submit_continuity_check.');
 
   return parts.join('\n\n');
 }

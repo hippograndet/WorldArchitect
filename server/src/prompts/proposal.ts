@@ -27,7 +27,7 @@ ${modeDesc} Propose 5–10 specific thematic ideas, concepts, or narrative threa
 - Directly useful as a paragraph topic
 - Grounded in the research brief below (no contradictions)
 
-You are NOT writing the Description — you are providing a curated menu of angles for a Curator (or the user) to select from. Base this only on the world's established context and the article's own identity — do not guess at what a user might personally want; that judgment happens downstream. Call submit_ideas when ready.`;
+You are NOT writing the Description — you are providing a curated menu of angles for a Curator (or the user) to select from. Base this on the world's established context and the article's own identity. If user guidance is given below, let it shape which angles you propose, but still offer a reasonably varied menu — Curator makes the final selection downstream. Call submit_ideas when ready.`;
 }
 
 export function buildProposalUserMessage(
@@ -35,6 +35,7 @@ export function buildProposalUserMessage(
   templateType: string,
   currentIntroduction?: string,
   researchBrief?: ResearchBrief,
+  userSpec?: string,
 ): string {
   const parts: string[] = [
     `## Article: ${articleTitle}`,
@@ -47,6 +48,10 @@ export function buildProposalUserMessage(
 
   if (researchBrief) {
     parts.push(`## Research Brief\n${researchBrief}`);
+  }
+
+  if (userSpec) {
+    parts.push(`## User Guidance\n${dataBlock('userSpec', userSpec)}`);
   }
 
   parts.push('Propose 5–10 distinct thematic ideas for the Description section.');

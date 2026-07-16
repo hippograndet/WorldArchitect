@@ -1,5 +1,5 @@
 import type { ContextPackage, WorldInfoContext } from '../services/archivist.js';
-import { buildWorldInfoHeader } from './shared.js';
+import { buildWorldInfoHeader, dataBlock } from './shared.js';
 
 export function buildResearcherSystemPrompt(worldInfoContext: WorldInfoContext): string {
   return `You are the Researcher for WorldArchitect, a fiction world-building tool.
@@ -24,10 +24,12 @@ Weave these together naturally — a detail can be both a fact and a caution; do
 
 Do NOT invent. Do NOT speculate. Write only what is already established in the provided context — or what is conspicuously absent (for tensions/angles).
 
+If user guidance is provided below, let it steer which facts and angles you emphasize.
+
 Use context tools to look up additional articles if needed. When done, call submit_research_brief.`;
 }
 
-export function buildResearcherUserMessage(pkg: ContextPackage): string {
+export function buildResearcherUserMessage(pkg: ContextPackage, userSpec?: string): string {
   const parts: string[] = [
     `## Article to Research: ${pkg.targetTitle}`,
     `Template type: ${pkg.targetTemplateType}`,
@@ -51,6 +53,10 @@ export function buildResearcherUserMessage(pkg: ContextPackage): string {
   }
   if (pkg.referencedArticles.length > 0) {
     parts.push('## Referenced Articles\n' + pkg.referencedArticles.map(r => `- ${r.title}`).join('\n'));
+  }
+
+  if (userSpec) {
+    parts.push(`## User Guidance\n${dataBlock('userSpec', userSpec)}`);
   }
 
   parts.push('Write the research brief for this article as flowing prose. Call submit_research_brief when ready.');

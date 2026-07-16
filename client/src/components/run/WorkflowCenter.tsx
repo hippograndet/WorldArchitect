@@ -11,6 +11,8 @@ interface WorkflowCenterProps {
   emptyTitle: string;
   emptyText: string;
   onShowSettings(): void;
+  /** Rendered unconditionally in the header row, next to Show Settings — for page-level actions that aren't tied to the settings panel's open/closed state. */
+  headerAction?: React.ReactNode;
   children: React.ReactNode;
 }
 
@@ -24,6 +26,7 @@ export default function WorkflowCenter({
   emptyTitle,
   emptyText,
   onShowSettings,
+  headerAction,
   children,
 }: WorkflowCenterProps) {
   return (
@@ -34,15 +37,18 @@ export default function WorkflowCenter({
           <h2 className="mt-1 text-2xl font-bold text-gray-900">{title}</h2>
           <p className="mt-1 text-sm text-gray-500">{subtitle}</p>
         </div>
-        {!settingsOpen && (
-          <button
-            onClick={onShowSettings}
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50"
-          >
-            <PanelRightOpen size={14} />
-            Show Settings
-          </button>
-        )}
+        <div className="flex shrink-0 items-center gap-2">
+          {headerAction}
+          {!settingsOpen && (
+            <button
+              onClick={onShowSettings}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50"
+            >
+              <PanelRightOpen size={14} />
+              Show Settings
+            </button>
+          )}
+        </div>
       </div>
 
       <section className="min-h-[520px] overflow-hidden rounded-xl border border-gray-200 bg-white">

@@ -7,6 +7,7 @@ import { getDbClient } from '../db/client.js';
 import { createRun, getRun, listRuns, cancelRun, markRunStatus, listRunEvents, listRunAgentCalls, clearTerminalRunHistory, RunConflictError } from '../services/runsService.js';
 import { isLlmTraceEnabled, listRunLlmTraces } from '../services/llmTraceService.js';
 import { decideRunReviewItem, listRunReviewItems } from '../services/runReviewItems.js';
+import { listRunQueueItems } from '../services/runQueueItems.js';
 import { startForgeRun, resumeForgeRun } from '../agents/graphs/forgeGraph/index.js';
 import { startConsolidateRun } from '../agents/graphs/consolidateRun.js';
 import type { AutonomyMode, CommitPolicy, ReviewPolicy } from '../agents/graphs/masContract.js';
@@ -39,7 +40,8 @@ router.get('/:rid', asyncHandler(async (req, res) => {
   const events = await listRunEvents(worldId, ownerId, rid(req));
   const agentCalls = await listRunAgentCalls(worldId, ownerId, rid(req));
   const reviewItems = await listRunReviewItems(worldId, ownerId, rid(req));
-  res.json({ ...run, events, agentCalls, reviewItems });
+  const queueItems = await listRunQueueItems(worldId, ownerId, rid(req));
+  res.json({ ...run, events, agentCalls, reviewItems, queueItems });
 }));
 
 const ReviewDecisionSchema = z.object({
@@ -103,6 +105,7 @@ const CreateRunSchema = z.object({
   coherenceCheckLevel: z.number().int().min(0).max(3).optional().default(1),
   safetyNet: z.boolean().optional().default(false),
   runStylizer: z.boolean().optional().default(false),
+  userSpec: z.string().optional(),
   forgeContinuationMode: z.enum(['one_step', 'finish_document', 'recursive']).optional().default('recursive'),
   forgeInceptionExistingMode: z.enum(['create', 'improve', 'replace', 'skip_existing']).optional().default('improve'),
   forgeExpansionExistingMode: z.enum(['create', 'improve', 'replace', 'skip_existing']).optional().default('improve'),
@@ -273,6 +276,7 @@ router.post('/', asyncHandler(async (req, res) => {
       coherenceCheckLevel: parse.data.coherenceCheckLevel,
       safetyNet: parse.data.safetyNet,
       runStylizer: parse.data.runStylizer,
+      userSpec: parse.data.userSpec,
       forgeContinuationMode: parse.data.forgeContinuationMode,
       forgeInceptionExistingMode: parse.data.forgeInceptionExistingMode,
       forgeExpansionExistingMode: parse.data.forgeExpansionExistingMode,

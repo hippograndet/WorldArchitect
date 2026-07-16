@@ -41,6 +41,7 @@ export interface GatekeeperInput {
   articleTitle:      string;
   existingChildren?: Array<{ title: string; summary: string }>;
   proposals:         ChildProposalItem[];
+  userSpec?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -69,7 +70,7 @@ export class GatekeeperAgent extends BaseAgent<GatekeeperInput, GatekeeperOutput
   protected buildMessages(_worldId: string, input: GatekeeperInput): ChatMessage[] {
     return [
       { role: 'system', content: buildGatekeeperSystemPrompt() },
-      { role: 'user', content: buildGatekeeperUserMessage(input.articleTitle, input.existingChildren, input.proposals) },
+      { role: 'user', content: buildGatekeeperUserMessage(input.articleTitle, input.existingChildren, input.proposals, input.userSpec) },
     ];
   }
 

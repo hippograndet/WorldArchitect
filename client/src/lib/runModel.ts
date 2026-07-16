@@ -6,13 +6,14 @@ export const RUN_STATUS_LABELS: Record<Run['status'], string> = {
   paused: 'Paused',
   needs_input: 'Needs input',
   completed: 'Finished successfully',
-  stopped: 'Finished unsuccessfully',
+  stopped: 'Cancelled',
   failed: 'Finished unsuccessfully',
 };
 
 export function runStatusClass(status: Run['status']): string {
   if (status === 'completed') return 'bg-green-100 text-green-700';
-  if (status === 'failed' || status === 'stopped') return 'bg-red-100 text-red-700';
+  if (status === 'failed') return 'bg-red-100 text-red-700';
+  if (status === 'stopped') return 'bg-orange-100 text-orange-700';
   if (status === 'paused' || status === 'needs_input') return 'bg-amber-100 text-amber-700';
   if (status === 'running' || status === 'pending') return 'bg-blue-100 text-blue-700';
   return 'bg-gray-100 text-gray-600';

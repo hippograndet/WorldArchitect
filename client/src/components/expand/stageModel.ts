@@ -1,4 +1,4 @@
-import type { Run, RunAgentCall, RunConfig, RunReviewItem, RunWithEvents } from '../../types/run.ts';
+import type { Run, RunAgentCall, RunConfig, RunQueueItem, RunReviewItem, RunWithEvents } from '../../types/run.ts';
 
 export type PipelineStartStep = 'inception' | 'expansion' | 'branching';
 /** Adds 'research' — the unconditional pre-Inception step every Forge queue item runs through, distinct from PipelineStartStep (which only covers the user-selectable startStep). */
@@ -32,6 +32,7 @@ export const AGENT_LABELS: Record<string, string> = {
   researcher: 'Researcher',
   scribe: 'Scribe',
   continuity_editor: 'Arbiter',
+  style_warden: 'Stylizer',
   cartographer: 'Cartographer',
   dedup_check: 'Gatekeeper',
 };
@@ -43,6 +44,7 @@ export const AGENT_TASKS: Record<string, string> = {
   researcher: 'Research',
   scribe: 'Draft',
   continuity_editor: 'Continuity',
+  style_warden: 'Style',
   cartographer: 'Children',
   dedup_check: 'Dedup',
 };
@@ -77,66 +79,108 @@ export function runStartStep(run: RunWithEvents): PipelineStartStep {
   return 'inception';
 }
 
-export function runPipelineSteps(run: RunWithEvents): AgentStageStep[] {
-  const order: PipelineStartStep[] = ['inception', 'expansion', 'branching'];
-  const start = runStartStep(run);
+const STEP_ORDER: PipelineStartStep[] = ['inception', 'expansion', 'branching'];
+
+/** The subset of a RunQueueItem's fields needed to know which steps apply to it. */
+export type StagePlanItem = Pick<RunQueueItem, 'depth' | 'startStep'>;
+
+/**
+ * Whether `step` is actually attempted for this item, derived from the same
+ * rules forgeGraph/routing.ts's routeAfterInception/routeAfterExpansion/
+ * routeAfterBranching and branchingNode's depth guard (forgeGraph/nodes.ts)
+ * apply server-side — so this must be kept in sync with those, not with
+ * runPipelineSteps' old (root-only) approximation.
+ */
+export function itemAppliesStep(item: StagePlanItem, step: PipelineStartStep, run: RunWithEvents): boolean {
+  const startIdx = STEP_ORDER.indexOf(item.startStep);
+  const stepIdx = STEP_ORDER.indexOf(step);
+  if (stepIdx < startIdx) return false;
   const continuation = run.config.forgeContinuationMode ?? 'finish_document';
-  const rest = continuation === 'one_step' ? [start] : order.slice(order.indexOf(start));
-  // 'research' always runs first, unconditionally, for every queue item —
-  // even when startStep/continuation mode skip straight past Inception —
-  // so it's prepended here regardless of `start`/`continuation`.
-  return ['research', ...rest];
+  if (continuation === 'one_step' && stepIdx > startIdx) return false;
+  if (step === 'branching' && item.depth >= (run.config.forgeMaxDepth ?? 2)) return false;
+  return true;
 }
 
-function agentStageDefinitions(run: RunWithEvents): Array<Omit<AgentStage, 'status' | 'call' | 'detail'>> {
-  const stages: Array<Omit<AgentStage, 'status' | 'call' | 'detail'>> = [];
-  const add = (step: AgentStageStep, group: string, agentType: string) => {
+function agentStageDefinitions(
+  run: RunWithEvents,
+  item: StagePlanItem,
+): Array<Omit<AgentStage, 'status' | 'call' | 'detail'> & { plannedOut: boolean }> {
+  const stages: Array<Omit<AgentStage, 'status' | 'call' | 'detail'> & { plannedOut: boolean }> = [];
+  const add = (step: AgentStageStep, group: string, agentType: string, plannedOut: boolean) => {
     stages.push({
       key: `${step}:${group}:${agentType}:${stages.length}`,
       step,
       group,
       agentType,
       label: AGENT_LABELS[agentType] ?? agentType,
+      plannedOut,
     });
   };
 
-  for (const step of runPipelineSteps(run)) {
-    if (step === 'research') {
-      // Researcher now runs once per queue item, before Inception/Expansion/
-      // Branching, and builds the ContextPackage the rest of the cascade
-      // reuses. Context assembly itself isn't a distinct agent — it has no
-      // stage of its own; if it fails, that failure surfaces on Researcher,
-      // the agent that actually depends on it (see the failedSteps handling
-      // in buildAgentStages below).
-      add(step, 'Research', 'researcher');
-    }
-    const coherenceCheckOn = (run.config.coherenceCheckLevel ?? 0) > 0;
-    if (step === 'inception') {
-      add(step, 'Introduction', 'lorekeeper');
-    }
-    if (step === 'expansion') {
-      add(step, 'Direction', 'muse');
-      add(step, 'Direction', 'curator');
-      add(step, 'Drafting', 'scribe');
-      if (coherenceCheckOn) add(step, 'Continuity', 'continuity_editor');
-    }
-    if (step === 'branching') {
-      // Branching intentionally always rebuilds its own ContextPackage under
-      // 'propose_children' mode rather than reusing Research's — see
-      // runProposeChildrenGraph's comment in pipelines/proposeChildren.ts.
-      // Same reasoning as Research: no separate stage, failures surface on
-      // Cartographer.
-      add(step, 'Children', 'cartographer');
-      if (coherenceCheckOn) add(step, 'Children', 'dedup_check');
-    }
-  }
+  // 'research' always runs first, unconditionally, for every queue item —
+  // even when startStep/continuation mode skip straight past Inception —
+  // so it's never itself skippable. Context assembly isn't a distinct
+  // agent — if it fails, that failure surfaces on Researcher (see the
+  // failedSteps handling in buildAgentStages below).
+  add('research', 'Research', 'researcher', false);
+
+  const coherenceCheckOn = (run.config.coherenceCheckLevel ?? 0) > 0;
+
+  add('inception', 'Introduction', 'lorekeeper', !itemAppliesStep(item, 'inception', run));
+
+  const expansionOut = !itemAppliesStep(item, 'expansion', run);
+  add('expansion', 'Direction', 'muse', expansionOut);
+  add('expansion', 'Direction', 'curator', expansionOut);
+  add('expansion', 'Drafting', 'scribe', expansionOut);
+  if (coherenceCheckOn) add('expansion', 'Continuity', 'continuity_editor', expansionOut);
+  // Stylizer runs after Scribe/Arbiter, gated behind its own runStylizer
+  // toggle (independent of coherenceCheckLevel) — see pipelines/expand.ts's
+  // scribe -> stylizer edge.
+  if (run.config.runStylizer) add('expansion', 'Style', 'style_warden', expansionOut);
+
+  // Branching intentionally always rebuilds its own ContextPackage under
+  // 'propose_children' mode rather than reusing Research's — see
+  // runProposeChildrenGraph's comment in pipelines/proposeChildren.ts. Same
+  // reasoning as Research: no separate stage, failures surface on Cartographer.
+  const branchingOut = !itemAppliesStep(item, 'branching', run);
+  add('branching', 'Children', 'cartographer', branchingOut);
+  if (coherenceCheckOn) add('branching', 'Children', 'dedup_check', branchingOut);
 
   return stages;
+}
+
+/**
+ * A generic, run-agnostic rendering of the full pipeline (every step, every
+ * agent, coherence checking and Stylizer both "on") for the standalone
+ * "View Pipeline" reference diagram — not tied to any real run's data, so
+ * every stage renders 'pending' and retry counters show 0 of an illustrative max.
+ */
+export function buildStandardPipelineStages(): AgentStage[] {
+  const genericRun = {
+    config: {
+      startStep: 'inception',
+      forgeContinuationMode: 'recursive',
+      coherenceCheckLevel: 1,
+      runStylizer: true,
+      forgeMaxDepth: 2,
+    },
+  } as RunWithEvents;
+  const item: StagePlanItem = { depth: 0, startStep: 'inception' };
+  return agentStageDefinitions(genericRun, item).map(({ plannedOut: _plannedOut, ...stage }) => {
+    const generatorAgentType = CHECKER_GENERATOR_PAIRS[stage.agentType];
+    return {
+      ...stage,
+      status: 'pending',
+      ...(generatorAgentType ? { retryGeneratorAgentType: generatorAgentType, retryMax: 1, retryActual: 0 } : {}),
+    };
+  });
 }
 
 export function buildAgentStages(run: RunWithEvents, articleId: string | null): AgentStage[] {
   const callsByAgent = new Map<string, RunAgentCall[]>();
   const rootArticleId = run.config.rootArticleId ?? run.articleIds[0] ?? null;
+  const item: StagePlanItem = (run.queueItems ?? []).find((qi) => qi.articleId === articleId)
+    ?? { depth: 0, startStep: runStartStep(run) };
   const articleCalls = (run.agentCalls ?? []).filter((call) => (
     articleId
       ? call.articleId === articleId || (call.articleId === null && articleId === rootArticleId)
@@ -172,7 +216,15 @@ export function buildAgentStages(run: RunWithEvents, articleId: string | null): 
     };
   };
 
-  const stages = agentStageDefinitions(run).map<AgentStage>((stage) => {
+  const stages = agentStageDefinitions(run, item).map<AgentStage>((stageDef) => {
+    const { plannedOut, ...stage } = stageDef;
+    if (plannedOut) {
+      return {
+        ...stage,
+        status: 'skipped',
+        detail: `${stage.label} is switched off for this run's settings.`,
+      };
+    }
     const retryInfo = retryInfoForChecker(stage.agentType);
     const calls = callsByAgent.get(stage.agentType) ?? [];
     const failedCall = calls.find((call) => call.status === 'error' || call.status === 'rejected');
@@ -249,26 +301,46 @@ export interface CountProgress {
 }
 
 /**
- * Steps completed/total for whichever article's stages were passed in (the
- * currently selected/focused article in the run view — the same scope
- * `buildAgentStages` already uses, since a recursive run's step tiles are
- * inherently per-article, not a single run-wide sequence).
+ * Run-wide Inception/Expansion/Branching completed/total, summed across
+ * every known queue item (not just the currently selected article) — the
+ * root plus every child branching has revealed so far. Grows over the run's
+ * lifetime exactly like `run.itemsTotal` already does as new children are
+ * discovered, settling on a final total once the queue drains. Steps a given
+ * item never attempts (see `itemAppliesStep`) don't count toward either side.
  */
-export function runStepProgress(steps: AgentStageStep[], stages: AgentStage[]): CountProgress {
-  const completed = steps.filter((step) => {
-    const stepStages = stages.filter((stage) => stage.step === step);
-    return stepStages.length > 0 && stepStages.every((stage) => stage.status === 'completed');
-  }).length;
-  return { completed, total: steps.length };
+export function runWideStepProgress(run: RunWithEvents): CountProgress {
+  const rootArticleId = run.config.rootArticleId ?? run.articleIds[0] ?? null;
+  const items: StagePlanItem[] = run.queueItems.length > 0
+    ? run.queueItems
+    : [{ depth: 0, startStep: runStartStep(run) }];
+  const articleIds: Array<string | null> = run.queueItems.length > 0
+    ? run.queueItems.map((item) => item.articleId)
+    : [rootArticleId];
+
+  let total = 0;
+  let completed = 0;
+  items.forEach((item, index) => {
+    const stages = buildAgentStages(run, articleIds[index] ?? null);
+    for (const step of STEP_ORDER) {
+      if (!itemAppliesStep(item, step, run)) continue;
+      total += 1;
+      const stepStages = stages.filter((stage) => stage.step === step);
+      if (stepStages.length > 0 && stepStages.every((stage) => stage.status === 'completed')) completed += 1;
+    }
+  });
+  return { completed, total };
 }
 
 /**
  * Agent-pass completed/total from already-built stages. Each real agent role
  * appears once per step regardless of checker→revise retries, so this is an
- * estimated-pass count, not a raw call count.
+ * estimated-pass count, not a raw call count. Stages switched off for this
+ * item/run (`status: 'skipped'`) are excluded from both sides — they were
+ * never going to run, so they shouldn't dilute the completion ratio.
  */
 export function runAgentPassProgress(stages: AgentStage[]): CountProgress {
-  return { completed: stages.filter((stage) => stage.status === 'completed').length, total: stages.length };
+  const applicable = stages.filter((stage) => stage.status !== 'skipped');
+  return { completed: applicable.filter((stage) => stage.status === 'completed').length, total: applicable.length };
 }
 
 export function stageStatusClass(status: AgentStageStatus): string {

@@ -39,6 +39,7 @@ export async function heraldWriteIntroNode(state: OrchestrationState): Promise<P
     mode: effectiveMode,
     existingIntro: effectiveMode === 'improve' ? existingIntro : undefined,
     researchBrief: state.researchBrief,
+    userSpec: state.userSpec,
   }, callCtx(state));
 
   return {

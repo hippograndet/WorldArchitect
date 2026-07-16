@@ -35,7 +35,7 @@ export interface IdeaItem {
 
 export type MuseOutput = { ideas: IdeaItem[] };
 
-/** No contextPackage, no userSpec — Muse writes from the article's own identity + world context + Researcher's brief only. User preference enters downstream, via Curator. */
+/** No contextPackage — Muse writes from the article's own identity + world context + Researcher's brief, plus the run's userSpec if given. Curator still makes the final selection downstream. */
 export interface MuseInput {
   worldInfoContext: WorldInfoContext;
   worldContext: WorldContext;
@@ -44,6 +44,7 @@ export interface MuseInput {
   templateType: string;
   currentIntroduction?: string;
   researchBrief?: ResearchBrief;
+  userSpec?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -63,7 +64,7 @@ export class MuseAgent extends BaseAgent<MuseInput, MuseOutput> {
       },
       {
         role: 'user',
-        content: buildProposalUserMessage(input.articleTitle, input.templateType, input.currentIntroduction, input.researchBrief),
+        content: buildProposalUserMessage(input.articleTitle, input.templateType, input.currentIntroduction, input.researchBrief, input.userSpec),
       },
     ];
   }

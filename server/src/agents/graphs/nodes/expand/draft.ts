@@ -60,6 +60,7 @@ export async function scribeNode(state: OrchestrationState): Promise<Partial_> {
           articleTitle: pkg.targetTitle,
           draft,
           researchBrief: state.researchBrief!,
+          userSpec: state.userSpec,
         }, callCtx(state));
         return { output: arbiterResult.output, tokensIn: arbiterResult.tokensIn, tokensOut: arbiterResult.tokensOut };
       },
@@ -144,6 +145,7 @@ export async function stylizerNode(state: OrchestrationState): Promise<Partial_>
     contentLabel,
     worldInfoContext: state.worldInfoContext!,
     worldContext: state.worldContext!,
+    userSpec: state.userSpec,
   }, callCtx(state));
   return {
     description: result.output.description,

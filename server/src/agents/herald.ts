@@ -39,6 +39,7 @@ export interface HeraldInput {
   existingIntro?: string;
   revisionNotes?: string;
   researchBrief?: ResearchBrief;
+  userSpec?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -73,6 +74,7 @@ export class HeraldAgent extends BaseAgent<HeraldInput, HeraldOutput> {
           input.existingIntro,
           input.revisionNotes,
           input.researchBrief,
+          input.userSpec,
         ),
       },
     ];

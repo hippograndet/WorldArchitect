@@ -1,7 +1,7 @@
 import type { WorldContext } from '../agents/director.js';
 import type { WorldInfoContext } from '../services/archivist.js';
 import type { ResearchBrief } from '../agents/scribe.js';
-import { buildWorldInfoHeader, buildWorldStyleHeader, toWorldStyleContext } from './shared.js';
+import { buildWorldInfoHeader, buildWorldStyleHeader, toWorldStyleContext, dataBlock } from './shared.js';
 
 export type HeraldPromptMode = 'full' | 'improve';
 
@@ -27,6 +27,7 @@ Rules:
 - Stay consistent with the Research Brief below, if present — use it to avoid contradictions, don't restate it verbatim
 - Do not use the article's title as the first word
 - Write in the same tone as the world
+- If user guidance is given below, weigh it heavily
 - Call submit_introduction exactly once when ready
 - Do not answer in plain text`;
   }
@@ -42,6 +43,7 @@ Rules:
 - Stay consistent with the Research Brief below, if present
 - Do not use the article's title as the first word
 - Write in the same tone as the world
+- If user guidance is given below, weigh it heavily
 - Call submit_introduction exactly once when ready
 - Do not answer in plain text`;
 }
@@ -56,15 +58,18 @@ export function buildHeraldUserMessage(
   existingIntro?: string,
   revisionNotes?: string,
   researchBrief?: ResearchBrief,
+  userSpec?: string,
 ): string {
   const revisionBlock = revisionNotes ? `\n\n## Revision Required\nPlease correct the following contradictions:\n${revisionNotes}` : '';
   const researchBriefBlock = buildResearchBriefBlock(researchBrief);
+  const userSpecBlock = userSpec ? [`## User Guidance\n${dataBlock('userSpec', userSpec)}`] : [];
 
   if (mode === 'improve' && existingIntro) {
     const parts = [
       `## Article: ${articleTitle}`,
       ...researchBriefBlock,
       `## Existing Introduction (your seed and constraint)\n${existingIntro}`,
+      ...userSpecBlock,
       `Improve the Introduction, keeping its core claims and voice.${revisionBlock}`,
     ];
     return parts.join('\n\n');
@@ -73,6 +78,7 @@ export function buildHeraldUserMessage(
   const parts = [
     `## Article: ${articleTitle}`,
     ...researchBriefBlock,
+    ...userSpecBlock,
     `Write a 1-paragraph Introduction for the World Bible, grounded in the research brief above.${revisionBlock}`,
   ];
   return parts.join('\n\n');

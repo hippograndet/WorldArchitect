@@ -39,6 +39,7 @@ function makeRun(overrides: Partial<RunWithEvents>): RunWithEvents {
     events: [],
     agentCalls: [],
     reviewItems: [],
+    queueItems: [],
     ...overrides,
   };
 }

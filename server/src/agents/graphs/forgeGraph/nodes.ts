@@ -3,6 +3,7 @@ import { acceptDraft, batchCreateChildArticles, updateArticle } from '../../../s
 import { getRun, bumpRunBudget, updateRunProgress } from '../../../services/runsService.js';
 import { recordArticleIssues } from '../../../services/issueRecorder.js';
 import { createRunReviewItem, getLatestReviewDecision } from '../../../services/runReviewItems.js';
+import { insertRunQueueItems, markRunQueueItemActive, markRunQueueItemFinished } from '../../../services/runQueueItems.js';
 import { buildContextPackage } from '../../../services/archivist.js';
 import { runResearchGraph } from '../pipelines/research.js';
 import { runInceptionGraph } from '../pipelines/inception.js';
@@ -50,6 +51,7 @@ export async function dequeueNode(state: ForgeState): Promise<Partial<ForgeState
   if (state.queue.length === 0) return { signal: 'completed' };
 
   const [item, ...rest] = state.queue;
+  await markRunQueueItemActive(state.worldId, state.ownerId, state.runId, item.articleId);
   return {
     currentItem: item,
     queue: rest,
@@ -89,6 +91,7 @@ export async function researchNode(state: ForgeState): Promise<Partial<ForgeStat
       ownerId: state.ownerId,
       articleId: item.articleId,
       contextDepth: state.contextDepth,
+      userSpec: state.userSpec,
       pipelineRunId: state.runId,
       worldContext: state.worldContext,
       worldInfoContext: state.worldInfoContext,
@@ -158,6 +161,7 @@ export async function inceptionNode(state: ForgeState): Promise<Partial<ForgeSta
       pipelineRunId: state.runId,
       coherenceCheckLevel: state.coherenceCheckLevel,
       safetyNet: state.safetyNet,
+      userSpec: state.userSpec,
       worldContext: state.worldContext,
       worldInfoContext: state.worldInfoContext,
       contextPackage: state.currentItemContextPackage,
@@ -311,6 +315,7 @@ export async function expansionNode(state: ForgeState): Promise<Partial<ForgeSta
         autoSelect: !requiresUserReview(state),
         contextDepth: state.contextDepth,
         contextBasis: state.contextBasis,
+        userSpec: state.userSpec,
         pipelineRunId: state.runId,
         worldContext: state.worldContext,
         worldInfoContext: state.worldInfoContext,
@@ -491,6 +496,9 @@ export async function branchingNode(state: ForgeState): Promise<Partial<ForgeSta
       await logEvent(state, 'Branching', item.title, true, `Created ${newItems.length} child article${newItems.length === 1 ? '' : 's'}.`);
       const total = shouldQueueChildren ? state.total + newItems.length : state.total;
       await updateRunProgress(state.worldId, state.ownerId, state.runId, state.completed, total, state.failedItemCount);
+      if (shouldQueueChildren) {
+        await insertRunQueueItems(state.worldId, state.ownerId, state.runId, newItems);
+      }
       return {
         signal: 'continue',
         queue: shouldQueueChildren
@@ -600,6 +608,9 @@ export async function branchingNode(state: ForgeState): Promise<Partial<ForgeSta
     await logEvent(state, 'Branching', item.title, true, `Created ${newItems.length} child article${newItems.length === 1 ? '' : 's'}.`);
     const total = shouldQueueChildren ? state.total + newItems.length : state.total;
     await updateRunProgress(state.worldId, state.ownerId, state.runId, state.completed, total);
+    if (shouldQueueChildren) {
+      await insertRunQueueItems(state.worldId, state.ownerId, state.runId, newItems);
+    }
     return {
       signal: 'continue',
       queue: shouldQueueChildren
@@ -646,5 +657,8 @@ export async function finishItemNode(state: ForgeState): Promise<Partial<ForgeSt
   // for progress purposes, but its step failed and finalizeRun needs to know.
   const failedItemCount = state.failedItemCount + (lastStepError ? 1 : 0);
   await updateRunProgress(state.worldId, state.ownerId, state.runId, completed, state.total, failedItemCount);
+  if (state.currentItem) {
+    await markRunQueueItemFinished(state.worldId, state.ownerId, state.runId, state.currentItem.articleId, lastStepError ? 'failed' : 'completed');
+  }
   return { completed, failedItemCount, currentItem: undefined, currentItemStepsDone: [], inceptionIntroChanged: false };
 }

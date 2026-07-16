@@ -21,6 +21,7 @@ export type ResearcherOutput = ResearchBrief;
 export interface ResearcherInput {
   contextPackage: ContextPackage;
   worldInfoContext: WorldInfoContext;
+  userSpec?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -41,7 +42,7 @@ export class ResearcherAgent extends BaseAgent<ResearcherInput, ResearcherOutput
   protected buildMessages(_worldId: string, input: ResearcherInput): ChatMessage[] {
     return [
       { role: 'system', content: buildResearcherSystemPrompt(input.worldInfoContext) },
-      { role: 'user',   content: buildResearcherUserMessage(input.contextPackage) },
+      { role: 'user',   content: buildResearcherUserMessage(input.contextPackage, input.userSpec) },
     ];
   }
 

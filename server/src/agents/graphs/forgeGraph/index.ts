@@ -1,5 +1,6 @@
 import { StateGraph, GraphRecursionError } from '@langchain/langgraph';
 import { markRunStatus, releaseLocks, updateRunProgress } from '../../../services/runsService.js';
+import { insertRunQueueItems, markRunQueueItemFinished } from '../../../services/runQueueItems.js';
 import { getCheckpointer } from '../../checkpointer.js';
 import { runWithUserContext } from '../../../requestContext.js';
 import { fetchWorldContext } from '../../director.js';
@@ -93,6 +94,11 @@ async function finalizeRun(runId: string, worldId: string, ownerId: string, resu
       await markRunStatus(worldId, ownerId, runId, 'needs_input');
       break;
     case 'error':
+      // Fatal errors route straight to END_KEY, skipping finishItemNode — the
+      // in-flight item's run_queue_items row would otherwise be stuck 'active' forever.
+      if (result.currentItem) {
+        await markRunQueueItemFinished(worldId, ownerId, runId, result.currentItem.articleId, 'failed');
+      }
       await markRunStatus(worldId, ownerId, runId, 'failed', result.lastStepError?.message);
       await releaseLocks(worldId, ownerId, runId);
       break;
@@ -123,6 +129,7 @@ export async function startForgeRun(params: {
   coherenceCheckLevel: number;
   safetyNet: boolean;
   runStylizer?: boolean;
+  userSpec?: string;
   forgeContinuationMode?: ForgeContinuationMode;
   forgeInceptionExistingMode?: ForgeExistingContentMode;
   forgeExpansionExistingMode?: ForgeExistingContentMode;
@@ -134,6 +141,9 @@ export async function startForgeRun(params: {
   await runWithUserContext(params.ownerId, async () => {
     await markRunStatus(params.worldId, params.ownerId, params.runId, 'running');
     await updateRunProgress(params.worldId, params.ownerId, params.runId, 0, 1);
+    await insertRunQueueItems(params.worldId, params.ownerId, params.runId, [
+      { articleId: params.articleId, title: params.articleTitle, depth: 0, startStep: params.startStep },
+    ]);
     const graph = await getForgeGraph();
     const config = {
       configurable: { thread_id: params.runId },
@@ -168,6 +178,7 @@ export async function startForgeRun(params: {
           coherenceCheckLevel: params.coherenceCheckLevel,
           safetyNet: params.safetyNet,
           runStylizer: params.runStylizer ?? false,
+          userSpec: params.userSpec,
           forgeContinuationMode: params.forgeContinuationMode ?? 'recursive',
           forgeInceptionExistingMode: params.forgeInceptionExistingMode ?? 'improve',
           forgeExpansionExistingMode: params.forgeExpansionExistingMode ?? 'improve',

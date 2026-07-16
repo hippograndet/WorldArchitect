@@ -56,6 +56,7 @@ export async function cartographerNode(state: OrchestrationState): Promise<Parti
         articleTitle: pkg.targetTitle,
         existingChildren,
         proposals: childProposals,
+        userSpec: state.userSpec,
       }, callCtx(state));
       tokensIn += gatekeeperResult.tokensIn;
       tokensOut += gatekeeperResult.tokensOut;
@@ -87,6 +88,7 @@ export async function cartographerNode(state: OrchestrationState): Promise<Parti
         articleTitle: pkg.targetTitle,
         existingChildren,
         proposals: childProposals,
+        userSpec: state.userSpec,
       }, callCtx(state));
       tokensIn += finalCheck.tokensIn;
       tokensOut += finalCheck.tokensOut;

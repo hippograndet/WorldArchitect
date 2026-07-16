@@ -25,6 +25,7 @@ export interface RunConfig {
   coherenceCheckLevel?: number;
   safetyNet?: boolean;
   runStylizer?: boolean;
+  userSpec?: string;
   forgeContinuationMode?: 'one_step' | 'finish_document' | 'recursive';
   validationLevel?: 'manual' | 'assisted' | 'autopilot';
   autonomyMode?: 'manual' | 'review_each_step' | 'auto_with_post_review';
@@ -96,8 +97,19 @@ export interface Run {
   updatedAt: number;
 }
 
+export interface RunQueueItem {
+  id: string;
+  articleId: string;
+  title: string;
+  depth: number;
+  startStep: 'inception' | 'expansion' | 'branching';
+  status: 'pending' | 'active' | 'completed' | 'failed';
+  createdAt: number;
+}
+
 export interface RunWithEvents extends Run {
   events: RunEvent[];
   agentCalls: RunAgentCall[];
   reviewItems: RunReviewItem[];
+  queueItems: RunQueueItem[];
 }

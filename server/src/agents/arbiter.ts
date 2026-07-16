@@ -39,6 +39,7 @@ export interface ArbiterInput {
   articleTitle:  string;
   draft:         string;
   researchBrief: ResearchBrief;
+  userSpec?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -70,6 +71,7 @@ export class ArbiterAgent extends BaseAgent<ArbiterInput, ArbiterOutput> {
           input.articleTitle,
           input.draft,
           input.researchBrief,
+          input.userSpec,
         ),
       },
     ];

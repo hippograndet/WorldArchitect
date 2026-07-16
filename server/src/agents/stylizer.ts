@@ -24,6 +24,7 @@ export interface StylizerInput {
   contentLabel: 'Description' | 'Introduction';
   worldInfoContext: WorldInfoContext;
   worldContext: WorldContext;
+  userSpec?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -53,6 +54,7 @@ export class StylizerAgent extends BaseAgent<StylizerInput, StylizerOutput> {
           input.articleTitle,
           input.content,
           input.contentLabel,
+          input.userSpec,
         ),
       },
     ];
