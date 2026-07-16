@@ -8,15 +8,14 @@ import type { CoherenceWarning, SuggestedLink, WardenOutput } from './warden.js'
 import type { RetentionIssue, SentinelOutput } from './sentinel.js';
 import type { AgentSideChannel } from './base.js';
 import type { IdeaItem } from './muse.js';
-import type { StyleWardenOutput } from './styleWarden.js';
-import type { ContinuityEditorOutput } from './continuityEditor.js';
+import type { StylizerOutput } from './stylizer.js';
+import type { ArbiterOutput } from './arbiter.js';
 import type { EdgeProposal, GlobalWarning } from './auditor.js';
 import type { ProposalMode } from '../prompts/proposal.js';
 import type { ExpanderMode } from '../prompts/expander.js';
 import type { WorldStyleConfig } from '../services/worldStylePresets.js';
 import { runProposeGraph } from './graphs/pipelines/propose.js';
 import { runExpandGraph } from './graphs/pipelines/expand.js';
-import { runSummarizeGraph } from './graphs/pipelines/summarize.js';
 import { runProposeChildrenGraph } from './graphs/pipelines/proposeChildren.js';
 import { runReorganizeGraph } from './graphs/pipelines/reorganize.js';
 import { runCohereGraph } from './graphs/pipelines/cohere.js';
@@ -127,16 +126,10 @@ export interface ExpandOutput {
   description: string;
   introduction?: string;
   parentUpdate?: { appendText: string };
-  styleCheck?: StyleWardenOutput;
-  continuityCheck?: ContinuityEditorOutput;
+  styleCheck?: StylizerOutput;
+  arbiterCheck?: ArbiterOutput;
   mentions?: MentionItem[];
   contextDraftIds?: string[];
-  tokensIn: number;
-  tokensOut: number;
-}
-
-export interface SummarizeOutput {
-  introduction: string;
   tokensIn: number;
   tokensOut: number;
 }
@@ -195,7 +188,7 @@ export class PipelineCoordinator {
   }
 
   // ---------------------------------------------------------------------------
-  // Phase 2: expand — Scribe → Lorekeeper → (optional StyleWarden)
+  // Phase 2: expand — Scribe → (optional Stylizer) → (create_child: Herald passthrough)
   // ---------------------------------------------------------------------------
 
   async expand(
@@ -205,7 +198,7 @@ export class PipelineCoordinator {
     userSpec?: string,
     contextDepth: ContextDepth = 'mid',
     selectedIdeas?: IdeaItem[],
-    runStyleWarden = false,
+    runStylizer = false,
     coherenceCheckLevel = 0,
     safetyNet = false,
     wordCountPreset: 'short' | 'medium' | 'long' = 'medium',
@@ -214,21 +207,8 @@ export class PipelineCoordinator {
     const ownerId = await ownerIdForWorld(getDbClient(), worldId);
     return runExpandGraph({
       worldId, ownerId, articleId, pipelineType, userSpec, contextDepth, contextBasis,
-      selectedIdeas, runStyleWarden, coherenceCheckLevel, safetyNet, wordCountPreset,
+      selectedIdeas, runStylizer, coherenceCheckLevel, safetyNet, wordCountPreset,
     });
-  }
-
-  // ---------------------------------------------------------------------------
-  // summarize (standalone) — Lorekeeper only
-  // ---------------------------------------------------------------------------
-
-  async summarize(
-    worldId: string,
-    articleId: string,
-    mode: 'full' | 'improve' = 'full',
-  ): Promise<SummarizeOutput> {
-    const ownerId = await ownerIdForWorld(getDbClient(), worldId);
-    return runSummarizeGraph({ worldId, ownerId, articleId, mode });
   }
 
   // ---------------------------------------------------------------------------
@@ -249,7 +229,7 @@ export class PipelineCoordinator {
   }
 
   // ---------------------------------------------------------------------------
-  // reorganize — Scribe [reorganize] → Sentinel → Lorekeeper
+  // reorganize — Scribe [reorganize] → Sentinel → Herald
   // ---------------------------------------------------------------------------
 
   async reorganize(

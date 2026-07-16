@@ -22,6 +22,7 @@ function makeInput(ideaCount: number): CuratorInput {
     ideas,
     articleTitle: 'Some Article',
     articleTemplateType: 'general',
+    worldInfoContext: { worldId: 'world-1', title: 'Test World', introduction: '' },
     worldContext,
   };
 }

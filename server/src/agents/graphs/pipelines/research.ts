@@ -4,7 +4,7 @@ import { OrchestrationAnnotation } from '../state.js';
 import { articleContract, contractState } from '../masContract.js';
 import { fetchWorldContextNode, buildContextPackageNode } from '../nodes/shared.js';
 import { researcherNode } from '../nodes/expand/research.js';
-import type { ContextDepth, ContextPackage } from '../../../services/archivist.js';
+import type { ContextDepth, ContextPackage, WorldInfoContext } from '../../../services/archivist.js';
 import type { WorldContext } from '../../director.js';
 import type { ResearchBrief } from '../../scribe.js';
 
@@ -22,6 +22,7 @@ export interface ResearchGraphOutput {
   researchBrief: ResearchBrief;
   contextPackage: ContextPackage;
   worldContext: WorldContext;
+  worldInfoContext: WorldInfoContext;
   tokensIn: number;
   tokensOut: number;
 }
@@ -33,6 +34,7 @@ export async function runResearchGraph(params: {
   contextDepth?: ContextDepth;
   pipelineRunId?: string;
   worldContext?: WorldContext;
+  worldInfoContext?: WorldInfoContext;
 }): Promise<ResearchGraphOutput> {
   const result = await graph.invoke({
     worldId: params.worldId,
@@ -48,11 +50,13 @@ export async function runResearchGraph(params: {
     })),
     contextDepth: params.contextDepth ?? 'mid',
     ...(params.worldContext ? { worldContext: params.worldContext } : {}),
+    ...(params.worldInfoContext ? { worldInfoContext: params.worldInfoContext } : {}),
   });
   return {
     researchBrief: result.researchBrief!,
     contextPackage: result.contextPackage!,
     worldContext: result.worldContext!,
+    worldInfoContext: result.worldInfoContext!,
     tokensIn: result.tokensIn,
     tokensOut: result.tokensOut,
   };

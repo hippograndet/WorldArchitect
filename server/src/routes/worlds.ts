@@ -117,6 +117,11 @@ router.post('/', asyncHandler(async (req, res) => {
       description: '',
       now,
     });
+
+    // Set after the article row exists — worlds.root_article_id has no FK
+    // constraint (same reasoning as articles.current_version_id), but the
+    // article must still exist first for this pointer to mean anything.
+    await tx.run('UPDATE worlds SET root_article_id = ? WHERE id = ?', [articleId, worldId]);
   });
 
   await reindexArticle(worldId, articleId);

@@ -68,8 +68,8 @@ export async function getChildCount(ownerId: string, articleId: string): Promise
 /**
  * Resolves the ContextPackage to cache for Expansion right after Inception
  * commits an introduction. When `prebuilt` is given (Inception just called
- * runSummarizeGraph in this same invocation), its targetIntroduction is stale
- * — built before Lorekeeper wrote the intro — and must be patched with the
+ * runInceptionGraph in this same invocation), its targetIntroduction is stale
+ * — built before Herald wrote the intro — and must be patched with the
  * one that was just saved. Otherwise, fall back to researchNode's package
  * (state.currentItemContextPackage, built once before Inception ran) patched
  * the same way — this is the common skip-existing/resumed-review case, and

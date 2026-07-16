@@ -1,8 +1,9 @@
 import { z } from 'zod';
 import { BaseAgent } from './base.js';
 import { OUTPUT_TOOLS } from '../tools/output.js';
-import { buildStyleWardenSystemPrompt, buildStyleWardenUserMessage } from '../prompts/styleWarden.js';
+import { buildStylizerSystemPrompt, buildStylizerUserMessage } from '../prompts/stylizer.js';
 import type { WorldContext } from './director.js';
+import type { WorldInfoContext } from '../services/archivist.js';
 import type { ChatMessage } from '../providers/types.js';
 import type { Tool } from '../tools/types.js';
 
@@ -10,26 +11,18 @@ import type { Tool } from '../tools/types.js';
 // I/O types
 // ---------------------------------------------------------------------------
 
-const StyleIssueSchema = z.object({
-  severity: z.enum(['suggestion', 'warning']),
-  category: z.enum(['clarity', 'tone', 'logic', 'consistency']),
-  description: z.string(),
-  excerpt: z.string().optional(),
-});
-
 const SubmitStyleCheckSchema = z.object({
-  issues: z.array(StyleIssueSchema),
-  overallToneMatch: z.enum(['excellent', 'good', 'off']),
-  summary: z.string(),
+  description: z.string(),
+  changesSummary: z.string().optional(),
 });
 
-export type StyleIssue = z.infer<typeof StyleIssueSchema>;
-export type StyleWardenOutput = z.infer<typeof SubmitStyleCheckSchema>;
+export type StylizerOutput = z.infer<typeof SubmitStyleCheckSchema>;
 
-export interface StyleWardenInput {
+export interface StylizerInput {
   articleTitle: string;
   content: string;
   contentLabel: 'Description' | 'Introduction';
+  worldInfoContext: WorldInfoContext;
   worldContext: WorldContext;
 }
 
@@ -37,20 +30,26 @@ export interface StyleWardenInput {
 // Agent
 // ---------------------------------------------------------------------------
 
-export class StyleWardenAgent extends BaseAgent<StyleWardenInput, StyleWardenOutput> {
+/**
+ * Rewrites the given content directly to match the world's style (Writing
+ * Tone, Vibe & Atmosphere, Writing Style), preserving every fact/claim —
+ * not an advisory checker. See stylizerNode (nodes/expand/draft.ts),
+ * which writes this output back into state.description.
+ */
+export class StylizerAgent extends BaseAgent<StylizerInput, StylizerOutput> {
   readonly agentType = 'style_warden';
-  readonly mode = 'check';
+  readonly mode = 'write';
   readonly outputToolName = 'submit_style_check';
 
-  protected buildMessages(_worldId: string, input: StyleWardenInput): ChatMessage[] {
+  protected buildMessages(_worldId: string, input: StylizerInput): ChatMessage[] {
     return [
       {
         role: 'system',
-        content: buildStyleWardenSystemPrompt(input.worldContext),
+        content: buildStylizerSystemPrompt(input.worldInfoContext, input.worldContext),
       },
       {
         role: 'user',
-        content: buildStyleWardenUserMessage(
+        content: buildStylizerUserMessage(
           input.articleTitle,
           input.content,
           input.contentLabel,
@@ -67,7 +66,7 @@ export class StyleWardenAgent extends BaseAgent<StyleWardenInput, StyleWardenOut
     return [];
   }
 
-  protected parseOutput(input: Record<string, unknown>): StyleWardenOutput {
+  protected parseOutput(input: Record<string, unknown>): StylizerOutput {
     return SubmitStyleCheckSchema.parse(input);
   }
 }

@@ -10,9 +10,8 @@ export function buildCorrectionNote(contradictions: CheckOutcome['contradictions
 }
 
 /**
- * Shared N-cycle check→revise loop for Continuity Editor+Scribe and
- * Grounding Check+Lorekeeper — both check/revise a single draft string and
- * both output {approved, contradictions}, so one loop covers both.
+ * Shared N-cycle check→revise loop for Continuity Editor+Scribe — checks and
+ * revises a single draft string, outputting {approved, contradictions}.
  *
  * `level` (coherenceCheckLevel) <= 0 skips checking entirely. Otherwise runs
  * up to `level` check→revise cycles, stopping early the moment a check

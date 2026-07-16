@@ -51,27 +51,50 @@ export interface ContextPackage {
   estimatedTokens: number;
 }
 
+/** Table 1's WorldInfoContext: the always-on {worldId, title, introduction} tier, sourced from the world's root article. */
+export interface WorldInfoContext {
+  worldId: string;
+  title: string;
+  introduction: string;
+}
+
 export type ArchivistMode =
   | 'default'
   | 'propose_children'    // children tier added (see what already exists)
-  | 'reorganize';         // full body counts against budget
+  | 'reorganize';         // no distinct effect inside buildContextPackage() itself; reorganize-specific prompt behavior lives in its callers (e.g. prompts/expander.ts's own ExpanderMode), not here
 
 export type ContextDepth = 'shallow' | 'mid' | 'deep';
 
 export interface ArchivistOptions {
   ownerId: string;
   mode?: ArchivistMode;
-  maxTokens?: number;
   contextDepth?: ContextDepth;
   contextBasis?: DraftContextBasis;
 }
 
 // ---------------------------------------------------------------------------
-// Token estimation (char-based, no API call)
+// Hop-count reach — contextDepth sets how many graph hops buildContextPackage
+// traverses (closest/medium/farthest below), not a token ceiling. Field detail
+// per tier is fixed regardless of reach (an included tier is always rendered
+// at its own detail level); reach only controls which tiers get included at
+// all, so "deep" is strictly a superset of "mid", which is a superset of
+// "shallow".
+// ---------------------------------------------------------------------------
+
+const HOP_REACH: Record<ContextDepth, number> = { shallow: 1, mid: 2, deep: 3 };
+
+// ---------------------------------------------------------------------------
+// Token estimation (char-based, no API call) — informational only (surfaced
+// via ContextPackage.estimatedTokens for cost telemetry). Reach, not budget,
+// decides what's included; this never gates inclusion.
 // ---------------------------------------------------------------------------
 
 function est(text: string): number {
   return Math.ceil(text.length / 4);
+}
+
+function estArticle(a: ContextArticle): number {
+  return est(a.title) + est(a.summary) + est(a.description ?? '');
 }
 
 // ---------------------------------------------------------------------------
@@ -143,21 +166,55 @@ function toDependency(
 }
 
 // ---------------------------------------------------------------------------
+// WorldInfoContext
+// ---------------------------------------------------------------------------
+
+/**
+ * The always-on world identity tier: {worldId, title, introduction} from the
+ * world's root article (worlds.root_article_id, set at creation time and
+ * backfilled per-world as "the article with no incoming hierarchical link").
+ */
+export async function getWorldInfoContext(worldId: string, ownerId?: string): Promise<WorldInfoContext> {
+  const exec = getDbClient();
+
+  const row = await exec.get<Record<string, unknown>>(
+    `SELECT a.title, av.introduction
+     FROM worlds w
+     JOIN articles a ON a.id = w.root_article_id${ownerPredicate('a', ownerId)}
+     LEFT JOIN article_versions av ON av.id = a.current_version_id${ownerPredicate('av', ownerId)}
+     WHERE w.id = ?${ownerPredicate('w', ownerId)}`,
+    [...ownerParams(ownerId), ...ownerParams(ownerId), worldId, ...ownerParams(ownerId)],
+  );
+
+  if (!row) throw new Error(`World ${worldId} has no root article configured`);
+
+  return {
+    worldId,
+    title: (row.title as string) ?? '',
+    introduction: (row.introduction as string) ?? '',
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Graph traversal
 // ---------------------------------------------------------------------------
 
 /**
- * Build a tiered context package for a given article.
+ * Build a tiered context package for a given article, reach- and
+ * hop-distance-tiered rather than token-budget-trimmed:
  *
- * Default tier ordering:
- *   1. Parents (hierarchical links pointing to this article)
- *   2. Siblings (other children of the same parents)
- *   3. Fixed points
- *   4. Referenced articles (titles only)
+ *   - closest  (1 hop:  parents, children)         → {title, introduction, description}
+ *   - medium   (2 hops: siblings)                   → {title, introduction}
+ *   - farthest (fixed points, referenced articles)  → {title} only
  *
- * Mode overrides:
- *   propose_children  — children tier added after siblings
- *   reorganize        — full body counts against budget first
+ * contextDepth sets reach (how many of the tiers above get included at all —
+ * shallow: closest only; mid: closest + medium; deep: all three), not a
+ * token ceiling. An included tier always renders at its own fixed detail
+ * level regardless of reach, so nothing is silently truncated by a budget
+ * running out — "deep" is strictly a superset of "mid", a superset of
+ * "shallow".
+ *
+ * Mode override: propose_children — children tier added (also closest/1-hop).
  */
 export async function buildContextPackage(
   worldId: string,
@@ -166,13 +223,7 @@ export async function buildContextPackage(
 ): Promise<ContextPackage> {
   const exec = getDbClient();
   const { mode = 'default', contextDepth = 'mid', contextBasis = 'current' } = options;
-
-  const budgetByDepth: Record<ContextDepth, number> = {
-    shallow: 1500,
-    mid:     6000,
-    deep:    12000,
-  };
-  const maxTokens = options.maxTokens ?? budgetByDepth[contextDepth];
+  const reach = HOP_REACH[contextDepth];
 
   // Fetch target
   const target = await exec.get<Record<string, unknown>>(
@@ -197,7 +248,6 @@ export async function buildContextPackage(
 
   const dependencies: ArticleDependencyReference[] = [];
 
-  let budget = maxTokens;
   const contextDraftIds = new Set<string>();
   const latestDraftCache = new Map<string, Record<string, unknown> | undefined>();
   const publishedVersionCache = new Map<string, { id: string; introduction: string; description: string } | undefined>();
@@ -287,9 +337,6 @@ export async function buildContextPackage(
   targetDescription = await draftDescriptionFor(articleId, targetDescription);
   const resolvedTargetVersionId = await resolveVersionIdFor(articleId, targetVersionId);
 
-  // Reorganize treats the current description as the read-only constraint.
-  if (mode === 'reorganize') budget -= est(targetDescription);
-
   const parents: ContextArticle[] = [];
   const siblings: ContextArticle[] = [];
   const children: ContextArticle[] = [];
@@ -308,61 +355,13 @@ export async function buildContextPackage(
     return contextDescriptionFor(articleRowId, ver?.description ?? '');
   };
 
-  /**
-   * In 'deep' mode, opportunistically attaches a linked article's full description
-   * if it still fits the remaining budget alongside its summary; otherwise falls
-   * back to summary-only. Shared by every tier that offers deep-mode descriptions
-   * (parents/children/siblings) so the fetch-then-cost-check logic lives in one place.
-   */
-  const withDeepDescription = async (
-    r: Record<string, unknown>,
-    label: string,
-    currentBudget: number,
-  ): Promise<{ description?: string; cost: number }> => {
-    let description: string | undefined;
-    if (contextDepth === 'deep') {
-      const desc = await fetchDescription(r.id as string);
-      const descCost = est(desc);
-      if (desc && currentBudget - est(label) - descCost >= 0) {
-        description = desc;
-      }
-    }
-    return { description, cost: est(label) + (description ? est(description) : 0) };
-  };
-
   // Status ordering: published > reviewed > draft > stub (anything else last)
   const STATUS_ORDER = `CASE a.status WHEN 'published' THEN 0 WHEN 'reviewed' THEN 1 WHEN 'draft' THEN 2 ELSE 3 END`;
 
+  // Parents — closest tier (1 hop), always full detail. Reach doesn't gate
+  // this tier (it's included whenever reach >= 1, i.e. always); shallow just
+  // keeps the list shorter, a cardinality cap unrelated to reach/detail.
   const fillParents = async (): Promise<void> => {
-    if (contextDepth === 'shallow') {
-      // Shallow: only direct parents, intro only
-      const rows = await exec.all<Record<string, unknown>>(
-        `SELECT a.id, a.title, a.status, a.current_version_id, av.introduction AS summary
-         FROM article_links al
-         JOIN articles a ON a.id = al.source_article_id
-         LEFT JOIN article_versions av ON av.id = a.current_version_id
-         WHERE al.target_article_id = ? AND al.link_type = 'hierarchical'
-           AND ${worldOwnerPredicate('a', options.ownerId)}${ownerPredicate('al', options.ownerId)}
-         ORDER BY ${STATUS_ORDER}, a.title
-         LIMIT 2`,
-        [articleId, ...worldOwnerParams(worldId, options.ownerId), ...ownerParams(options.ownerId)],
-      );
-
-      for (const r of rows) {
-        const summary = await contextSummaryFor(r.id as string, (r.summary as string) ?? '');
-        const cost = est(`### ${r.title}\n${summary}\n`);
-        if (budget - cost < 0) break;
-        parents.push({ id: r.id as string, title: r.title as string, summary, source: await resolveContextSource(r) });
-        dependencies.push(toDependency(
-          { id: r.id as string, versionId: await resolveVersionIdFor(r.id as string, r.current_version_id as string | null) },
-          { id: articleId, versionId: resolvedTargetVersionId },
-          'hierarchy',
-        ));
-        budget -= cost;
-      }
-      return;
-    }
-
     const rows = await exec.all<Record<string, unknown>>(
       `SELECT a.id, a.title, a.status, a.current_version_id, av.introduction AS summary
        FROM article_links al
@@ -371,27 +370,26 @@ export async function buildContextPackage(
        WHERE al.target_article_id = ? AND al.link_type = 'hierarchical'
          AND ${worldOwnerPredicate('a', options.ownerId)}${ownerPredicate('al', options.ownerId)}
        ORDER BY ${STATUS_ORDER}, a.title
-       LIMIT 4`,
+       LIMIT ${contextDepth === 'shallow' ? 2 : 4}`,
       [articleId, ...worldOwnerParams(worldId, options.ownerId), ...ownerParams(options.ownerId)],
     );
 
     for (const r of rows) {
       const summary = await contextSummaryFor(r.id as string, (r.summary as string) ?? '');
-      const { description, cost } = await withDeepDescription(r, `### ${r.title}\n${summary}\n`, budget);
-      if (budget - cost < 0) break;
+      const description = await fetchDescription(r.id as string);
       parents.push({ id: r.id as string, title: r.title as string, summary, description, source: await resolveContextSource(r) });
       dependencies.push(toDependency(
         { id: r.id as string, versionId: await resolveVersionIdFor(r.id as string, r.current_version_id as string | null) },
         { id: articleId, versionId: resolvedTargetVersionId },
         'hierarchy',
       ));
-      budget -= cost;
     }
   };
 
+  // Children — also closest tier (1 hop), same full detail as parents.
+  // Gated only by mode (propose_children), not by reach: a direct child is
+  // exactly as close as a direct parent, so shallow reach doesn't exclude it.
   const fillChildren = async (): Promise<void> => {
-    if (contextDepth === 'shallow') return;
-
     const rows = await exec.all<Record<string, unknown>>(
       `SELECT a.id, a.title, a.status, a.current_version_id, av.introduction AS summary
        FROM article_links al
@@ -406,22 +404,21 @@ export async function buildContextPackage(
 
     for (const r of rows) {
       const summary = await contextSummaryFor(r.id as string, (r.summary as string) ?? '');
-      const { description, cost } = await withDeepDescription(r, `- ${r.title}: ${summary}\n`, budget);
-      if (budget - cost < 0) break;
+      const description = await fetchDescription(r.id as string);
       children.push({ id: r.id as string, title: r.title as string, summary, description, source: await resolveContextSource(r) });
       dependencies.push(toDependency(
         { id: articleId, versionId: resolvedTargetVersionId },
         { id: r.id as string, versionId: await resolveVersionIdFor(r.id as string, r.current_version_id as string | null) },
         'hierarchy',
       ));
-      budget -= cost;
     }
   };
 
   await fillParents();
 
-  // Siblings — other children of the same parents (skip in shallow mode)
-  if (parents.length > 0 && contextDepth !== 'shallow') {
+  // Siblings — medium tier (2 hops, via a shared parent): title+introduction
+  // only, never description. Gated by reach >= 2 (mid and deep; not shallow).
+  if (parents.length > 0 && reach >= 2) {
     const placeholders = parents.map(() => '?').join(', ');
     // DISTINCT + ORDER BY on a CASE expression that isn't in the select list is
     // rejected by Postgres ("for SELECT DISTINCT, ORDER BY expressions must
@@ -444,24 +441,22 @@ export async function buildContextPackage(
 
     for (const r of siblingRows) {
       const summary = await contextSummaryFor(r.id as string, (r.summary as string) ?? '');
-      const { description, cost } = await withDeepDescription(r, `- ${r.title}: ${summary}\n`, budget);
-      if (budget - cost < 0) break;
-      siblings.push({ id: r.id as string, title: r.title as string, summary, description, source: await resolveContextSource(r) });
-      budget -= cost;
+      siblings.push({ id: r.id as string, title: r.title as string, summary, source: await resolveContextSource(r) });
     }
   }
 
-  // Children tier for propose_children.
+  // Children tier for propose_children — closest/1-hop, so not reach-gated.
   if (mode === 'propose_children') {
     await fillChildren();
   }
 
-  // Fixed points — skip in shallow mode (L2+)
-  if (contextDepth !== 'shallow') {
+  // Fixed points — farthest tier (title only, no introduction/description):
+  // not graph-adjacent to the target at all, so under hop-reach semantics
+  // they only surface at the deepest reach. Gated by reach >= 3 (deep only).
+  if (reach >= 3) {
     const fixedRows = await exec.all<Record<string, unknown>>(
-      `SELECT a.id, a.title, a.status, a.current_version_id, av.introduction AS summary
+      `SELECT a.id, a.title, a.status, a.current_version_id
        FROM articles a
-       LEFT JOIN article_versions av ON av.id = a.current_version_id
        WHERE ${worldOwnerPredicate('a', options.ownerId)} AND a.is_fixed_point = 1 AND a.id != ?
        ORDER BY ${STATUS_ORDER}, a.title
        LIMIT 10`,
@@ -469,16 +464,13 @@ export async function buildContextPackage(
     );
 
     for (const r of fixedRows) {
-      const summary = await contextSummaryFor(r.id as string, (r.summary as string) ?? '');
-      const cost = est(`### ${r.title}\n${summary}\n`);
-      if (budget - cost < 0) break;
-      fixedPoints.push({ id: r.id as string, title: r.title as string, summary, source: await resolveContextSource(r) });
-      budget -= cost;
+      fixedPoints.push({ id: r.id as string, title: r.title as string, summary: '', source: await resolveContextSource(r) });
     }
   }
 
-  // Referenced articles — titles only, skip in shallow mode
-  if (contextDepth !== 'shallow') {
+  // Referenced articles — also farthest tier (title only, already the case
+  // pre-rewrite). Gated by reach >= 3 (deep only), same as fixed points.
+  if (reach >= 3) {
     const refRows = await exec.all<Record<string, unknown>>(
       `SELECT a.id, a.title, a.current_version_id
        FROM article_links al
@@ -490,17 +482,21 @@ export async function buildContextPackage(
     );
 
     for (const r of refRows) {
-      const cost = est(`- ${r.title}\n`);
-      if (budget - cost < 0) break;
       referencedArticles.push({ id: r.id as string, title: r.title as string });
       dependencies.push(toDependency(
         { id: articleId, versionId: resolvedTargetVersionId },
         { id: r.id as string, versionId: await resolveVersionIdFor(r.id as string, r.current_version_id as string | null) },
         'reference',
       ));
-      budget -= cost;
     }
   }
+
+  const estimatedTokens = est(targetIntroduction) + est(targetDescription)
+    + parents.reduce((sum, a) => sum + estArticle(a), 0)
+    + siblings.reduce((sum, a) => sum + estArticle(a), 0)
+    + children.reduce((sum, a) => sum + estArticle(a), 0)
+    + fixedPoints.reduce((sum, a) => sum + estArticle(a), 0)
+    + referencedArticles.reduce((sum, r) => sum + est(r.title), 0);
 
   return {
     targetId: articleId,
@@ -521,6 +517,6 @@ export async function buildContextPackage(
     dependencies,
     contextBasis,
     contextDraftIds: [...contextDraftIds],
-    estimatedTokens: maxTokens - budget,
+    estimatedTokens,
   };
 }

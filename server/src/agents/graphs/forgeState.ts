@@ -1,5 +1,5 @@
 import { Annotation } from '@langchain/langgraph';
-import type { ContextDepth, ContextPackage } from '../../services/archivist.js';
+import type { ContextDepth, ContextPackage, WorldInfoContext } from '../../services/archivist.js';
 import type { DraftContextBasis } from '../../services/draftsService.js';
 import type { AutonomyMode, CommitPolicy, MasContract, MasIntent, MasLocation, ReviewPolicy } from './masContract.js';
 import type { WorldContext } from '../director.js';
@@ -42,15 +42,19 @@ export const ForgeAnnotation = Annotation.Root({
   // --- config, set once at start, unchanged for the life of the run ---
   /** Fetched once in startForgeRun and reused for every article — world-level metadata can't change mid-run. */
   worldContext: Annotation<WorldContext | undefined>({ reducer: replace, default: () => undefined }),
+  /** Same fetch-once-per-run treatment as worldContext above (Table 1's WorldInfoContext, from the world's root article). */
+  worldInfoContext: Annotation<WorldInfoContext | undefined>({ reducer: replace, default: () => undefined }),
   contextDepth: Annotation<ContextDepth>({ reducer: replace, default: () => 'mid' }),
   contextBasis: Annotation<DraftContextBasis>({ reducer: replace, default: () => 'current' }),
   branchingMode: Annotation<'specific' | 'conceptual'>({ reducer: replace, default: () => 'conceptual' }),
   forgeMode: Annotation<'breadth' | 'depth'>({ reducer: replace, default: () => 'breadth' }),
   forgeMaxDepth: Annotation<number>({ reducer: replace, default: () => 2 }),
   forgeMaxChildren: Annotation<number>({ reducer: replace, default: () => 0 }),
-  /** One global dial covering Continuity Editor, Grounding Check, and Dedup Check — see state.ts's coherenceCheckLevel/safetyNet and nodes.ts's runCheckReviseLoop. */
+  /** One global dial covering Arbiter and Gatekeeper (Herald has no dedicated checker) — see state.ts's coherenceCheckLevel/safetyNet and nodes.ts's runCheckReviseLoop. */
   coherenceCheckLevel: Annotation<number>({ reducer: replace, default: () => 0 }),
   safetyNet: Annotation<boolean>({ reducer: replace, default: () => false }),
+  /** Gate for Stylizer's rewrite pass after Scribe — see pipelines/expand.ts's scribe -> stylizer edge. */
+  runStylizer: Annotation<boolean>({ reducer: replace, default: () => false }),
   forgeContinuationMode: Annotation<ForgeContinuationMode>({ reducer: replace, default: () => 'recursive' }),
   forgeInceptionExistingMode: Annotation<ForgeExistingContentMode>({ reducer: replace, default: () => 'improve' }),
   forgeExpansionExistingMode: Annotation<ForgeExistingContentMode>({ reducer: replace, default: () => 'improve' }),

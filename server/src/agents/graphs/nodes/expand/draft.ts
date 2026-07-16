@@ -1,7 +1,7 @@
 import { getDbClient } from '../../../../db/client.js';
 import { ScribeAgent } from '../../../scribe.js';
-import { ContinuityEditorAgent } from '../../../continuityEditor.js';
-import { StyleWardenAgent } from '../../../styleWarden.js';
+import { ArbiterAgent } from '../../../arbiter.js';
+import { StylizerAgent } from '../../../stylizer.js';
 import { recordArticleIssues } from '../../../../services/issueRecorder.js';
 import { callCtx } from '../shared.js';
 import { buildCorrectionNote, runCheckReviseLoop } from './shared.js';
@@ -10,13 +10,13 @@ import type { OrchestrationState } from '../../state.js';
 type Partial_ = Partial<OrchestrationState>;
 
 // ---------------------------------------------------------------------------
-// expand — Scribe [-> ContinuityEditor self-correction loop] -> optional
-// Lorekeeper passthrough -> optional StyleWarden
+// expand — Scribe [-> Arbiter self-correction loop] -> optional
+// Herald passthrough -> optional Stylizer
 // ---------------------------------------------------------------------------
 
 /**
  * Scribe's draft plus, when coherenceCheckLevel > 0 and mode isn't
- * 'reorganize', a bounded Continuity Editor check→revise loop (see
+ * 'reorganize', a bounded Arbiter check→revise loop (see
  * runCheckReviseLoop) — kept as one node (not split into separate graph
  * nodes/edges) since it's a tight, single-purpose loop internal to producing
  * one draft, not a multi-step pipeline stage in its own right.
@@ -25,8 +25,10 @@ export async function scribeNode(state: OrchestrationState): Promise<Partial_> {
   const pkg = state.contextPackage!;
   const scribeAgent = new ScribeAgent();
   const scribeFields = {
+    worldInfoContext: state.worldInfoContext!,
     worldContext: state.worldContext!,
     mode: state.expanderMode!,
+    scribeMode: state.scribeMode,
     articleTitle: pkg.targetTitle,
     templateType: pkg.targetTemplateType,
     currentIntroduction: pkg.targetIntroduction || undefined,
@@ -43,9 +45,9 @@ export async function scribeNode(state: OrchestrationState): Promise<Partial_> {
   let tokensOut = expandResult.tokensOut;
   let scribeOutput = expandResult.output;
 
-  let continuityCheck: Partial_['continuityCheck'];
+  let arbiterCheck: Partial_['arbiterCheck'];
   if (state.coherenceCheckLevel > 0 && state.expanderMode !== 'reorganize') {
-    const ceAgent = new ContinuityEditorAgent();
+    const arbiterAgent = new ArbiterAgent();
     const currentDraft = () => (scribeOutput.mode === 'child' ? scribeOutput.childDescription : scribeOutput.description);
 
     const loopResult = await runCheckReviseLoop({
@@ -53,13 +55,13 @@ export async function scribeNode(state: OrchestrationState): Promise<Partial_> {
       safetyNet: state.safetyNet,
       initialDraft: currentDraft(),
       check: async (draft) => {
-        const ceResult = await ceAgent.run(state.worldId, {
-          worldContext: state.worldContext!,
+        const arbiterResult = await arbiterAgent.run(state.worldId, {
+          worldInfoContext: state.worldInfoContext!,
           articleTitle: pkg.targetTitle,
           draft,
           researchBrief: state.researchBrief!,
         }, callCtx(state));
-        return { output: ceResult.output, tokensIn: ceResult.tokensIn, tokensOut: ceResult.tokensOut };
+        return { output: arbiterResult.output, tokensIn: arbiterResult.tokensIn, tokensOut: arbiterResult.tokensOut };
       },
       revise: async (_draft, correctionNote) => {
         const revisionResult = await scribeAgent.run(state.worldId, {
@@ -81,14 +83,14 @@ export async function scribeNode(state: OrchestrationState): Promise<Partial_> {
             severity: 'info',
             code: 'CONTINUITY_UNRESOLVED_AFTER_SAFETY_NET',
             excerpt: check.contradictions[0]?.excerpt ?? null,
-            explanation: `Continuity Editor still flagged contradictions after the safety-net pass: ${buildCorrectionNote(check.contradictions)}`,
+            explanation: `Arbiter still flagged contradictions after the safety-net pass: ${buildCorrectionNote(check.contradictions)}`,
           }],
         });
       },
     });
     tokensIn += loopResult.tokensIn;
     tokensOut += loopResult.tokensOut;
-    continuityCheck = loopResult.lastCheck;
+    arbiterCheck = loopResult.lastCheck;
   }
 
   const description = scribeOutput.mode === 'child' ? scribeOutput.childDescription : scribeOutput.description;
@@ -99,7 +101,7 @@ export async function scribeNode(state: OrchestrationState): Promise<Partial_> {
     description,
     ...(parentAppend ? { parentUpdate: { appendText: parentAppend } } : {}),
     mentions: [],
-    ...(continuityCheck ? { continuityCheck } : {}),
+    ...(arbiterCheck ? { arbiterCheck } : {}),
     tokensIn,
     tokensOut,
   };
@@ -110,29 +112,43 @@ export async function scribeNode(state: OrchestrationState): Promise<Partial_> {
  * expand() guard. Scribe's childDescription is already intro-shaped (~80
  * words, explicitly written to become the Introduction — see expander.ts's
  * create_child system prompt), so this uses it directly instead of routing
- * it through Lorekeeper: distilling a Description isn't Lorekeeper's job,
+ * it through Herald: distilling a Description isn't Herald's job,
  * and Scribe already wrote something intro-shaped with full context. Zero
  * extra LLM call versus the previous "Scribe writes childDescription, then
- * Lorekeeper re-summarizes it" shape.
+ * Herald re-summarizes it" shape.
+ *
+ * Runs *after* stylizerNode in the graph (pipelines/expand.ts's edges) —
+ * Stylizer rewrites state.description in place, so reading it here first
+ * would otherwise copy the stale pre-rewrite draft into the introduction.
  */
-export async function lorekeeperSummarizeAfterExpandNode(state: OrchestrationState): Promise<Partial_> {
+export async function deriveIntroFromChildDescriptionNode(state: OrchestrationState): Promise<Partial_> {
   if (state.expanderMode !== 'create_child') return {};
   return { introduction: state.description! };
 }
 
-/** Only runs when runStyleWarden is on — reused by expand(). */
-export async function styleWardenNode(state: OrchestrationState): Promise<Partial_> {
-  if (!state.runStyleWarden) return {};
+/**
+ * Only runs when runStylizer is on — reused by expand(). Rewrites
+ * state.description in place with Stylizer's output (a direct rewrite,
+ * not an advisory check) — see stylizer.ts's class docstring.
+ */
+export async function stylizerNode(state: OrchestrationState): Promise<Partial_> {
+  if (!state.runStylizer) return {};
 
   const content = state.description!;
   const contentLabel = 'Description';
 
-  const agent = new StyleWardenAgent();
+  const agent = new StylizerAgent();
   const result = await agent.run(state.worldId, {
     articleTitle: state.contextPackage!.targetTitle,
     content,
     contentLabel,
+    worldInfoContext: state.worldInfoContext!,
     worldContext: state.worldContext!,
   }, callCtx(state));
-  return { styleCheck: result.output, tokensIn: result.tokensIn, tokensOut: result.tokensOut };
+  return {
+    description: result.output.description,
+    styleCheck: result.output,
+    tokensIn: result.tokensIn,
+    tokensOut: result.tokensOut,
+  };
 }

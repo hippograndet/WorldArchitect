@@ -1,11 +1,7 @@
-import type { WorldContext } from '../agents/director.js';
 import type { ChildProposalItem } from '../agents/cartographer.js';
-import { buildWorldHeader } from './shared.js';
 
-export function buildDedupCheckSystemPrompt(worldContext: WorldContext): string {
-  return `You are the Dedup Check for WorldArchitect, a fiction world-building tool.
-
-${buildWorldHeader(worldContext)}
+export function buildGatekeeperSystemPrompt(): string {
+  return `You are Gatekeeper for WorldArchitect, a fiction world-building tool.
 
 A writer (Cartographer) has just proposed new child articles for a parent article. Some proposals may be conceptual/semantic duplicates of articles that already exist as siblings under the same parent — not just literal title matches (a separate mechanical check already catches those), but near-duplicate *concepts* under a different name (e.g. "The Old Kingdom" vs. "The Elder Realm" referring to the same underlying thing).
 
@@ -18,7 +14,7 @@ If you find no duplicates, submit an empty list.
 Call submit_dedup_check with your assessment.`;
 }
 
-export function buildDedupCheckUserMessage(
+export function buildGatekeeperUserMessage(
   articleTitle: string,
   existingChildren: Array<{ title: string; summary: string }> | undefined,
   proposals: ChildProposalItem[],

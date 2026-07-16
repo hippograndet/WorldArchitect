@@ -85,7 +85,7 @@ router.post('/estimate', asyncHandler(async (req, res) => {
 
 const ContextDepthSchema = z.enum(['shallow', 'mid', 'deep']).optional().default('mid');
 const ContextBasisSchema = z.enum(['current', 'latest_draft', 'published']).optional().default('current');
-// Default 0 (off) here, matching these routes' prior runContinuityEditor/runDedupCheck
+// Default 0 (off) here, matching these routes' prior runArbiter/runGatekeeper
 // defaults of false — unlike routes/runs.ts's Forge CreateRunSchema, which defaults to 1
 // to match Forge's previous always-on single-pass behavior.
 const CoherenceCheckLevelSchema = z.number().int().min(0).max(3).optional().default(0);
@@ -126,7 +126,7 @@ router.post('/propose', requireLLM, checkCap, asyncHandler(async (req, res) => {
 
 // ---------------------------------------------------------------------------
 // POST /api/worlds/:wid/agents/expand  — Phase 2
-// Scribe → Lorekeeper → (optional StyleWarden)
+// Scribe → (optional Stylizer) → (create_child: Herald passthrough)
 // ---------------------------------------------------------------------------
 
 const ExpandSchema = z.object({
@@ -136,7 +136,7 @@ const ExpandSchema = z.object({
   userSpec:               z.string().optional(),
   contextDepth:           ContextDepthSchema,
   contextBasis:           ContextBasisSchema,
-  runStyleWarden:         z.boolean().optional().default(false),
+  runStylizer:            z.boolean().optional().default(false),
   coherenceCheckLevel:    CoherenceCheckLevelSchema,
   safetyNet:              SafetyNetSchema,
   wordCountPreset:        z.enum(['short', 'medium', 'long']).optional().default('medium'),
@@ -146,12 +146,12 @@ router.post('/expand', requireLLM, checkCap, asyncHandler(async (req, res) => {
   const parse = ExpandSchema.safeParse(req.body);
   if (!parse.success) throw new AppError(400, 'VALIDATION_ERROR', 'Invalid request', parse.error.flatten().fieldErrors);
 
-  const { articleId, pipelineType, selectedIdeas, userSpec, contextDepth, contextBasis, runStyleWarden, coherenceCheckLevel, safetyNet, wordCountPreset } = parse.data;
+  const { articleId, pipelineType, selectedIdeas, userSpec, contextDepth, contextBasis, runStylizer, coherenceCheckLevel, safetyNet, wordCountPreset } = parse.data;
 
   const { worldId, ownerId } = requireTenantContext(req);
   await assertArticleUnlocked(worldId, ownerId, articleId);
   const sourceRunId = nanoid();
-  const result = await coordinator.expand(worldId, articleId, pipelineType, userSpec, contextDepth, selectedIdeas, runStyleWarden, coherenceCheckLevel, safetyNet, wordCountPreset, contextBasis);
+  const result = await coordinator.expand(worldId, articleId, pipelineType, userSpec, contextDepth, selectedIdeas, runStylizer, coherenceCheckLevel, safetyNet, wordCountPreset, contextBasis);
 
   // expand_description just writes a new description on the same article —
   // no persisted draft, the client commits it directly (like a manual edit)
@@ -208,25 +208,8 @@ router.post('/propose-children', requireLLM, checkCap, asyncHandler(async (req, 
 }));
 
 // ---------------------------------------------------------------------------
-// POST /api/worlds/:wid/agents/summarize  — standalone intro refresh (preview)
-// ---------------------------------------------------------------------------
-
-router.post('/summarize', requireLLM, checkCap, asyncHandler(async (req, res) => {
-  const parse = z.object({
-    articleId: z.string().min(1),
-    mode:      z.enum(['full', 'improve']).optional().default('full'),
-  }).safeParse(req.body);
-  if (!parse.success) throw new AppError(400, 'VALIDATION_ERROR', 'Invalid request', parse.error.flatten().fieldErrors);
-
-  const { worldId, ownerId } = requireTenantContext(req);
-  await assertArticleUnlocked(worldId, ownerId, parse.data.articleId);
-  const result = await coordinator.summarize(worldId, parse.data.articleId, parse.data.mode);
-  res.json({ introduction: result.introduction });
-}));
-
-// ---------------------------------------------------------------------------
 // POST /api/worlds/:wid/agents/reorganize
-// Scribe [reorganize] → Sentinel → Lorekeeper
+// Scribe [reorganize] → Sentinel → Herald
 // ---------------------------------------------------------------------------
 
 router.post('/reorganize', requireLLM, checkCap, asyncHandler(async (req, res) => {

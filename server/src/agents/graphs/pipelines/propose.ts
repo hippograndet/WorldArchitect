@@ -4,7 +4,7 @@ import { OrchestrationAnnotation } from '../state.js';
 import { fetchWorldContextNode, buildContextPackageNode } from '../nodes/shared.js';
 import { museProposeNode, curatorAutoSelectNode } from '../nodes/expand/propose.js';
 import { articleContract, contractState, proposalIntent } from '../masContract.js';
-import type { ContextDepth, ContextPackage } from '../../../services/archivist.js';
+import type { ContextDepth, ContextPackage, WorldInfoContext } from '../../../services/archivist.js';
 import type { DraftContextBasis } from '../../../services/draftsService.js';
 import type { ProposalMode } from '../../../prompts/proposal.js';
 import type { IdeaItem } from '../../muse.js';
@@ -43,6 +43,7 @@ export async function runProposeGraph(params: {
   contextBasis?: DraftContextBasis;
   pipelineRunId?: string;
   worldContext?: WorldContext;
+  worldInfoContext?: WorldInfoContext;
   contextPackage?: ContextPackage;
   researchBrief?: ResearchBrief;
 }): Promise<ProposeGraphOutput> {
@@ -64,6 +65,7 @@ export async function runProposeGraph(params: {
     contextDepth: params.contextDepth ?? 'mid',
     contextBasis: params.contextBasis ?? 'current',
     ...(params.worldContext ? { worldContext: params.worldContext } : {}),
+    ...(params.worldInfoContext ? { worldInfoContext: params.worldInfoContext } : {}),
     ...(params.contextPackage ? { contextPackage: params.contextPackage } : {}),
     ...(params.researchBrief ? { researchBrief: params.researchBrief } : {}),
   });

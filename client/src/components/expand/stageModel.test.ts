@@ -54,19 +54,19 @@ describe('buildAgentStages', () => {
 
   it('reports checker retry counts against the configured max', () => {
     const run = makeRun({
-      config: { startStep: 'inception', forgeContinuationMode: 'one_step', coherenceCheckLevel: 2 },
+      config: { startStep: 'expansion', forgeContinuationMode: 'one_step', coherenceCheckLevel: 2 },
       agentCalls: [
-        makeCall({ agentType: 'lorekeeper', status: 'success' }),
-        makeCall({ agentType: 'grounding_check', status: 'success' }),
-        makeCall({ agentType: 'lorekeeper', status: 'success' }),
-        makeCall({ agentType: 'grounding_check', status: 'success' }),
+        makeCall({ agentType: 'scribe', status: 'success' }),
+        makeCall({ agentType: 'continuity_editor', status: 'success' }),
+        makeCall({ agentType: 'scribe', status: 'success' }),
+        makeCall({ agentType: 'continuity_editor', status: 'success' }),
       ],
     });
     const stages = buildAgentStages(run, 'article-1');
-    const groundingCheck = stages.find((stage) => stage.agentType === 'grounding_check');
-    expect(groundingCheck?.retryGeneratorAgentType).toBe('lorekeeper');
-    expect(groundingCheck?.retryMax).toBe(2);
-    expect(groundingCheck?.retryActual).toBe(1);
+    const arbiter = stages.find((stage) => stage.agentType === 'continuity_editor');
+    expect(arbiter?.retryGeneratorAgentType).toBe('scribe');
+    expect(arbiter?.retryMax).toBe(2);
+    expect(arbiter?.retryActual).toBe(1);
   });
 
   it('attributes a failed research-step event to the researcher stage, not a context stage', () => {

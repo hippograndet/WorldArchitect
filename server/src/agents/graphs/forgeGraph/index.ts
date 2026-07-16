@@ -3,6 +3,7 @@ import { markRunStatus, releaseLocks, updateRunProgress } from '../../../service
 import { getCheckpointer } from '../../checkpointer.js';
 import { runWithUserContext } from '../../../requestContext.js';
 import { fetchWorldContext } from '../../director.js';
+import { getWorldInfoContext } from '../../../services/archivist.js';
 import { ForgeAnnotation } from '../forgeState.js';
 import { contractState, expandRunContract } from '../masContract.js';
 import { errorMessage } from './helpers.js';
@@ -121,6 +122,7 @@ export async function startForgeRun(params: {
   forgeMaxChildren: number;
   coherenceCheckLevel: number;
   safetyNet: boolean;
+  runStylizer?: boolean;
   forgeContinuationMode?: ForgeContinuationMode;
   forgeInceptionExistingMode?: ForgeExistingContentMode;
   forgeExpansionExistingMode?: ForgeExistingContentMode;
@@ -140,6 +142,7 @@ export async function startForgeRun(params: {
     // Fetched once for the whole run — world-level metadata (name/tone/style)
     // can't change mid-run, so every node reuses this instead of re-fetching.
     const worldContext = await fetchWorldContext(params.worldId);
+    const worldInfoContext = await getWorldInfoContext(params.worldId, params.ownerId);
 
     try {
       const result = await graph.invoke(
@@ -148,6 +151,7 @@ export async function startForgeRun(params: {
           runId: params.runId,
           ownerId: params.ownerId,
           worldContext,
+          worldInfoContext,
           ...contractState(expandRunContract({
             rootArticleId: params.articleId,
             maxDepth: params.forgeMaxDepth,
@@ -163,6 +167,7 @@ export async function startForgeRun(params: {
           forgeMaxChildren: params.forgeMaxChildren,
           coherenceCheckLevel: params.coherenceCheckLevel,
           safetyNet: params.safetyNet,
+          runStylizer: params.runStylizer ?? false,
           forgeContinuationMode: params.forgeContinuationMode ?? 'recursive',
           forgeInceptionExistingMode: params.forgeInceptionExistingMode ?? 'improve',
           forgeExpansionExistingMode: params.forgeExpansionExistingMode ?? 'improve',
@@ -196,10 +201,14 @@ export async function resumeForgeRun(params: { runId: string; worldId: string; o
       await markRunStatus(params.worldId, params.ownerId, params.runId, 'failed', 'No checkpointed state found to resume from.');
       return;
     }
-    // Backfills runs checkpointed before worldContext caching existed — a
-    // missing value here is otherwise just today's normal cache-miss case.
+    // Backfills runs checkpointed before worldContext/worldInfoContext
+    // caching existed — a missing value here is otherwise just today's
+    // normal cache-miss case.
     if (!restored.worldContext) {
       restored.worldContext = await fetchWorldContext(params.worldId);
+    }
+    if (!restored.worldInfoContext) {
+      restored.worldInfoContext = await getWorldInfoContext(params.worldId, params.ownerId);
     }
 
     await markRunStatus(params.worldId, params.ownerId, params.runId, 'running');

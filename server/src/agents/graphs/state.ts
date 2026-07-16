@@ -1,5 +1,5 @@
 import { Annotation } from '@langchain/langgraph';
-import type { ContextPackage, ArchivistMode, ContextDepth } from '../../services/archivist.js';
+import type { ContextPackage, ArchivistMode, ContextDepth, WorldInfoContext } from '../../services/archivist.js';
 import type { DraftContextBasis } from '../../services/draftsService.js';
 import type { WorldContext } from '../director.js';
 import type { ProposalMode } from '../../prompts/proposal.js';
@@ -9,13 +9,12 @@ import type { IdeaItem } from '../muse.js';
 import type { ChildProposalItem } from '../cartographer.js';
 import type { CoherenceWarning, SuggestedLink } from '../warden.js';
 import type { RetentionIssue } from '../sentinel.js';
-import type { ContinuityEditorOutput } from '../continuityEditor.js';
-import type { StyleWardenOutput } from '../styleWarden.js';
+import type { ArbiterOutput } from '../arbiter.js';
+import type { StylizerOutput } from '../stylizer.js';
 import type { MentionItem, ScribeOutput, ResearchBrief } from '../scribe.js';
-import type { LorekeepMode } from '../lorekeeper.js';
+import type { HeraldMode } from '../herald.js';
 import type { EdgeProposal, GlobalWarning } from '../auditor.js';
-import type { GroundingCheckOutput } from '../groundingCheck.js';
-import type { DedupCheckOutput } from '../dedupCheck.js';
+import type { GatekeeperOutput } from '../gatekeeper.js';
 import type { AutonomyMode, CommitPolicy, MasContract, MasIntent, MasLocation, ReviewPolicy } from './masContract.js';
 
 const replace = <T>(_a: T, b: T): T => b;
@@ -38,6 +37,7 @@ export const OrchestrationAnnotation = Annotation.Root({
   ownerId: Annotation<string | undefined>({ reducer: replace, default: () => undefined }),
   articleId: Annotation<string | undefined>({ reducer: replace, default: () => undefined }),
   worldContext: Annotation<WorldContext | undefined>({ reducer: replace, default: () => undefined }),
+  worldInfoContext: Annotation<WorldInfoContext | undefined>({ reducer: replace, default: () => undefined }),
   contextPackage: Annotation<ContextPackage | undefined>({ reducer: replace, default: () => undefined }),
   contextDepth: Annotation<ContextDepth>({ reducer: replace, default: () => 'mid' }),
   contextBasis: Annotation<DraftContextBasis>({ reducer: replace, default: () => 'current' }),
@@ -55,11 +55,12 @@ export const OrchestrationAnnotation = Annotation.Root({
   pipelineRunId: Annotation<string>({ reducer: replace, default: () => '' }),
   pipelineType: Annotation<string>({ reducer: replace, default: () => '' }),
 
-  // --- Coherence checking — one global dial shared by Continuity Editor,
-  // Grounding Check, and Dedup Check. 0 = no checkers at all. N = up to N
-  // check-revise cycles, stopping early on approval. safetyNet adds one
-  // final check-only pass after the N cycles; a failure there is flagged
-  // (recordArticleIssues) but never blocks. See nodes.ts's runCheckReviseLoop.
+  // --- Coherence checking — one global dial shared by Arbiter and
+  // Gatekeeper (Herald has no dedicated checker — removed, not merged).
+  // 0 = no checkers at all. N = up to N check-revise cycles, stopping early
+  // on approval. safetyNet adds one final check-only pass after the N
+  // cycles; a failure there is flagged (recordArticleIssues) but never
+  // blocks. See nodes.ts's runCheckReviseLoop.
   coherenceCheckLevel: Annotation<number>({ reducer: replace, default: () => 0 }),
   safetyNet: Annotation<boolean>({ reducer: replace, default: () => false }),
 
@@ -78,29 +79,36 @@ export const OrchestrationAnnotation = Annotation.Root({
   // different pipelines.
   introduction: Annotation<string | undefined>({ reducer: replace, default: () => undefined }),
 
-  // --- expand (Researcher -> Scribe [-> ContinuityEditor loop] [-> Lorekeeper] [-> StyleWarden]) ---
+  // --- expand (Researcher -> Scribe [-> Arbiter loop] [-> Herald] [-> Stylizer]) ---
   expanderMode: Annotation<ExpanderMode | undefined>({ reducer: replace, default: () => undefined }),
+  /**
+   * Mirrors heraldMode below: a clean structural signal derived from
+   * forgeExpansionExistingMode (see forgeGraph/nodes.ts's expansionNode),
+   * consumed by Scribe (ScribeInput.scribeMode) to decide whether to ignore
+   * any existing description ('full') or treat it as a seed/constraint
+   * ('improve') — only meaningful for expanderMode 'expand_description'.
+   */
+  scribeMode: Annotation<'full' | 'improve'>({ reducer: replace, default: () => 'full' }),
   selectedIdeas: Annotation<IdeaItem[] | undefined>({ reducer: replace, default: () => undefined }),
-  runStyleWarden: Annotation<boolean>({ reducer: replace, default: () => false }),
+  runStylizer: Annotation<boolean>({ reducer: replace, default: () => false }),
   wordCountPreset: Annotation<'short' | 'medium' | 'long'>({ reducer: replace, default: () => 'medium' }),
   researchBrief: Annotation<ResearchBrief | undefined>({ reducer: replace, default: () => undefined }),
   scribeOutput: Annotation<ScribeOutput | undefined>({ reducer: replace, default: () => undefined }),
-  continuityCheck: Annotation<ContinuityEditorOutput | undefined>({ reducer: replace, default: () => undefined }),
+  arbiterCheck: Annotation<ArbiterOutput | undefined>({ reducer: replace, default: () => undefined }),
   description: Annotation<string | undefined>({ reducer: replace, default: () => undefined }),
   parentUpdate: Annotation<{ appendText: string } | undefined>({ reducer: replace, default: () => undefined }),
-  styleCheck: Annotation<StyleWardenOutput | undefined>({ reducer: replace, default: () => undefined }),
+  styleCheck: Annotation<StylizerOutput | undefined>({ reducer: replace, default: () => undefined }),
   mentions: Annotation<MentionItem[] | undefined>({ reducer: replace, default: () => undefined }),
 
-  // --- summarize (Lorekeeper [+ optional Grounding Check]) ---
-  lorekeeperMode: Annotation<LorekeepMode>({ reducer: replace, default: () => 'full' }),
+  // --- summarize (Herald) ---
+  heraldMode: Annotation<HeraldMode>({ reducer: replace, default: () => 'full' }),
   existingIntro: Annotation<string | undefined>({ reducer: replace, default: () => undefined }),
-  groundingCheck: Annotation<GroundingCheckOutput | undefined>({ reducer: replace, default: () => undefined }),
 
-  // --- proposeChildren (Cartographer [+ optional Dedup Check]) ---
+  // --- proposeChildren (Cartographer [+ optional Gatekeeper]) ---
   childProposals: Annotation<ChildProposalItem[]>({ reducer: replace, default: () => [] }),
-  dedupCheck: Annotation<DedupCheckOutput | undefined>({ reducer: replace, default: () => undefined }),
+  gatekeeperCheck: Annotation<GatekeeperOutput | undefined>({ reducer: replace, default: () => undefined }),
 
-  // --- reorganize (Scribe[reorganize] -> Sentinel -> Lorekeeper) ---
+  // --- reorganize (Scribe[reorganize] -> Sentinel -> Herald) ---
   retentionIssues: Annotation<RetentionIssue[]>({ reducer: replace, default: () => [] }),
 
   // --- cohere (Warden) ---

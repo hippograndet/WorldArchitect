@@ -14,7 +14,7 @@ export async function researcherNode(state: OrchestrationState): Promise<Partial
   const agent = new ResearcherAgent();
   const result = await agent.run(state.worldId, {
     contextPackage: state.contextPackage!,
-    worldContext: state.worldContext!,
+    worldInfoContext: state.worldInfoContext!,
   }, callCtx(state));
   return { researchBrief: result.output, tokensIn: result.tokensIn, tokensOut: result.tokensOut };
 }

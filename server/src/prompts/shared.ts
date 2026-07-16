@@ -1,4 +1,6 @@
 import type { WorldContext } from '../agents/director.js';
+import type { WorldInfoContext } from '../services/archivist.js';
+import type { WorldStyleConfig } from '../services/worldStylePresets.js';
 
 export function dataBlock(label: string, content: unknown): string {
   const text = typeof content === 'string' ? content : JSON.stringify(content, null, 2);
@@ -44,4 +46,50 @@ export function buildWorldHeader(world: WorldContext): string {
   }
 
   return lines.join('\n');
+}
+
+/** Table 1's WorldStyleContext: name/value pairs, one per style field the user actually set. */
+export interface WorldStylePair {
+  name: 'Writing Tone' | 'Vibe & Atmosphere' | 'Writing Style';
+  value: string;
+}
+
+export type WorldStyleContext = WorldStylePair[];
+
+/**
+ * Derives WorldStyleContext from the raw styleConfig row — drops the vestigial
+ * worlds.tone enum, preset/preset-value metadata, and inspirations/constraints,
+ * keeping only the three fields callers may gate agent access to individually.
+ */
+export function toWorldStyleContext(styleConfig: WorldStyleConfig | null | undefined): WorldStyleContext {
+  if (!styleConfig) return [];
+  const pairs: WorldStyleContext = [];
+  if (styleConfig.toneGuidance) pairs.push({ name: 'Writing Tone', value: styleConfig.toneGuidance });
+  if (styleConfig.vibe) pairs.push({ name: 'Vibe & Atmosphere', value: styleConfig.vibe });
+  if (styleConfig.writingStyle) pairs.push({ name: 'Writing Style', value: styleConfig.writingStyle });
+  return pairs;
+}
+
+/**
+ * Renders the always-on world identity block (Table 1's WorldInfoContext):
+ * the root article's title and introduction. Replaces buildWorldHeader()'s
+ * bare world.name + tone-enum line for agents migrated onto the new
+ * taxonomy — see Table 2 for which agents use this vs. the legacy header.
+ */
+export function buildWorldInfoHeader(info: WorldInfoContext): string {
+  return [
+    dataInstruction(),
+    dataBlock('world.title', info.title),
+    dataBlock('world.introduction', info.introduction),
+  ].join('\n');
+}
+
+/**
+ * Renders a caller-selected subset of WorldStyleContext pairs. Callers gate
+ * which pairs an agent receives (Table 2); this function just renders
+ * whatever it's given. Empty input renders an empty string (no block).
+ */
+export function buildWorldStyleHeader(pairs: WorldStyleContext): string {
+  if (pairs.length === 0) return '';
+  return pairs.map((pair) => dataBlock(pair.name, pair.value)).join('\n');
 }

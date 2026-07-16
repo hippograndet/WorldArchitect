@@ -9,6 +9,7 @@ import type { ForgeState } from './forgeState.js';
 const completeMock = vi.hoisted(() => vi.fn<() => Promise<CompletionResult>>());
 const buildContextPackageCalls = vi.hoisted(() => vi.fn());
 const fetchWorldContextCalls = vi.hoisted(() => vi.fn());
+const runExpandGraphCalls = vi.hoisted(() => vi.fn());
 
 vi.mock('../../providers/index.js', () => ({
   getProvider: async () => ({ name: 'anthropic', complete: completeMock, estimateTokens: async () => 0 }),
@@ -43,6 +44,20 @@ vi.mock('../director.js', async (importOriginal) => {
   };
 });
 
+// Spies on runExpandGraph's params (specifically scribeMode, computed from
+// forgeExpansionExistingMode — see forgeGraph/nodes.ts's expansionNode) while
+// still exercising the real graph underneath.
+vi.mock('./pipelines/expand.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./pipelines/expand.js')>();
+  return {
+    ...actual,
+    runExpandGraph: async (...args: Parameters<typeof actual.runExpandGraph>) => {
+      runExpandGraphCalls(...args);
+      return actual.runExpandGraph(...args);
+    },
+  };
+});
+
 // Import after the mocks above are registered.
 import { dequeueNode, researchNode, inceptionNode, expansionNode } from './forgeGraph/nodes.js';
 import { routeAfterExpansion } from './forgeGraph/routing.js';
@@ -63,6 +78,7 @@ beforeEach(() => {
   completeMock.mockReset();
   buildContextPackageCalls.mockClear();
   fetchWorldContextCalls.mockClear();
+  runExpandGraphCalls.mockClear();
 });
 
 function toolUseResult(name: string, input: Record<string, unknown>): CompletionResult {
@@ -97,6 +113,9 @@ async function seedWorldAndArticleAndRun(worldId: string, articleId: string, run
      VALUES (?, ?, ?, ?, 'draft', 'general', 1, ?, ?)`,
     [articleId, OWNER_ID, worldId, 'Test Article', now, now],
   );
+  // This depth-1 article is the only one in the world, so it doubles as the
+  // root article — needed for getWorldInfoContext (fetchWorldContextNode).
+  await db.run(`UPDATE worlds SET root_article_id = ? WHERE id = ?`, [articleId, worldId]);
   await db.run(
     `INSERT INTO runs (id, owner_id, world_id, status, graph_type, checkpoint_id, article_ids, created_at, updated_at)
      VALUES (?, ?, ?, 'running', 'forge', ?, ?, ?, ?)`,
@@ -111,6 +130,7 @@ function baseForgeState(overrides: Partial<ForgeState>): ForgeState {
     runId: '',
     ownerId: '',
     worldContext: undefined,
+    worldInfoContext: undefined,
     contextDepth: 'mid',
     branchingMode: 'conceptual',
     forgeMode: 'breadth',
@@ -156,6 +176,7 @@ describe('forgeGraph context caching', () => {
       await seedWorldAndArticleAndRun(worldId, articleId, runId);
 
       const worldContext = { worldId, name: 'Test World', tone: 'narrative', originPoint: null, styleConfig: null };
+      const worldInfoContext = { worldId, title: 'Test Article', introduction: '' };
 
       completeMock
         .mockResolvedValueOnce(toolUseResult('submit_research_brief', {
@@ -185,7 +206,7 @@ describe('forgeGraph context caching', () => {
       expect(dequeueResult.signal).toBe('continue');
 
       const stateAfterDequeue = baseForgeState({
-        worldId, runId, ownerId: OWNER_ID, worldContext,
+        worldId, runId, ownerId: OWNER_ID, worldContext, worldInfoContext,
         currentItem: dequeueResult.currentItem,
         queue: dequeueResult.queue ?? [],
         currentItemStepsDone: dequeueResult.currentItemStepsDone ?? [],
@@ -201,7 +222,7 @@ describe('forgeGraph context caching', () => {
       expect(fetchWorldContextCalls).not.toHaveBeenCalled();
 
       const stateAfterResearch = baseForgeState({
-        worldId, runId, ownerId: OWNER_ID, worldContext,
+        worldId, runId, ownerId: OWNER_ID, worldContext, worldInfoContext,
         currentItem: stateAfterDequeue.currentItem,
         queue: stateAfterDequeue.queue,
         currentItemResearchBrief: researchResult.currentItemResearchBrief,
@@ -219,7 +240,7 @@ describe('forgeGraph context caching', () => {
       expect(fetchWorldContextCalls).not.toHaveBeenCalled();
 
       const stateAfterInception = baseForgeState({
-        worldId, runId, ownerId: OWNER_ID, worldContext,
+        worldId, runId, ownerId: OWNER_ID, worldContext, worldInfoContext,
         currentItem: stateAfterResearch.currentItem,
         queue: stateAfterResearch.queue,
         inceptionIntro: inceptionResult.inceptionIntro,
@@ -239,6 +260,12 @@ describe('forgeGraph context caching', () => {
       expect(buildContextPackageCalls).toHaveBeenCalledTimes(1);
       expect(fetchWorldContextCalls).not.toHaveBeenCalled();
       expect(completeMock).toHaveBeenCalledTimes(5);
+
+      // forgeExpansionExistingMode: 'improve' (baseForgeState's default)
+      // translates into scribeMode: 'improve' on runExpandGraph's params —
+      // the Task 1.4 plumbing fix, mirroring inceptionNode's summarizeMode.
+      expect(runExpandGraphCalls).toHaveBeenCalledTimes(1);
+      expect(runExpandGraphCalls.mock.calls[0]?.[0]).toMatchObject({ scribeMode: 'improve' });
     });
   });
 
@@ -252,6 +279,7 @@ describe('forgeGraph context caching', () => {
       await seedWorldAndArticleAndRun(worldId, articleId, runId);
 
       const worldContext = { worldId, name: 'Test World', tone: 'narrative', originPoint: null, styleConfig: null };
+      const worldInfoContext = { worldId, title: 'Test Article', introduction: '' };
 
       completeMock
         .mockResolvedValueOnce(toolUseResult('submit_research_brief', {
@@ -274,7 +302,7 @@ describe('forgeGraph context caching', () => {
 
       const item = { articleId, title: 'Test Article', depth: 0, startStep: 'expansion' as const };
       const state = baseForgeState({
-        worldId, runId, ownerId: OWNER_ID, worldContext,
+        worldId, runId, ownerId: OWNER_ID, worldContext, worldInfoContext,
         currentItem: item,
         currentItemStepsDone: [],
         currentItemContextPackage: undefined,
@@ -288,7 +316,7 @@ describe('forgeGraph context caching', () => {
       expect(fetchWorldContextCalls).not.toHaveBeenCalled();
 
       const stateAfterResearch = baseForgeState({
-        worldId, runId, ownerId: OWNER_ID, worldContext,
+        worldId, runId, ownerId: OWNER_ID, worldContext, worldInfoContext,
         currentItem: item,
         currentItemStepsDone: [],
         currentItemContextPackage: researchResult.currentItemContextPackage,
@@ -311,6 +339,65 @@ describe('forgeGraph context caching', () => {
       expect(buildContextPackageCalls).toHaveBeenCalledTimes(1);
       expect(fetchWorldContextCalls).not.toHaveBeenCalled();
       expect(completeMock).toHaveBeenCalledTimes(4);
+    });
+  });
+
+  it('computes a distinctly different scribeMode for forgeExpansionExistingMode "replace" than "improve"', async ({ skip }) => {
+    if (!harness) { skip(); return; }
+
+    await runWithUserContext(OWNER_ID, async () => {
+      const worldId = `forge-ctx-world3-${nanoid(6)}`;
+      const articleId = `forge-ctx-article3-${nanoid(6)}`;
+      const runId = `forge-ctx-run3-${nanoid(6)}`;
+      await seedWorldAndArticleAndRun(worldId, articleId, runId);
+
+      const worldContext = { worldId, name: 'Test World', tone: 'narrative', originPoint: null, styleConfig: null };
+      const worldInfoContext = { worldId, title: 'Test Article', introduction: '' };
+
+      completeMock
+        .mockResolvedValueOnce(toolUseResult('submit_research_brief', {
+          brief: 'Fact one about the article, established firmly in the surrounding world context and setting. An angle worth exploring further in future drafts.',
+        }))
+        .mockResolvedValueOnce(toolUseResult('submit_ideas', {
+          ideas: [
+            { theme: 'A theme', detail: 'Explore a bold new direction for this article.' },
+            { theme: 'Another theme', detail: 'A second angle to consider for this article.' },
+            { theme: 'A third theme', detail: 'A third angle to consider for this article.' },
+            { theme: 'A fourth theme', detail: 'A fourth angle to consider for this article.' },
+            { theme: 'A fifth theme', detail: 'A fifth angle to consider for this article.' },
+          ],
+        }))
+        .mockResolvedValueOnce(toolUseResult('submit_taste_selection', {
+          selectedIndices: [0],
+          rationale: 'Best fit for the article.',
+        }))
+        .mockResolvedValueOnce(textResult('A freshly generated description for the article, written by Scribe during this test run.'));
+
+      const item = { articleId, title: 'Test Article', depth: 0, startStep: 'expansion' as const };
+      const state = baseForgeState({
+        worldId, runId, ownerId: OWNER_ID, worldContext, worldInfoContext,
+        forgeExpansionExistingMode: 'replace',
+        currentItem: item,
+        currentItemStepsDone: [],
+      });
+
+      const researchResult = await researchNode(state);
+      const stateAfterResearch = baseForgeState({
+        worldId, runId, ownerId: OWNER_ID, worldContext, worldInfoContext,
+        forgeExpansionExistingMode: 'replace',
+        currentItem: item,
+        currentItemStepsDone: [],
+        currentItemContextPackage: researchResult.currentItemContextPackage,
+        currentItemResearchBrief: researchResult.currentItemResearchBrief,
+      });
+
+      await expansionNode(stateAfterResearch);
+
+      // 'replace' translates to scribeMode: 'full' — the same value 'create'/
+      // 'skip_existing' would produce, and distinctly different from the
+      // 'improve' case's scribeMode: 'improve' asserted in the test above.
+      expect(runExpandGraphCalls).toHaveBeenCalledTimes(1);
+      expect(runExpandGraphCalls.mock.calls[0]?.[0]).toMatchObject({ scribeMode: 'full' });
     });
   });
 });

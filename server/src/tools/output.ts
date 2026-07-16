@@ -74,17 +74,6 @@ const ideaItemSchema: ToolParamSchema = {
   required: ['theme', 'detail'],
 };
 
-const styleIssueSchema: ToolParamSchema = {
-  type: 'object',
-  properties: {
-    severity: { type: 'string', enum: ['suggestion', 'warning'], description: 'Issue severity' },
-    category: { type: 'string', enum: ['clarity', 'tone', 'logic', 'consistency'], description: 'Issue category' },
-    description: { type: 'string', description: 'Actionable description of the issue' },
-    excerpt: { type: 'string', description: 'The offending excerpt from the text (optional)' },
-  },
-  required: ['severity', 'category', 'description'],
-};
-
 const edgeProposalSchema: ToolParamSchema = {
   type: 'object',
   properties: {
@@ -212,7 +201,7 @@ export const OUTPUT_TOOLS: Record<string, Tool> = {
     },
   },
 
-  // Lorekeeper: derives Introduction (1 para) from Description
+  // Herald: derives Introduction (1 para) from Description
   submit_introduction: {
     name: 'submit_introduction',
     description: 'Submit the 1-paragraph Introduction derived from the article Description.',
@@ -424,29 +413,23 @@ export const OUTPUT_TOOLS: Record<string, Tool> = {
     },
   },
 
-  // Style Warden: prose quality and tonal consistency check
+  // Style Warden: direct rewrite to match the world's style, preserving all facts
   submit_style_check: {
     name: 'submit_style_check',
-    description: 'Submit the results of the style and tone review.',
+    description: 'Submit the rewritten text, matched to the world\'s style.',
     inputSchema: {
       type: 'object',
       properties: {
-        issues: {
-          type: 'array',
-          description: 'Style and clarity issues found in the text',
-          items: styleIssueSchema,
-        },
-        overallToneMatch: {
+        description: {
           type: 'string',
-          enum: ['excellent', 'good', 'off'],
-          description: 'Overall assessment of tonal consistency with the world style',
+          description: 'The full rewritten text, with every fact/claim from the original preserved',
         },
-        summary: {
+        changesSummary: {
           type: 'string',
-          description: '1-sentence overall verdict on the content quality',
+          description: '1-sentence summary of what changed, if any non-trivial rewrite was made (optional)',
         },
       },
-      required: ['issues', 'overallToneMatch', 'summary'],
+      required: ['description'],
     },
   },
 
@@ -466,7 +449,7 @@ export const OUTPUT_TOOLS: Record<string, Tool> = {
     },
   },
 
-  // Continuity Editor: post-Scribe self-correction check
+  // Arbiter: post-Scribe self-correction check
   submit_continuity_check: {
     name: 'submit_continuity_check',
     description: 'Submit the continuity check result for the draft description.',
@@ -487,28 +470,7 @@ export const OUTPUT_TOOLS: Record<string, Tool> = {
     },
   },
 
-  // Grounding Check: post-Lorekeeper Inception self-correction check
-  submit_grounding_check: {
-    name: 'submit_grounding_check',
-    description: 'Submit the grounding check result for the draft introduction.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        approved: {
-          type: 'boolean',
-          description: 'Whether the introduction is free of contradictions with parent articles/fixed points',
-        },
-        contradictions: {
-          type: 'array',
-          description: 'Specific contradictions found (empty if approved)',
-          items: contradictionItemSchema,
-        },
-      },
-      required: ['approved', 'contradictions'],
-    },
-  },
-
-  // Dedup Check: post-Cartographer Branching duplicate-proposal check
+  // Gatekeeper: post-Cartographer Branching duplicate-proposal check
   submit_dedup_check: {
     name: 'submit_dedup_check',
     description: 'Submit any proposed child articles that are semantic/conceptual duplicates of existing sibling articles.',

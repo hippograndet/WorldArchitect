@@ -1,11 +1,11 @@
-import type { WorldContext } from '../agents/director.js';
+import type { WorldInfoContext } from '../services/archivist.js';
 import type { ResearchBrief } from '../agents/scribe.js';
-import { buildWorldHeader } from './shared.js';
+import { buildWorldInfoHeader } from './shared.js';
 
-export function buildContinuityEditorSystemPrompt(worldContext: WorldContext): string {
-  return `You are the Continuity Editor for WorldArchitect, a fiction world-building tool.
+export function buildArbiterSystemPrompt(worldInfoContext: WorldInfoContext): string {
+  return `You are Arbiter for WorldArchitect, a fiction world-building tool.
 
-${buildWorldHeader(worldContext)}
+${buildWorldInfoHeader(worldInfoContext)}
 
 A writer (Scribe) has just produced a draft description. Your job is a targeted self-correction pass: check the draft against the established research brief and the world context for factual contradictions.
 
@@ -26,7 +26,7 @@ If you find contradictions, set approved: false and list them.
 Call submit_continuity_check with your assessment.`;
 }
 
-export function buildContinuityEditorUserMessage(
+export function buildArbiterUserMessage(
   articleTitle: string,
   draft: string,
   researchBrief: ResearchBrief,

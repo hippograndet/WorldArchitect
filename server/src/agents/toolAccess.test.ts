@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { ContinuityEditorAgent } from './continuityEditor.js';
-import { GroundingCheckAgent } from './groundingCheck.js';
-import { DedupCheckAgent } from './dedupCheck.js';
+import { ArbiterAgent } from './arbiter.js';
+import { GatekeeperAgent } from './gatekeeper.js';
 import { CartographerAgent } from './cartographer.js';
 import { ScribeAgent } from './scribe.js';
 import type { BaseAgent } from './base.js';
@@ -19,19 +18,15 @@ function toolNames(agent: BaseAgent<unknown, unknown>): string[] {
 }
 
 describe('per-agent context-tool access', () => {
-  it('Continuity Editor has zero context tools', () => {
-    expect(toolNames(new ContinuityEditorAgent())).toEqual([]);
+  it('Arbiter has zero context tools', () => {
+    expect(toolNames(new ArbiterAgent())).toEqual([]);
   });
 
-  it('Grounding Check has get_article + search_articles only', () => {
-    expect(toolNames(new GroundingCheckAgent())).toEqual(['get_article', 'search_articles']);
+  it('Gatekeeper has get_article + search_articles only', () => {
+    expect(toolNames(new GatekeeperAgent())).toEqual(['get_article', 'search_articles']);
   });
 
-  it('Dedup Check has get_article + search_articles only', () => {
-    expect(toolNames(new DedupCheckAgent())).toEqual(['get_article', 'search_articles']);
-  });
-
-  it('Cartographer has lookup_names only (no independent retrieval — Dedup Check owns duplicate-checking)', () => {
+  it('Cartographer has lookup_names only (no independent retrieval — Gatekeeper owns duplicate-checking)', () => {
     expect(toolNames(new CartographerAgent())).toEqual(['lookup_names']);
   });
 

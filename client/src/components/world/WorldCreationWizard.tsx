@@ -444,7 +444,7 @@ export default function WorldCreationWizard() {
             </section>
 
             <CharterTextField
-              name="Narrative authority"
+              name="Writing Tone"
               summary="Source and authority of record"
               presets={AUTHORITY_PRESETS}
               selectedPreset={selectedTonePreset}
@@ -457,7 +457,7 @@ export default function WorldCreationWizard() {
             />
 
             <CharterTextField
-              name="Atmosphere"
+              name="Vibe & Atmosphere"
               summary="Mood, stakes, and genre pressure"
               presets={ATMOSPHERE_PRESETS}
               selectedPreset={selectedVibePreset}
@@ -472,7 +472,7 @@ export default function WorldCreationWizard() {
             />
 
             <CharterTextField
-              name="Prose style"
+              name="Writing Style"
               summary="Sentence rhythm and diction rules"
               presets={PROSE_PRESETS}
               selectedPreset={selectedWritingPreset}
@@ -538,17 +538,17 @@ export default function WorldCreationWizard() {
                   onApply={(suggestion) => setDescription((value) => appendSuggestion(value, suggestion))}
                 />
                 <SuggestionGroup
-                  title="Narrative authority"
+                  title="Writing Tone"
                   suggestions={charterSuggestions.authoritySuggestions}
                   onApply={(suggestion) => setToneGuidance((value) => appendSuggestion(value, suggestion))}
                 />
                 <SuggestionGroup
-                  title="Atmosphere"
+                  title="Vibe & Atmosphere"
                   suggestions={charterSuggestions.atmosphereSuggestions}
                   onApply={(suggestion) => setVibe((value) => appendSuggestion(value, suggestion))}
                 />
                 <SuggestionGroup
-                  title="Prose style"
+                  title="Writing Style"
                   suggestions={charterSuggestions.proseSuggestions}
                   onApply={(suggestion) => setWritingStyle((value) => appendSuggestion(value, suggestion))}
                 />

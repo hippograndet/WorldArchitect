@@ -1,8 +1,7 @@
 import { z } from 'zod';
 import { BaseAgent } from './base.js';
 import { OUTPUT_TOOLS } from '../tools/output.js';
-import { buildDedupCheckSystemPrompt, buildDedupCheckUserMessage } from '../prompts/dedupCheck.js';
-import type { WorldContext } from './director.js';
+import { buildGatekeeperSystemPrompt, buildGatekeeperUserMessage } from '../prompts/gatekeeper.js';
 import type { ChildProposalItem } from './cartographer.js';
 import { GET_ARTICLE_TOOL, SEARCH_ARTICLES_TOOL } from '../tools/context.js';
 import type { ChatMessage } from '../providers/types.js';
@@ -28,13 +27,17 @@ export interface DuplicateFlag {
   rationale:       string;
 }
 
-export interface DedupCheckOutput {
+export interface GatekeeperOutput {
   duplicates: DuplicateFlag[];
 }
 
-/** No contextPackage — checks proposals against a bounded, structural existingChildren list, not the raw neighborhood tiers. */
-export interface DedupCheckInput {
-  worldContext:      WorldContext;
+/**
+ * No contextPackage — checks proposals against a bounded, structural
+ * existingChildren list, not the raw neighborhood tiers. No world context
+ * either (Table 2): this is a structural title/summary comparison, not
+ * creative writing, so world identity/style is irrelevant to the judgment.
+ */
+export interface GatekeeperInput {
   articleTitle:      string;
   existingChildren?: Array<{ title: string; summary: string }>;
   proposals:         ChildProposalItem[];
@@ -49,9 +52,9 @@ export interface DedupCheckInput {
  * conceptual duplicates of existing sibling articles (not literal title
  * matches — sync rules already catch those). No fuzzy-matching library is
  * used — this is an LLM judgment call, consistent with every other critic
- * in the MAS (Continuity Editor, Warden, Auditor).
+ * in the MAS (Arbiter, Warden, Auditor).
  */
-export class DedupCheckAgent extends BaseAgent<DedupCheckInput, DedupCheckOutput> {
+export class GatekeeperAgent extends BaseAgent<GatekeeperInput, GatekeeperOutput> {
   readonly agentType = 'dedup_check';
   readonly mode = 'check';
   readonly outputToolName = 'submit_dedup_check';
@@ -63,10 +66,10 @@ export class DedupCheckAgent extends BaseAgent<DedupCheckInput, DedupCheckOutput
     return [GET_ARTICLE_TOOL, SEARCH_ARTICLES_TOOL];
   }
 
-  protected buildMessages(_worldId: string, input: DedupCheckInput): ChatMessage[] {
+  protected buildMessages(_worldId: string, input: GatekeeperInput): ChatMessage[] {
     return [
-      { role: 'system', content: buildDedupCheckSystemPrompt(input.worldContext) },
-      { role: 'user', content: buildDedupCheckUserMessage(input.articleTitle, input.existingChildren, input.proposals) },
+      { role: 'system', content: buildGatekeeperSystemPrompt() },
+      { role: 'user', content: buildGatekeeperUserMessage(input.articleTitle, input.existingChildren, input.proposals) },
     ];
   }
 
@@ -74,7 +77,7 @@ export class DedupCheckAgent extends BaseAgent<DedupCheckInput, DedupCheckOutput
     return OUTPUT_TOOLS.submit_dedup_check;
   }
 
-  protected parseOutput(input: Record<string, unknown>): DedupCheckOutput {
+  protected parseOutput(input: Record<string, unknown>): GatekeeperOutput {
     const parsed = SubmitDedupCheckSchema.parse(input);
     return { duplicates: parsed.duplicates };
   }

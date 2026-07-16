@@ -25,10 +25,6 @@ describe('MAS cost model', () => {
       tools: ['lookup_names'],
       toolCategory: 'lookup',
     });
-    expect(byAgent.get('grounding_check')).toMatchObject({
-      tools: ['get_article', 'search_articles'],
-      toolCategory: 'narrow',
-    });
     expect(byAgent.get('researcher')?.toolCategory).toBe('full');
     expect(byAgent.get('lorekeeper')?.maxIterations).toBe(3);
     expect(byAgent.get('mention_extractor')?.maxIterations).toBe(2);
@@ -53,7 +49,7 @@ describe('MAS cost model', () => {
       contextDepth: 'mid',
       coherenceCheckLevel: 1,
       safetyNet: false,
-      runStyleWarden: true,
+      runStylizer: true,
     }));
 
     expect(estimate.documents).toBe(1);
@@ -80,8 +76,7 @@ describe('MAS cost model', () => {
 
     expect(estimate.documents).toBe(7);
     expect(estimate.queueItems).toBe(7);
-    expect(estimate.byAgent).toContainEqual({ agentType: 'lorekeeper', min: 7, max: 14 });
-    expect(estimate.byAgent).toContainEqual({ agentType: 'grounding_check', min: 7, max: 14 });
+    expect(estimate.byAgent).toContainEqual({ agentType: 'lorekeeper', min: 7, max: 7 });
     expect(estimate.byAgent).toContainEqual({ agentType: 'dedup_check', min: 7, max: 14 });
     expect(estimate.calls.min).toBeGreaterThan(0);
     expect(estimate.calls.max).toBeGreaterThan(estimate.calls.min);

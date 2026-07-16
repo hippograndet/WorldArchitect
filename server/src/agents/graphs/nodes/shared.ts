@@ -1,5 +1,5 @@
 import { getDbClient } from '../../../db/client.js';
-import { buildContextPackage } from '../../../services/archivist.js';
+import { buildContextPackage, getWorldInfoContext } from '../../../services/archivist.js';
 import { fetchWorldContext } from '../../director.js';
 import type { OrchestrationState } from '../state.js';
 
@@ -32,14 +32,20 @@ export async function hasSufficientBibleContent(worldId: string, ownerId?: strin
 // ---------------------------------------------------------------------------
 
 /**
- * Skips the fetch when a caller has already seeded worldContext (e.g. a
- * cached run-level value threaded in via graph.invoke()) — this guard is
- * shared by every pipeline graph's identical __start__ edge, so any future
- * caller must seed a real WorldContext for this worldId, never a stand-in.
+ * Skips each fetch when a caller has already seeded it (e.g. a cached
+ * run-level value threaded in via graph.invoke()) — this guard is shared by
+ * every pipeline graph's identical __start__ edge, so any future caller must
+ * seed real values for this worldId, never a stand-in. worldInfoContext
+ * (Table 1's always-on {worldId, title, introduction} tier, from the world's
+ * root article) is fetched alongside worldContext here rather than in its
+ * own node, since every pipeline needs both at the same point and neither
+ * depends on the other.
  */
 export async function fetchWorldContextNode(state: OrchestrationState): Promise<Partial_> {
-  if (state.worldContext) return {};
-  return { worldContext: await fetchWorldContext(state.worldId) };
+  const updates: Partial_ = {};
+  if (!state.worldContext) updates.worldContext = await fetchWorldContext(state.worldId);
+  if (!state.worldInfoContext) updates.worldInfoContext = await getWorldInfoContext(state.worldId, state.ownerId);
+  return updates;
 }
 
 /**

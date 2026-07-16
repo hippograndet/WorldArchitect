@@ -2,7 +2,7 @@ export type WordCountPreset = 'short' | 'medium' | 'long' | 'custom';
 export type DetailDepth = 'surface' | 'detailed' | 'exhaustive';
 export type Breadth = 'focused' | 'connected';
 export type ContextDepth = 'shallow' | 'mid' | 'deep';
-export type SummarizerMode = 'full' | 'improve';
+export type HeraldMode = 'full' | 'improve';
 
 export interface ExpansionParams {
   wordCountPreset: WordCountPreset;
@@ -41,17 +41,10 @@ export interface GlobalWarning {
   involvedArticleIds: string[];
 }
 
-export interface StyleIssue {
-  severity: 'suggestion' | 'warning';
-  category: 'clarity' | 'tone' | 'logic' | 'consistency';
+/** Stylizer rewrites content directly to match the world's style — not an advisory check. */
+export interface StylizerResult {
   description: string;
-  excerpt?: string;
-}
-
-export interface StyleWardenResult {
-  issues: StyleIssue[];
-  overallToneMatch: 'excellent' | 'good' | 'off';
-  summary: string;
+  changesSummary?: string;
 }
 
 export interface TokenEstimate {

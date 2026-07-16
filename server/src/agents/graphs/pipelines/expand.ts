@@ -3,15 +3,15 @@ import { nanoid } from 'nanoid';
 import { OrchestrationAnnotation } from '../state.js';
 import { fetchWorldContextNode, buildContextPackageNode } from '../nodes/shared.js';
 import { researcherNode } from '../nodes/expand/research.js';
-import { scribeNode, lorekeeperSummarizeAfterExpandNode, styleWardenNode } from '../nodes/expand/draft.js';
+import { scribeNode, deriveIntroFromChildDescriptionNode, stylizerNode } from '../nodes/expand/draft.js';
 import { articleContract, contractState, expanderIntent } from '../masContract.js';
-import type { ContextDepth, ArchivistMode, ContextPackage } from '../../../services/archivist.js';
+import type { ContextDepth, ArchivistMode, ContextPackage, WorldInfoContext } from '../../../services/archivist.js';
 import type { DraftContextBasis } from '../../../services/draftsService.js';
 import type { ExpanderMode } from '../../../prompts/expander.js';
 import type { IdeaItem } from '../../muse.js';
 import type { ResearchBrief } from '../../scribe.js';
-import type { StyleWardenOutput } from '../../styleWarden.js';
-import type { ContinuityEditorOutput } from '../../continuityEditor.js';
+import type { StylizerOutput } from '../../stylizer.js';
+import type { ArbiterOutput } from '../../arbiter.js';
 import type { WorldContext } from '../../director.js';
 
 const graph = new StateGraph(OrchestrationAnnotation)
@@ -19,23 +19,23 @@ const graph = new StateGraph(OrchestrationAnnotation)
   .addNode('buildContextPackage', buildContextPackageNode)
   .addNode('researcher', researcherNode)
   .addNode('scribe', scribeNode)
-  .addNode('lorekeeperSummarize', lorekeeperSummarizeAfterExpandNode)
-  .addNode('styleWarden', styleWardenNode)
+  .addNode('deriveIntroFromChildDescription', deriveIntroFromChildDescriptionNode)
+  .addNode('stylizer', stylizerNode)
   .addEdge('__start__', 'fetchWorldContext')
   .addEdge('fetchWorldContext', 'buildContextPackage')
   .addEdge('buildContextPackage', 'researcher')
   .addEdge('researcher', 'scribe')
-  .addEdge('scribe', 'lorekeeperSummarize')
-  .addEdge('lorekeeperSummarize', 'styleWarden')
-  .addEdge('styleWarden', '__end__')
+  .addEdge('scribe', 'stylizer')
+  .addEdge('stylizer', 'deriveIntroFromChildDescription')
+  .addEdge('deriveIntroFromChildDescription', '__end__')
   .compile();
 
 export interface ExpandGraphOutput {
   description: string;
   introduction?: string;
   parentUpdate?: { appendText: string };
-  styleCheck?: StyleWardenOutput;
-  continuityCheck?: ContinuityEditorOutput;
+  styleCheck?: StylizerOutput;
+  arbiterCheck?: ArbiterOutput;
   contextDraftIds: string[];
   tokensIn: number;
   tokensOut: number;
@@ -47,15 +47,18 @@ export async function runExpandGraph(params: {
   articleId: string;
   pipelineType: ExpanderMode;
   userSpec?: string;
+  /** Only meaningful for pipelineType 'expand_description' — see ScribeInput's scribeMode doc. */
+  scribeMode?: 'full' | 'improve';
   contextDepth?: ContextDepth;
   contextBasis?: DraftContextBasis;
   selectedIdeas?: IdeaItem[];
-  runStyleWarden?: boolean;
+  runStylizer?: boolean;
   coherenceCheckLevel?: number;
   safetyNet?: boolean;
   wordCountPreset?: 'short' | 'medium' | 'long';
   pipelineRunId?: string;
   worldContext?: WorldContext;
+  worldInfoContext?: WorldInfoContext;
   /**
    * Only honored when this call's own contextMode resolves to 'default' — a
    * package built under a different ArchivistMode (e.g. 'reorganize') would
@@ -82,15 +85,17 @@ export async function runExpandGraph(params: {
     })),
     expanderMode: params.pipelineType,
     userSpec: params.userSpec,
+    scribeMode: params.scribeMode ?? 'full',
     contextDepth: params.contextDepth ?? 'mid',
     contextBasis: params.contextBasis ?? 'current',
     contextMode,
     selectedIdeas: params.selectedIdeas,
-    runStyleWarden: params.runStyleWarden ?? false,
+    runStylizer: params.runStylizer ?? false,
     coherenceCheckLevel: params.coherenceCheckLevel ?? 0,
     safetyNet: params.safetyNet ?? false,
     wordCountPreset: params.wordCountPreset ?? 'medium',
     ...(params.worldContext ? { worldContext: params.worldContext } : {}),
+    ...(params.worldInfoContext ? { worldInfoContext: params.worldInfoContext } : {}),
     ...(cachedContextPackage ? { contextPackage: cachedContextPackage } : {}),
     ...(params.researchBrief ? { researchBrief: params.researchBrief } : {}),
   });
@@ -100,7 +105,7 @@ export async function runExpandGraph(params: {
     ...(result.introduction !== undefined ? { introduction: result.introduction } : {}),
     ...(result.parentUpdate ? { parentUpdate: result.parentUpdate } : {}),
     ...(result.styleCheck ? { styleCheck: result.styleCheck } : {}),
-    ...(result.continuityCheck ? { continuityCheck: result.continuityCheck } : {}),
+    ...(result.arbiterCheck ? { arbiterCheck: result.arbiterCheck } : {}),
     contextDraftIds: result.contextPackage?.contextDraftIds ?? [],
     tokensIn: result.tokensIn,
     tokensOut: result.tokensOut,

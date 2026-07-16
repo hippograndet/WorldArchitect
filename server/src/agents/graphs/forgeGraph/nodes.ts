@@ -5,7 +5,7 @@ import { recordArticleIssues } from '../../../services/issueRecorder.js';
 import { createRunReviewItem, getLatestReviewDecision } from '../../../services/runReviewItems.js';
 import { buildContextPackage } from '../../../services/archivist.js';
 import { runResearchGraph } from '../pipelines/research.js';
-import { runSummarizeGraph } from '../pipelines/summarize.js';
+import { runInceptionGraph } from '../pipelines/inception.js';
 import { runProposeGraph } from '../pipelines/propose.js';
 import { runExpandGraph } from '../pipelines/expand.js';
 import { runProposeChildrenGraph } from '../pipelines/proposeChildren.js';
@@ -91,6 +91,7 @@ export async function researchNode(state: ForgeState): Promise<Partial<ForgeStat
       contextDepth: state.contextDepth,
       pipelineRunId: state.runId,
       worldContext: state.worldContext,
+      worldInfoContext: state.worldInfoContext,
     });
     await bumpRunBudget(state.worldId, state.ownerId, state.runId, result.tokensIn + result.tokensOut);
     await logEvent(state, 'Research', item.title, true, 'Research brief ready.');
@@ -148,26 +149,26 @@ export async function inceptionNode(state: ForgeState): Promise<Partial<ForgeSta
       };
     }
 
-    const summarizeMode = state.forgeInceptionExistingMode === 'improve' ? 'improve' : 'full';
-    const result = await runSummarizeGraph({
+    const heraldMode = state.forgeInceptionExistingMode === 'improve' ? 'improve' : 'full';
+    const result = await runInceptionGraph({
       worldId: state.worldId,
       ownerId: state.ownerId,
       articleId: item.articleId,
-      mode: summarizeMode,
+      mode: heraldMode,
       pipelineRunId: state.runId,
       coherenceCheckLevel: state.coherenceCheckLevel,
       safetyNet: state.safetyNet,
       worldContext: state.worldContext,
+      worldInfoContext: state.worldInfoContext,
       contextPackage: state.currentItemContextPackage,
       researchBrief: state.currentItemResearchBrief,
     });
     await bumpRunBudget(state.worldId, state.ownerId, state.runId, result.tokensIn + result.tokensOut);
 
-    // Grounding Check (when on) already ran once and gave Lorekeeper one
-    // revision attempt inside runSummarizeGraph — that revision is trusted
-    // without a second verification pass or a commit-blocking gate here.
-    // Deeper checking of the committed introduction happens in Consolidate
-    // (Linter, Warden), not by refusing to commit at all.
+    // No dedicated fact-checker on Herald's introduction (removed, not
+    // merged): its brief output is inherently low-deviation. Deeper checking
+    // of the committed introduction happens in Consolidate (Linter, Warden),
+    // not by refusing to commit at all.
 
     const introWordCount = countWords(result.introduction);
     if (introWordCount < 15) {
@@ -312,6 +313,7 @@ export async function expansionNode(state: ForgeState): Promise<Partial<ForgeSta
         contextBasis: state.contextBasis,
         pipelineRunId: state.runId,
         worldContext: state.worldContext,
+        worldInfoContext: state.worldInfoContext,
         contextPackage,
         researchBrief: state.currentItemResearchBrief,
       });
@@ -335,6 +337,11 @@ export async function expansionNode(state: ForgeState): Promise<Partial<ForgeSta
       selectedIdeas = suggestedIndices.map((i) => proposeResult.ideas[i]).filter((idea): idea is typeof proposeResult.ideas[number] => Boolean(idea));
     }
 
+    // Mirrors heraldMode above (nodes.ts:152). Scribe now branches
+    // structurally on scribeMode ('full' ignores any prior description and
+    // writes fresh, 'improve' treats it as a seed/constraint) — no more need
+    // for the old ad hoc userSpec text to drive the 'replace' case.
+    const scribeMode = state.forgeExpansionExistingMode === 'improve' ? 'improve' : 'full';
     const expandResult = await runExpandGraph({
       worldId: state.worldId,
       ownerId: state.ownerId,
@@ -343,13 +350,13 @@ export async function expansionNode(state: ForgeState): Promise<Partial<ForgeSta
       contextDepth: state.contextDepth,
       contextBasis: state.contextBasis,
       selectedIdeas,
-      userSpec: state.forgeExpansionExistingMode === 'replace'
-        ? 'Replace the current description completely. Do not preserve old wording unless it is required by established world facts.'
-        : undefined,
+      scribeMode,
       coherenceCheckLevel: state.coherenceCheckLevel,
       safetyNet: state.safetyNet,
+      runStylizer: state.runStylizer,
       pipelineRunId: state.runId,
       worldContext: state.worldContext,
+      worldInfoContext: state.worldInfoContext,
       contextPackage,
       researchBrief: state.currentItemResearchBrief,
     });
@@ -508,19 +515,20 @@ export async function branchingNode(state: ForgeState): Promise<Partial<ForgeSta
       coherenceCheckLevel: state.coherenceCheckLevel,
       safetyNet: state.safetyNet,
       worldContext: state.worldContext,
+      worldInfoContext: state.worldInfoContext,
       // No contextPackage here — Branching always rebuilds its own under
       // 'propose_children' mode (see runProposeChildrenGraph's comment).
       researchBrief: state.currentItemResearchBrief,
     });
     await bumpRunBudget(state.worldId, state.ownerId, state.runId, childResult.tokensIn + childResult.tokensOut);
 
-    if (childResult.dedupCheck?.duplicates.length) {
+    if (childResult.gatekeeperCheck?.duplicates.length) {
       await recordArticleIssues(getDbClient(), {
         worldId: state.worldId,
         ownerId: state.ownerId,
         articleId: item.articleId,
         source: 'dedup_check',
-        issues: childResult.dedupCheck.duplicates.map((d) => ({
+        issues: childResult.gatekeeperCheck.duplicates.map((d) => ({
           severity: 'info',
           code: 'DUPLICATE_PROPOSAL_FILTERED',
           explanation: `Proposed child "${d.proposalTitle}" filtered as a likely duplicate of existing article "${d.matchedExisting}": ${d.rationale}`,

@@ -83,14 +83,13 @@ WorldArchitect uses specialized agents for different jobs:
 - **Researcher** extracts constraints before drafting.
 - **Scribe** writes article descriptions as prose instead of long function-call payloads.
 - **Mention Extractor** extracts compact structured concept candidates during Consolidate scans. It does not run during Expand and does not create documents by itself.
-- **Continuity Editor** checks draft contradictions before acceptance.
-- **Lorekeeper** writes compact World Bible introductions.
-- **Grounding Check** checks generated introductions before they become trusted context.
+- **Arbiter** checks draft contradictions before acceptance.
+- **Herald** writes compact World Bible introductions.
 - **Cartographer** proposes child articles.
-- **Dedup Check** filters out duplicate child proposals.
+- **Gatekeeper** filters out duplicate child proposals.
 - **Warden** checks coherence against the world.
 - **Sentinel** checks that reorganized text did not lose facts.
-- **Style Warden** reviews tone and prose fit.
+- **Stylizer** rewrites prose to match the world's style, preserving all facts.
 - **Linter** finds article issues after saves.
 - **Fixer** helps resolve individual issues.
 - **Auditor** reviews the world graph.

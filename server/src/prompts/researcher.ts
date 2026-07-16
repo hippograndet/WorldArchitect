@@ -1,11 +1,10 @@
-import type { WorldContext } from '../agents/director.js';
-import type { ContextPackage } from '../services/archivist.js';
-import { buildWorldHeader } from './shared.js';
+import type { ContextPackage, WorldInfoContext } from '../services/archivist.js';
+import { buildWorldInfoHeader } from './shared.js';
 
-export function buildResearcherSystemPrompt(worldContext: WorldContext): string {
+export function buildResearcherSystemPrompt(worldInfoContext: WorldInfoContext): string {
   return `You are the Researcher for WorldArchitect, a fiction world-building tool.
 
-${buildWorldHeader(worldContext)}
+${buildWorldInfoHeader(worldInfoContext)}
 
 Your job is a dedicated research pass before any writing occurs. You will receive an article's context package — parents, siblings, children, fixed points, and referenced articles.
 

@@ -96,12 +96,13 @@ const CreateRunSchema = z.object({
   forgeMode: z.enum(['breadth', 'depth']).optional().default('breadth'),
   forgeMaxDepth: z.number().int().min(0).max(10).optional().default(2),
   forgeMaxChildren: z.number().int().min(0).max(20).optional().default(5),
-  // One global dial covering Continuity Editor, Grounding Check, and Dedup
-  // Check. Defaults to 1 (single check-revise cycle, no re-check) — matching
-  // Forge's previous always-on single-pass behavior before this was
-  // user-configurable.
+  // One global dial covering Arbiter and Gatekeeper (Herald
+  // has no dedicated checker). Defaults to 1 (single check-revise cycle, no
+  // re-check) — matching Forge's previous always-on single-pass behavior
+  // before this was user-configurable.
   coherenceCheckLevel: z.number().int().min(0).max(3).optional().default(1),
   safetyNet: z.boolean().optional().default(false),
+  runStylizer: z.boolean().optional().default(false),
   forgeContinuationMode: z.enum(['one_step', 'finish_document', 'recursive']).optional().default('recursive'),
   forgeInceptionExistingMode: z.enum(['create', 'improve', 'replace', 'skip_existing']).optional().default('improve'),
   forgeExpansionExistingMode: z.enum(['create', 'improve', 'replace', 'skip_existing']).optional().default('improve'),
@@ -271,6 +272,7 @@ router.post('/', asyncHandler(async (req, res) => {
       forgeMaxChildren: parse.data.forgeMaxChildren,
       coherenceCheckLevel: parse.data.coherenceCheckLevel,
       safetyNet: parse.data.safetyNet,
+      runStylizer: parse.data.runStylizer,
       forgeContinuationMode: parse.data.forgeContinuationMode,
       forgeInceptionExistingMode: parse.data.forgeInceptionExistingMode,
       forgeExpansionExistingMode: parse.data.forgeExpansionExistingMode,

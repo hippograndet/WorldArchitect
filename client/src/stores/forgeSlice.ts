@@ -142,7 +142,7 @@ export const forgeSlice: StateCreator<StoreState, [['zustand/immer', never]], []
       if (!agentTargetArticleId) return;
       const {
         contextDepth, contextBasis, branchingMode, forgeMode, forgeMaxDepth, forgeMaxChildren,
-        coherenceCheckLevel, safetyNet,
+        coherenceCheckLevel, safetyNet, runStylizer,
         forgeContinuationMode, runValidationLevel,
         forgeInceptionExistingMode, forgeExpansionExistingMode, forgeBranchingExistingMode,
       } = agentParams;
@@ -171,6 +171,7 @@ export const forgeSlice: StateCreator<StoreState, [['zustand/immer', never]], []
           forgeMaxChildren,
           coherenceCheckLevel,
           safetyNet,
+          runStylizer,
           forgeContinuationMode,
           validationLevel: runValidationLevel,
           forgeInceptionExistingMode,

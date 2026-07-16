@@ -24,6 +24,7 @@ export interface RunConfig {
   forgeMaxChildren?: number;
   coherenceCheckLevel?: number;
   safetyNet?: boolean;
+  runStylizer?: boolean;
   forgeContinuationMode?: 'one_step' | 'finish_document' | 'recursive';
   validationLevel?: 'manual' | 'assisted' | 'autopilot';
   autonomyMode?: 'manual' | 'review_each_step' | 'auto_with_post_review';

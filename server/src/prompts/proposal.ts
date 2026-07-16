@@ -1,18 +1,24 @@
 import type { WorldContext } from '../agents/director.js';
+import type { WorldInfoContext } from '../services/archivist.js';
 import type { ResearchBrief } from '../agents/scribe.js';
-import { buildWorldHeader, dataBlock } from './shared.js';
+import { buildWorldInfoHeader, buildWorldStyleHeader, toWorldStyleContext, dataBlock } from './shared.js';
 
 export type ProposalMode = 'expand_description' | 'create_root' | 'create_child';
 
-export function buildProposalSystemPrompt(worldContext: WorldContext, mode: ProposalMode): string {
+export function buildProposalSystemPrompt(worldInfoContext: WorldInfoContext, worldContext: WorldContext, mode: ProposalMode): string {
   const modeDesc =
     mode === 'create_root' || mode === 'create_child'
       ? 'You are creating a brand-new article.'
       : 'You are expanding an existing article stub.';
 
+  // Vibe & Atmosphere only — Muse proposes thematic angles, not final prose,
+  // so tone/writing-style guidance isn't its concern (Table 2).
+  const stylePairs = toWorldStyleContext(worldContext.styleConfig).filter((p) => p.name === 'Vibe & Atmosphere');
+  const worldBlock = [buildWorldInfoHeader(worldInfoContext), buildWorldStyleHeader(stylePairs)].filter(Boolean).join('\n');
+
   return `You are Muse for WorldArchitect, a fiction world-building tool.
 
-${buildWorldHeader(worldContext)}
+${worldBlock}
 
 ${modeDesc} Propose 5–10 specific thematic ideas, concepts, or narrative threads that the Scribe could explore in the Description section. Each idea should be:
 - Concrete and specific (not vague like "explore its history" — instead "the role of nomadic traders in spreading its early influence")

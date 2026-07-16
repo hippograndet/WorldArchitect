@@ -3,6 +3,7 @@ import { BaseAgent } from './base.js';
 import { OUTPUT_TOOLS } from '../tools/output.js';
 import { buildTasteSystemPrompt, buildTasteUserMessage } from '../prompts/taste.js';
 import type { WorldContext } from './director.js';
+import type { WorldInfoContext } from '../services/archivist.js';
 import type { IdeaItem } from './muse.js';
 import type { ChatMessage } from '../providers/types.js';
 import type { Tool } from '../tools/types.js';
@@ -24,6 +25,7 @@ export interface CuratorInput {
   articleTitle: string;
   articleTemplateType: string;
   currentSummary?: string;
+  worldInfoContext: WorldInfoContext;
   worldContext: WorldContext;
   userSpec?: string;
 }
@@ -44,7 +46,7 @@ export class CuratorAgent extends BaseAgent<CuratorInput, CuratorOutput> {
     return [
       {
         role: 'system',
-        content: buildTasteSystemPrompt(input.worldContext),
+        content: buildTasteSystemPrompt(input.worldInfoContext, input.worldContext),
       },
       {
         role: 'user',

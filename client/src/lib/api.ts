@@ -3,7 +3,7 @@ import type { Run, RunConfig, RunLlmTrace, RunReviewItem, RunWithEvents } from '
 import type { PipelineType } from '../stores/agentSlice.ts';
 import type { FlatArticle } from './tree.ts';
 import type { Article, ArticleDetail, ArticleGraph, ArticleGraphEdge, ArticleVersion, PendingDraft, DraftContent, CoherenceWarning, AcceptDraftResult } from '../types/article.ts';
-import type { ContextDepth, IdeaItem, EdgeProposal, GlobalWarning, StyleWardenResult } from '../types/agent.ts';
+import type { ContextDepth, IdeaItem, EdgeProposal, GlobalWarning, StylizerResult } from '../types/agent.ts';
 import type { ArticleMetadataFieldDefinition, ArticleTypeDefinition } from './articleTypes.ts';
 import type { InboxCountResponse, InboxResponse } from '../types/inbox.ts';
 import { getAuthToken } from './authToken.ts';
@@ -86,7 +86,7 @@ export interface RunEstimateRequest {
   contextBasis?: DraftContextBasis;
   coherenceCheckLevel?: number;
   safetyNet?: boolean;
-  runStyleWarden?: boolean;
+  runStylizer?: boolean;
 }
 
 export interface RunEstimateResponse {
@@ -264,7 +264,7 @@ export const api = {
       selectedIdeas?: IdeaItem[];
       userSpec?: string; contextDepth?: ContextDepth;
       contextBasis?: DraftContextBasis;
-      runStyleWarden?: boolean;
+      runStylizer?: boolean;
       coherenceCheckLevel?: number;
       safetyNet?: boolean;
       wordCountPreset?: 'short' | 'medium' | 'long';
@@ -272,7 +272,7 @@ export const api = {
       description: string;
       introduction?: string;
       parentUpdate?: { appendText: string };
-      styleCheck?: StyleWardenResult;
+      styleCheck?: StylizerResult;
       draft?: PendingDraft;
     }>(`/worlds/${wid}/agents/expand`, input),
     proposeChildren: (wid: string, input: {
@@ -281,8 +281,6 @@ export const api = {
       coherenceCheckLevel?: number; safetyNet?: boolean;
     }) =>
       post<{ proposals: import('../types/agent.ts').ChildProposal[] }>(`/worlds/${wid}/agents/propose-children`, input),
-    summarize: (wid: string, input: { articleId: string; mode?: import('../types/agent.ts').SummarizerMode }) =>
-      post<{ introduction: string }>(`/worlds/${wid}/agents/summarize`, input),
     reorganize: (wid: string, input: { articleId: string; userSpec?: string; contextDepth?: ContextDepth; contextBasis?: DraftContextBasis }) =>
       post<{
         description: string; introduction: string;

@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { BaseAgent } from './base.js';
 import { OUTPUT_TOOLS } from '../tools/output.js';
 import { buildChildProposerSystemPrompt, buildChildProposerUserMessage } from '../prompts/childProposer.js';
-import type { WorldContext } from './director.js';
+import type { WorldInfoContext } from '../services/archivist.js';
 import type { ResearchBrief } from './scribe.js';
 import { LOOKUP_NAMES_TOOL } from '../tools/context.js';
 import type { ChatMessage } from '../providers/types.js';
@@ -35,7 +35,7 @@ export type CartographerOutput = { proposals: ChildProposalItem[] };
  * to self-avoid an obvious duplicate — not a "fact" the brief would carry.
  */
 export interface CartographerInput {
-  worldContext: WorldContext;
+  worldInfoContext: WorldInfoContext;
   articleTitle: string;
   templateType: string;
   currentIntroduction?: string;
@@ -58,7 +58,7 @@ export class CartographerAgent extends BaseAgent<CartographerInput, Cartographer
     return [
       {
         role: 'system',
-        content: buildChildProposerSystemPrompt(input.worldContext),
+        content: buildChildProposerSystemPrompt(input.worldInfoContext),
       },
       {
         role: 'user',
@@ -79,7 +79,7 @@ export class CartographerAgent extends BaseAgent<CartographerInput, Cartographer
     return OUTPUT_TOOLS.submit_child_proposals;
   }
 
-  protected getMaxTokens(): number { return 1500; }
+  protected getMaxTokens(): number { return 3000; }
 
   /**
    * lookup_names only (v9) — Cartographer is a generator: it gets the

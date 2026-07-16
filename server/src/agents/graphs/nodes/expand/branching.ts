@@ -1,6 +1,6 @@
 import { getDbClient } from '../../../../db/client.js';
 import { CartographerAgent } from '../../../cartographer.js';
-import { DedupCheckAgent } from '../../../dedupCheck.js';
+import { GatekeeperAgent } from '../../../gatekeeper.js';
 import { recordArticleIssues } from '../../../../services/issueRecorder.js';
 import { callCtx } from '../shared.js';
 import type { OrchestrationState } from '../../state.js';
@@ -8,15 +8,15 @@ import type { OrchestrationState } from '../../state.js';
 type Partial_ = Partial<OrchestrationState>;
 
 // ---------------------------------------------------------------------------
-// propose_children / Branching — Cartographer (+ Dedup Check loop)
+// propose_children / Branching — Cartographer (+ Gatekeeper loop)
 // ---------------------------------------------------------------------------
 
 /**
- * Cartographer's proposals plus, when coherenceCheckLevel > 0, a Dedup Check
+ * Cartographer's proposals plus, when coherenceCheckLevel > 0, a Gatekeeper
  * loop that filters out proposals flagged as semantic duplicates of existing
  * siblings and, if cycles remain, re-runs Cartographer for fresh
  * replacements (excluding what's already known) — shared by both Spark's
- * manual "propose children" flow and Forge's branchingNode. Dedup Check's
+ * manual "propose children" flow and Forge's branchingNode. Gatekeeper's
  * shape (filter a list + regenerate) doesn't fit runCheckReviseLoop's
  * single-draft check/revise contract, so it has its own loop here.
  *
@@ -33,7 +33,7 @@ export async function cartographerNode(state: OrchestrationState): Promise<Parti
 
   const agent = new CartographerAgent();
   const result = await agent.run(state.worldId, {
-    worldContext: state.worldContext!,
+    worldInfoContext: state.worldInfoContext!,
     articleTitle: pkg.targetTitle,
     templateType: pkg.targetTemplateType,
     currentIntroduction: pkg.targetIntroduction || undefined,
@@ -46,30 +46,29 @@ export async function cartographerNode(state: OrchestrationState): Promise<Parti
   let tokensOut = result.tokensOut;
   let childProposals = result.output.proposals;
 
-  let dedupCheck: Partial_['dedupCheck'];
+  let gatekeeperCheck: Partial_['gatekeeperCheck'];
   if (state.coherenceCheckLevel > 0 && childProposals.length > 0) {
-    const dedupAgent = new DedupCheckAgent();
+    const gatekeeperAgent = new GatekeeperAgent();
     const level = state.coherenceCheckLevel;
 
     for (let cycle = 0; cycle < level && childProposals.length > 0; cycle++) {
-      const dedupResult = await dedupAgent.run(state.worldId, {
-        worldContext: state.worldContext!,
+      const gatekeeperResult = await gatekeeperAgent.run(state.worldId, {
         articleTitle: pkg.targetTitle,
         existingChildren,
         proposals: childProposals,
       }, callCtx(state));
-      tokensIn += dedupResult.tokensIn;
-      tokensOut += dedupResult.tokensOut;
-      dedupCheck = dedupResult.output;
+      tokensIn += gatekeeperResult.tokensIn;
+      tokensOut += gatekeeperResult.tokensOut;
+      gatekeeperCheck = gatekeeperResult.output;
 
-      if (dedupCheck.duplicates.length === 0) break;
+      if (gatekeeperCheck.duplicates.length === 0) break;
 
-      const flaggedTitles = new Set(dedupCheck.duplicates.map((d) => d.proposalTitle));
+      const flaggedTitles = new Set(gatekeeperCheck.duplicates.map((d) => d.proposalTitle));
       childProposals = childProposals.filter((p) => !flaggedTitles.has(p.title));
 
       if (cycle >= level - 1) break;
       const regenResult = await agent.run(state.worldId, {
-        worldContext: state.worldContext!,
+        worldInfoContext: state.worldInfoContext!,
         articleTitle: pkg.targetTitle,
         templateType: pkg.targetTemplateType,
         currentIntroduction: pkg.targetIntroduction || undefined,
@@ -84,18 +83,17 @@ export async function cartographerNode(state: OrchestrationState): Promise<Parti
     }
 
     if (state.safetyNet) {
-      const finalCheck = await dedupAgent.run(state.worldId, {
-        worldContext: state.worldContext!,
+      const finalCheck = await gatekeeperAgent.run(state.worldId, {
         articleTitle: pkg.targetTitle,
         existingChildren,
         proposals: childProposals,
       }, callCtx(state));
       tokensIn += finalCheck.tokensIn;
       tokensOut += finalCheck.tokensOut;
-      dedupCheck = finalCheck.output;
+      gatekeeperCheck = finalCheck.output;
 
-      if (dedupCheck.duplicates.length > 0) {
-        const flaggedTitles = new Set(dedupCheck.duplicates.map((d) => d.proposalTitle));
+      if (gatekeeperCheck.duplicates.length > 0) {
+        const flaggedTitles = new Set(gatekeeperCheck.duplicates.map((d) => d.proposalTitle));
         childProposals = childProposals.filter((p) => !flaggedTitles.has(p.title));
         if (state.ownerId) {
           await recordArticleIssues(getDbClient(), {
@@ -103,7 +101,7 @@ export async function cartographerNode(state: OrchestrationState): Promise<Parti
             ownerId: state.ownerId,
             articleId: state.articleId!,
             source: 'dedup_check',
-            issues: dedupCheck.duplicates.map((d) => ({
+            issues: gatekeeperCheck.duplicates.map((d) => ({
               severity: 'info',
               code: 'DUPLICATE_PROPOSAL_UNRESOLVED_AFTER_SAFETY_NET',
               explanation: `Proposed child "${d.proposalTitle}" filtered as a likely duplicate of existing article "${d.matchedExisting}" after the safety-net pass: ${d.rationale}`,
@@ -116,7 +114,7 @@ export async function cartographerNode(state: OrchestrationState): Promise<Parti
 
   return {
     childProposals,
-    ...(dedupCheck ? { dedupCheck } : {}),
+    ...(gatekeeperCheck ? { gatekeeperCheck } : {}),
     tokensIn,
     tokensOut,
   };

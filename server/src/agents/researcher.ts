@@ -2,8 +2,7 @@ import { z } from 'zod';
 import { BaseAgent } from './base.js';
 import { OUTPUT_TOOLS } from '../tools/output.js';
 import { buildResearcherSystemPrompt, buildResearcherUserMessage } from '../prompts/researcher.js';
-import type { WorldContext } from './director.js';
-import type { ContextPackage } from '../services/archivist.js';
+import type { ContextPackage, WorldInfoContext } from '../services/archivist.js';
 import { CONTEXT_TOOLS, LOOKUP_NAMES_TOOL } from '../tools/context.js';
 import type { ChatMessage } from '../providers/types.js';
 import type { Tool } from '../tools/types.js';
@@ -21,7 +20,7 @@ export type ResearcherOutput = ResearchBrief;
 
 export interface ResearcherInput {
   contextPackage: ContextPackage;
-  worldContext: WorldContext;
+  worldInfoContext: WorldInfoContext;
 }
 
 // ---------------------------------------------------------------------------
@@ -41,7 +40,7 @@ export class ResearcherAgent extends BaseAgent<ResearcherInput, ResearcherOutput
 
   protected buildMessages(_worldId: string, input: ResearcherInput): ChatMessage[] {
     return [
-      { role: 'system', content: buildResearcherSystemPrompt(input.worldContext) },
+      { role: 'system', content: buildResearcherSystemPrompt(input.worldInfoContext) },
       { role: 'user',   content: buildResearcherUserMessage(input.contextPackage) },
     ];
   }

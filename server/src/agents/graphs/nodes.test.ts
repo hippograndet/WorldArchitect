@@ -21,7 +21,7 @@ vi.mock('../../services/callLogger.js', () => ({
 import { wardenNode } from './nodes/consolidate/cohere.js';
 import { fetchWorldContextNode, buildContextPackageNode } from './nodes/shared.js';
 import { researcherNode } from './nodes/expand/research.js';
-import { scribeNode } from './nodes/expand/draft.js';
+import { scribeNode, stylizerNode } from './nodes/expand/draft.js';
 
 const OWNER_ID = 'owner-warden-node-test';
 
@@ -39,14 +39,21 @@ beforeEach(() => {
   completeMock.mockReset();
 });
 
-/** Seeds a world with N articles, each with a current version carrying a non-empty introduction. */
+/** Seeds a world (with a root article, so getWorldInfoContext resolves) plus N articles, each with a current version carrying a non-empty introduction. */
 async function seedWorldWithBibleEntries(worldId: string, nonEmptySummaryCount: number): Promise<void> {
   const db = getDbClient();
+  const rootArticleId = `${worldId}-root`;
   await db.run(
     `INSERT INTO worlds (id, owner_id, name, description, tags, tone, style_config, created_at, updated_at)
      VALUES (?, ?, 'Test World', 'desc', '[]', 'narrative', '{}', 0, 0)`,
     [worldId, OWNER_ID],
   );
+  await db.run(
+    `INSERT INTO articles (id, owner_id, world_id, title, status, template_type, depth, created_at, updated_at)
+     VALUES (?, ?, ?, 'Test World', 'draft', 'general', 1, 0, 0)`,
+    [rootArticleId, OWNER_ID, worldId],
+  );
+  await db.run(`UPDATE worlds SET root_article_id = ? WHERE id = ?`, [rootArticleId, worldId]);
   for (let i = 0; i < nonEmptySummaryCount; i++) {
     const articleId = `${worldId}-article-${i}`;
     const versionId = `${articleId}-version`;
@@ -119,6 +126,11 @@ function scribeState(overrides: Partial<OrchestrationState> = {}): Orchestration
       tone: 'narrative',
       originPoint: null,
       styleConfig: null,
+    },
+    worldInfoContext: {
+      worldId: 'scribe-node-world',
+      title: 'Scribe World',
+      introduction: '',
     },
     expanderMode: 'expand_description',
     coherenceCheckLevel: 0,
@@ -194,21 +206,24 @@ describe('fetchWorldContextNode caching guard', () => {
       const result = await fetchWorldContextNode({
         worldId: 'fetch-world-context-miss',
         worldContext: undefined,
+        worldInfoContext: undefined,
       } as unknown as OrchestrationState);
 
       expect(result.worldContext).toMatchObject({ worldId: 'fetch-world-context-miss', name: 'Test World' });
+      expect(result.worldInfoContext).toMatchObject({ worldId: 'fetch-world-context-miss', title: 'Test World' });
     });
   });
 
-  it('skips the fetch (never touches the DB) when worldContext is already cached', async ({ skip }) => {
+  it('skips the fetch (never touches the DB) when worldContext/worldInfoContext are already cached', async ({ skip }) => {
     if (!harness) { skip(); return; }
 
     await runWithUserContext(OWNER_ID, async () => {
-      // Bogus worldId — fetchWorldContext() would throw "World ... not found"
+      // Bogus worldId — fetchWorldContext()/getWorldInfoContext() would throw
       // if the guard didn't short-circuit before reaching the DB.
       const result = await fetchWorldContextNode({
         worldId: 'this-world-id-does-not-exist',
         worldContext: { worldId: 'cached', name: 'Cached World', tone: 'narrative', originPoint: null, styleConfig: null },
+        worldInfoContext: { worldId: 'cached', title: 'Cached World', introduction: '' },
       } as unknown as OrchestrationState);
 
       expect(result).toEqual({});
@@ -302,11 +317,11 @@ describe('scribeNode free-text drafting', () => {
       researchBrief: 'A fact established in the world context that the draft must respect.',
     }));
 
-    // The revision is trusted without a second Continuity Editor call —
-    // continuityCheck still reflects the one check that ran (which flagged
+    // The revision is trusted without a second Arbiter call —
+    // arbiterCheck still reflects the one check that ran (which flagged
     // the original draft), even though `description` is the revised text.
     expect(result.description).toBe('A corrected draft.');
-    expect(result.continuityCheck).toMatchObject({ approved: false });
+    expect(result.arbiterCheck).toMatchObject({ approved: false });
     expect(completeMock).toHaveBeenCalledTimes(3);
   });
 
@@ -331,7 +346,7 @@ describe('scribeNode free-text drafting', () => {
 
     // Two full check-revise cycles ran; the second revision is trusted without a third check.
     expect(result.description).toBe('Draft three.');
-    expect(result.continuityCheck).toMatchObject({ approved: false });
+    expect(result.arbiterCheck).toMatchObject({ approved: false });
     expect(completeMock).toHaveBeenCalledTimes(5);
   });
 
@@ -349,7 +364,37 @@ describe('scribeNode free-text drafting', () => {
     }));
 
     expect(result.description).toBe('A clean draft.');
-    expect(result.continuityCheck).toMatchObject({ approved: true });
+    expect(result.arbiterCheck).toMatchObject({ approved: true });
     expect(completeMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('stylizerNode rewrite', () => {
+  it('writes the rewritten description back into state.description, not just styleCheck', async () => {
+    completeMock.mockResolvedValueOnce(genericToolUseResult('submit_style_check', {
+      description: 'A restyled description matching the world\'s voice.',
+      changesSummary: 'Tightened sentence rhythm to match Writing Style.',
+    }));
+
+    const result = await stylizerNode(scribeState({
+      runStylizer: true,
+      description: 'A plain draft description before restyling.',
+    }));
+
+    expect(result.description).toBe('A restyled description matching the world\'s voice.');
+    expect(result.styleCheck).toMatchObject({
+      description: 'A restyled description matching the world\'s voice.',
+      changesSummary: 'Tightened sentence rhythm to match Writing Style.',
+    });
+  });
+
+  it('is a no-op when runStylizer is off', async () => {
+    const result = await stylizerNode(scribeState({
+      runStylizer: false,
+      description: 'Untouched description.',
+    }));
+
+    expect(result).toEqual({});
+    expect(completeMock).not.toHaveBeenCalled();
   });
 });

@@ -8,6 +8,7 @@ import {
   type ProposalMode,
 } from '../prompts/proposal.js';
 import type { WorldContext } from './director.js';
+import type { WorldInfoContext } from '../services/archivist.js';
 import type { ResearchBrief } from './scribe.js';
 import { LOOKUP_NAMES_TOOL } from '../tools/context.js';
 import type { ChatMessage } from '../providers/types.js';
@@ -36,6 +37,7 @@ export type MuseOutput = { ideas: IdeaItem[] };
 
 /** No contextPackage, no userSpec — Muse writes from the article's own identity + world context + Researcher's brief only. User preference enters downstream, via Curator. */
 export interface MuseInput {
+  worldInfoContext: WorldInfoContext;
   worldContext: WorldContext;
   mode: ProposalMode;
   articleTitle: string;
@@ -57,7 +59,7 @@ export class MuseAgent extends BaseAgent<MuseInput, MuseOutput> {
     return [
       {
         role: 'system',
-        content: buildProposalSystemPrompt(input.worldContext, input.mode),
+        content: buildProposalSystemPrompt(input.worldInfoContext, input.worldContext, input.mode),
       },
       {
         role: 'user',

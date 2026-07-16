@@ -21,6 +21,7 @@ export const POSTGRES_MIGRATIONS = [
   '012_run_items_failed.sql',
   '013_drop_world_bible_entries.sql',
   '014_publish_pointer_and_link_provenance.sql',
+  '015_world_root_article.sql',
 ] as const;
 
 export type StorageHealth = {

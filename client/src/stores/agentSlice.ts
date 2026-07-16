@@ -1,7 +1,7 @@
 import type { StateCreator } from 'zustand';
 import type { StoreState } from './index.ts';
 import { api } from '../lib/api.ts';
-import type { ChildProposal, ContextDepth, SummarizerMode, IdeaItem, EdgeProposal, GlobalWarning, StyleWardenResult } from '../types/agent.ts';
+import type { ChildProposal, ContextDepth, HeraldMode, IdeaItem, EdgeProposal, GlobalWarning, StylizerResult } from '../types/agent.ts';
 import type { DraftContent } from '../types/article.ts';
 import type { DraftContextBasis } from '../lib/api.ts';
 import { defaultForgeRuntime } from './forgeSlice.ts';
@@ -56,7 +56,7 @@ export interface AgentParams {
   contextDepth: ContextDepth;
   contextBasis: DraftContextBasis;
   autoSelect: boolean;
-  summarizerMode: SummarizerMode;
+  heraldMode: HeraldMode;
   branchingMode: 'conceptual' | 'specific';
   includeCurrentContent: boolean;
   autoChain: boolean;
@@ -65,11 +65,12 @@ export interface AgentParams {
   forgeMode: 'breadth' | 'depth';
   forgeMaxDepth: number;    // 1–3 extra levels below start node
   forgeMaxChildren: number; // 0 = all, otherwise take top N
-  // One global dial covering Continuity Editor (Scribe), Grounding Check
-  // (Lorekeeper), and Dedup Check (Cartographer): 0 = off, N = up to N
-  // check→revise cycles.
+  // One global dial covering Arbiter (Scribe) and Gatekeeper
+  // (Cartographer): 0 = off, N = up to N check→revise cycles. Herald has
+  // no dedicated checker (removed, not merged).
   coherenceCheckLevel: number;
   safetyNet: boolean; // one final check-only pass after coherenceCheckLevel cycles; flags but never blocks
+  runStylizer: boolean; // Stylizer rewrite pass after Scribe, matching the world's style params
   forgeContinuationMode: 'one_step' | 'finish_document' | 'recursive';
   runValidationLevel: RunValidationLevel;
   forgeInceptionExistingMode: 'create' | 'improve' | 'replace' | 'skip_existing';
@@ -85,7 +86,7 @@ const defaultParams: AgentParams = {
   contextDepth:         'mid',
   contextBasis:         'current',
   autoSelect:           false,
-  summarizerMode:       'full',
+  heraldMode:       'full',
   branchingMode:        'conceptual',
   includeCurrentContent: true,
   autoChain:            false,
@@ -95,6 +96,7 @@ const defaultParams: AgentParams = {
   forgeMaxChildren:     5,
   coherenceCheckLevel:        1,
   safetyNet:                  false,
+  runStylizer:                false,
   forgeContinuationMode:      'recursive',
   runValidationLevel:         'autopilot',
   forgeInceptionExistingMode: 'improve',
@@ -200,7 +202,7 @@ export interface AgentSlice {
   agentNextSteps: NextStep[];
   agentIdeas: IdeaItem[];
   agentSelectedIdeas: IdeaItem[];
-  agentStyleCheck: StyleWardenResult | null;
+  agentStyleCheck: StylizerResult | null;
   agentAuditEdgeProposals: EdgeProposal[];
   agentAuditGlobalWarnings: GlobalWarning[];
   agentLoadedDraftId: string | null;
@@ -358,7 +360,7 @@ export const agentSlice: StateCreator<StoreState, [['zustand/immer', never]], []
         switch (agentPipelineType) {
           case 'reorganize': {
             // Reorganize has its own dedicated endpoint/pipeline (Scribe [reorganize] ->
-            // Sentinel -> Lorekeeper) — no proposal step, so call it directly instead of
+            // Sentinel -> Herald) — no proposal step, so call it directly instead of
             // faking a proposal through the generic /expand endpoint.
             const result = await api.agents.reorganize(worldId, {
               articleId:    agentTargetArticleId,
@@ -415,23 +417,6 @@ export const agentSlice: StateCreator<StoreState, [['zustand/immer', never]], []
               contextBasis: agentParams.contextBasis,
             });
             set((s) => { s.agentChildProposals = proposals; s.agentPhase = 'proposals_ready'; });
-            break;
-          }
-          case 'summarize': {
-            const mode = agentParams.includeCurrentContent ? 'improve' : 'full';
-            const result = await api.agents.summarize(worldId, {
-              articleId: agentTargetArticleId,
-              mode,
-            });
-            set((s) => { s.agentDraftResult = { introduction: result.introduction }; s.agentPhase = 'reviewing'; });
-            break;
-          }
-          case 'improve_intro': {
-            const result = await api.agents.summarize(worldId, {
-              articleId: agentTargetArticleId,
-              mode:      'improve',
-            });
-            set((s) => { s.agentDraftResult = { introduction: result.introduction }; s.agentPhase = 'reviewing'; });
             break;
           }
           case 'cohere': {

@@ -3,50 +3,53 @@ import { nanoid } from 'nanoid';
 import { OrchestrationAnnotation } from '../state.js';
 import { articleContract, contractState } from '../masContract.js';
 import { fetchWorldContextNode, buildContextPackageNode } from '../nodes/shared.js';
-import { lorekeeperSummarizeNode } from '../nodes/expand/inception.js';
-import type { LorekeepMode } from '../../lorekeeper.js';
-import type { GroundingCheckOutput } from '../../groundingCheck.js';
-import type { ContextDepth, ContextPackage } from '../../../services/archivist.js';
+import { heraldWriteIntroNode } from '../nodes/expand/inception.js';
+import type { HeraldMode } from '../../herald.js';
+import type { ContextDepth, ContextPackage, WorldInfoContext } from '../../../services/archivist.js';
 import type { WorldContext } from '../../director.js';
 import type { ResearchBrief } from '../../scribe.js';
 
 const graph = new StateGraph(OrchestrationAnnotation)
   .addNode('fetchWorldContext', fetchWorldContextNode)
   .addNode('buildContextPackage', buildContextPackageNode)
-  .addNode('lorekeeperSummarize', lorekeeperSummarizeNode)
+  .addNode('heraldWriteIntro', heraldWriteIntroNode)
   .addEdge('__start__', 'fetchWorldContext')
   .addEdge('fetchWorldContext', 'buildContextPackage')
-  .addEdge('buildContextPackage', 'lorekeeperSummarize')
-  .addEdge('lorekeeperSummarize', '__end__')
+  .addEdge('buildContextPackage', 'heraldWriteIntro')
+  .addEdge('heraldWriteIntro', '__end__')
   .compile();
 
-export interface SummarizeGraphOutput {
+export interface InceptionGraphOutput {
   introduction: string;
-  groundingCheck?: GroundingCheckOutput;
   contextPackage: ContextPackage;
   worldContext: WorldContext;
+  worldInfoContext: WorldInfoContext;
   tokensIn: number;
   tokensOut: number;
 }
 
-export async function runSummarizeGraph(params: {
+export async function runInceptionGraph(params: {
   worldId: string;
   ownerId?: string;
   articleId: string;
-  mode?: LorekeepMode;
+  mode?: HeraldMode;
   contextDepth?: ContextDepth;
   coherenceCheckLevel?: number;
   safetyNet?: boolean;
   pipelineRunId?: string;
   worldContext?: WorldContext;
+  worldInfoContext?: WorldInfoContext;
   contextPackage?: ContextPackage;
   researchBrief?: ResearchBrief;
-}): Promise<SummarizeGraphOutput> {
+}): Promise<InceptionGraphOutput> {
   const result = await graph.invoke({
     worldId: params.worldId,
     ownerId: params.ownerId,
     articleId: params.articleId,
     pipelineRunId: params.pipelineRunId ?? nanoid(),
+    // 'summarize' is the persisted call_log.pipeline_type value — unrelated
+    // to the Herald agent rename, kept as-is (same reasoning as DB-persisted
+    // agentType strings; see dev-docs/reference/mas-overview.md's aliases table).
     pipelineType: 'summarize',
     ...contractState(articleContract({
       articleId: params.articleId,
@@ -54,19 +57,20 @@ export async function runSummarizeGraph(params: {
       reviewPolicy: 'user_must_accept',
       commitPolicy: 'no_commit',
     })),
-    lorekeeperMode: params.mode ?? 'full',
+    heraldMode: params.mode ?? 'full',
     contextDepth: params.contextDepth ?? 'mid',
     coherenceCheckLevel: params.coherenceCheckLevel ?? 0,
     safetyNet: params.safetyNet ?? false,
     ...(params.worldContext ? { worldContext: params.worldContext } : {}),
+    ...(params.worldInfoContext ? { worldInfoContext: params.worldInfoContext } : {}),
     ...(params.contextPackage ? { contextPackage: params.contextPackage } : {}),
     ...(params.researchBrief ? { researchBrief: params.researchBrief } : {}),
   });
   return {
     introduction: result.introduction!,
-    ...(result.groundingCheck ? { groundingCheck: result.groundingCheck } : {}),
     contextPackage: result.contextPackage!,
     worldContext: result.worldContext!,
+    worldInfoContext: result.worldInfoContext!,
     tokensIn: result.tokensIn,
     tokensOut: result.tokensOut,
   };

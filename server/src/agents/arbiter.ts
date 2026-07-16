@@ -1,8 +1,8 @@
 import { z } from 'zod';
 import { BaseAgent } from './base.js';
 import { OUTPUT_TOOLS } from '../tools/output.js';
-import { buildContinuityEditorSystemPrompt, buildContinuityEditorUserMessage } from '../prompts/continuityEditor.js';
-import type { WorldContext } from './director.js';
+import { buildArbiterSystemPrompt, buildArbiterUserMessage } from '../prompts/arbiter.js';
+import type { WorldInfoContext } from '../services/archivist.js';
 import type { ResearchBrief } from './scribe.js';
 import type { ChatMessage } from '../providers/types.js';
 import type { Tool } from '../tools/types.js';
@@ -28,14 +28,14 @@ export interface Contradiction {
   correction: string;
 }
 
-export interface ContinuityEditorOutput {
+export interface ArbiterOutput {
   approved:       boolean;
   contradictions: Contradiction[];
 }
 
-/** No contextPackage — CE checks the draft against Researcher's brief it's already given, not the raw neighborhood tiers. */
-export interface ContinuityEditorInput {
-  worldContext:  WorldContext;
+/** No contextPackage — Arbiter checks the draft against Researcher's brief it's already given, not the raw neighborhood tiers. */
+export interface ArbiterInput {
+  worldInfoContext: WorldInfoContext;
   articleTitle:  string;
   draft:         string;
   researchBrief: ResearchBrief;
@@ -45,7 +45,7 @@ export interface ContinuityEditorInput {
 // Agent
 // ---------------------------------------------------------------------------
 
-export class ContinuityEditorAgent extends BaseAgent<ContinuityEditorInput, ContinuityEditorOutput> {
+export class ArbiterAgent extends BaseAgent<ArbiterInput, ArbiterOutput> {
   readonly agentType = 'continuity_editor';
   readonly mode = 'write';
   readonly outputToolName = 'submit_continuity_check';
@@ -53,7 +53,7 @@ export class ContinuityEditorAgent extends BaseAgent<ContinuityEditorInput, Cont
   protected getMaxTokens(): number { return 1000; }
 
   /**
-   * No context tools (v8) — CE checks a draft against the ContextPackage +
+   * No context tools (v8) — Arbiter checks a draft against the ContextPackage +
    * Researcher's brief it's already given; independently re-querying the
    * world would let it second-guess what Researcher already vetted.
    */
@@ -61,12 +61,12 @@ export class ContinuityEditorAgent extends BaseAgent<ContinuityEditorInput, Cont
     return [];
   }
 
-  protected buildMessages(_worldId: string, input: ContinuityEditorInput): ChatMessage[] {
+  protected buildMessages(_worldId: string, input: ArbiterInput): ChatMessage[] {
     return [
-      { role: 'system', content: buildContinuityEditorSystemPrompt(input.worldContext) },
+      { role: 'system', content: buildArbiterSystemPrompt(input.worldInfoContext) },
       {
         role: 'user',
-        content: buildContinuityEditorUserMessage(
+        content: buildArbiterUserMessage(
           input.articleTitle,
           input.draft,
           input.researchBrief,
@@ -79,7 +79,7 @@ export class ContinuityEditorAgent extends BaseAgent<ContinuityEditorInput, Cont
     return OUTPUT_TOOLS.submit_continuity_check;
   }
 
-  protected parseOutput(input: Record<string, unknown>): ContinuityEditorOutput {
+  protected parseOutput(input: Record<string, unknown>): ArbiterOutput {
     const parsed = SubmitContinuityCheckSchema.parse(input);
     return {
       approved:       parsed.approved,

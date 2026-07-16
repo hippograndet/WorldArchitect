@@ -186,12 +186,13 @@ export default function ExpandPage() {
   const [startStep, setStartStep] = useState<PipelineStartStep>('inception');
   const [continuationMode, setContinuationMode] = useState<ContinuationMode>('finish_document');
   const [validationLevel, setValidationLevel] = useState<ValidationLevel>('manual');
-  // One global dial covering Continuity Editor (Scribe), Grounding Check
-  // (Lorekeeper), and Dedup Check (Cartographer): 0 = off, N = up to N
-  // check→revise cycles. safetyNet adds one final check-only pass after
+  // One global dial covering Arbiter (Scribe) and Gatekeeper
+  // (Cartographer): 0 = off, N = up to N check→revise cycles. Herald has
+  // no dedicated checker (removed, not merged). safetyNet adds one final check-only pass after
   // those cycles — flags but never blocks.
   const [coherenceCheckLevel, setCoherenceCheckLevel] = useState(1);
   const [safetyNet, setSafetyNet] = useState(false);
+  const [runStylizer, setRunStylizer] = useState(false);
   const [inceptionExistingMode, setInceptionExistingMode] = useState<ExistingContentMode>('improve');
   const [expansionExistingMode, setExpansionExistingMode] = useState<ExistingContentMode>('improve');
   const [branchingExistingMode, setBranchingExistingMode] = useState<BranchingExistingMode>('append_deduped');
@@ -363,7 +364,7 @@ export default function ExpandPage() {
       contextBasis: agentParams.contextBasis,
       coherenceCheckLevel,
       safetyNet,
-      runStyleWarden: false,
+      runStylizer,
     })
       .then((estimate) => {
         if (!cancelled) setRunEstimate(estimate);
@@ -385,6 +386,7 @@ export default function ExpandPage() {
     agentParams.contextBasis,
     coherenceCheckLevel,
     safetyNet,
+    runStylizer,
   ]);
 
   const handleStart = async () => {
@@ -406,6 +408,7 @@ export default function ExpandPage() {
       includeCurrentContent: startStep === 'inception' || agentParams.includeCurrentContent,
       coherenceCheckLevel,
       safetyNet,
+      runStylizer,
       forgeContinuationMode: continuationMode,
       runValidationLevel: validationLevel,
       forgeInceptionExistingMode: inceptionExistingMode,
@@ -563,12 +566,14 @@ export default function ExpandPage() {
 
     const reusedCoherenceCheckLevel = config.coherenceCheckLevel ?? agentParams.coherenceCheckLevel;
     const reusedSafetyNet = config.safetyNet ?? agentParams.safetyNet;
+    const reusedRunStylizer = config.runStylizer ?? agentParams.runStylizer;
 
     setStartStep(reusedStartStep);
     setContinuationMode(reusedContinuation);
     setValidationLevel(reusedValidation);
     setCoherenceCheckLevel(reusedCoherenceCheckLevel);
     setSafetyNet(reusedSafetyNet);
+    setRunStylizer(reusedRunStylizer);
     setInceptionExistingMode(config.forgeInceptionExistingMode ?? 'improve');
     setExpansionExistingMode(config.forgeExpansionExistingMode ?? 'improve');
     setBranchingExistingMode(config.forgeBranchingExistingMode ?? 'append_deduped');
@@ -581,6 +586,7 @@ export default function ExpandPage() {
       forgeMaxChildren: config.forgeMaxChildren ?? agentParams.forgeMaxChildren,
       coherenceCheckLevel: reusedCoherenceCheckLevel,
       safetyNet: reusedSafetyNet,
+      runStylizer: reusedRunStylizer,
       forgeContinuationMode: reusedContinuation,
       runValidationLevel: reusedValidation,
       forgeInceptionExistingMode: config.forgeInceptionExistingMode ?? 'improve',
@@ -1038,7 +1044,7 @@ export default function ExpandPage() {
               <div className="space-y-3">
                 <div>
                   <p className="text-xs text-gray-500 mb-1">
-                    Check→revise cycles for Continuity Editor, Grounding Check, and Dedup Check. 0 disables all three.
+                    Check→revise cycles for Arbiter and Gatekeeper. 0 disables both.
                   </p>
                   <div className="grid grid-cols-4 gap-1.5">
                     {([0, 1, 2, 3] as const).map((level) => (
@@ -1064,6 +1070,15 @@ export default function ExpandPage() {
                     className="mt-0.5"
                   />
                   <span>Safety net: one final check-only pass after the cycles above. Flags remaining issues instead of blocking.</span>
+                </label>
+                <label className="flex items-start gap-2 text-xs text-gray-600">
+                  <input
+                    type="checkbox"
+                    checked={runStylizer}
+                    onChange={(event) => { markCustom(); setRunStylizer(event.target.checked); }}
+                    className="mt-0.5"
+                  />
+                  <span>Stylizer: rewrite the finished description to match the world's style (Writing Tone, Vibe &amp; Atmosphere, Writing Style) before it's saved.</span>
                 </label>
               </div>
             </SettingGroup>

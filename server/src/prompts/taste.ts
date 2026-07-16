@@ -1,11 +1,17 @@
 import type { WorldContext } from '../agents/director.js';
+import type { WorldInfoContext } from '../services/archivist.js';
 import type { IdeaItem } from '../agents/muse.js';
-import { buildWorldHeader, dataBlock } from './shared.js';
+import { buildWorldInfoHeader, buildWorldStyleHeader, toWorldStyleContext, dataBlock } from './shared.js';
 
-export function buildTasteSystemPrompt(worldContext: WorldContext): string {
+export function buildTasteSystemPrompt(worldInfoContext: WorldInfoContext, worldContext: WorldContext): string {
+  // Vibe & Atmosphere only — Curator selects among Muse's proposed angles,
+  // not final prose, so tone/writing-style guidance isn't its concern (Table 2).
+  const stylePairs = toWorldStyleContext(worldContext.styleConfig).filter((p) => p.name === 'Vibe & Atmosphere');
+  const worldBlock = [buildWorldInfoHeader(worldInfoContext), buildWorldStyleHeader(stylePairs)].filter(Boolean).join('\n');
+
   return `You are Curator for WorldArchitect, a fiction world-building tool.
 
-${buildWorldHeader(worldContext)}
+${worldBlock}
 
 Your task: you are given a list of thematic ideas Muse proposed for a fiction article's Description, and you select the best subset for the Scribe to actually write from.
 

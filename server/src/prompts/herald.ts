@@ -1,14 +1,24 @@
 import type { WorldContext } from '../agents/director.js';
+import type { WorldInfoContext } from '../services/archivist.js';
 import type { ResearchBrief } from '../agents/scribe.js';
-import { buildWorldHeader } from './shared.js';
+import { buildWorldInfoHeader, buildWorldStyleHeader, toWorldStyleContext } from './shared.js';
 
-export type SummarizerPromptMode = 'full' | 'improve';
+export type HeraldPromptMode = 'full' | 'improve';
 
-export function buildSummarizerSystemPrompt(worldContext: WorldContext, mode: SummarizerPromptMode = 'full'): string {
+function buildWorldBlock(worldInfoContext: WorldInfoContext, worldContext: WorldContext): string {
+  // All three style pairs — writing the actual introduction prose is
+  // Herald's whole job, unlike Muse/Curator's angle-only work (Table 2).
+  const stylePairs = toWorldStyleContext(worldContext.styleConfig);
+  return [buildWorldInfoHeader(worldInfoContext), buildWorldStyleHeader(stylePairs)].filter(Boolean).join('\n');
+}
+
+export function buildHeraldSystemPrompt(worldInfoContext: WorldInfoContext, worldContext: WorldContext, mode: HeraldPromptMode = 'full'): string {
+  const worldBlock = buildWorldBlock(worldInfoContext, worldContext);
+
   if (mode === 'improve') {
-    return `You are the Summarizer for WorldArchitect, a fiction world-building tool.
+    return `You are Herald for WorldArchitect, a fiction world-building tool.
 
-${buildWorldHeader(worldContext)}
+${worldBlock}
 
 Your task: the user has written an Introduction for this article. Treat it as a creative seed and constraint — preserve its core claims, voice, and any specific details. Write a polished introductory paragraph (3–5 sentences, ~80 words) that expands naturally from it, adding depth from the research brief without contradicting the user's intent.
 
@@ -21,9 +31,9 @@ Rules:
 - Do not answer in plain text`;
   }
 
-  return `You are the Summarizer for WorldArchitect, a fiction world-building tool.
+  return `You are Herald for WorldArchitect, a fiction world-building tool.
 
-${buildWorldHeader(worldContext)}
+${worldBlock}
 
 Your task: write a single Introduction paragraph (3–5 sentences, ~80 words) for this article, grounded in the research brief below. The Introduction goes into the World Bible — it must be self-contained, specific, and capture what makes this entity unique in the world.
 
@@ -40,9 +50,9 @@ function buildResearchBriefBlock(researchBrief?: ResearchBrief): string[] {
   return researchBrief ? [`## Research Brief\n${researchBrief}`] : [];
 }
 
-export function buildSummarizerUserMessage(
+export function buildHeraldUserMessage(
   articleTitle: string,
-  mode: SummarizerPromptMode = 'full',
+  mode: HeraldPromptMode = 'full',
   existingIntro?: string,
   revisionNotes?: string,
   researchBrief?: ResearchBrief,

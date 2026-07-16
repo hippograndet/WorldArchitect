@@ -3,15 +3,14 @@ import { MuseAgent } from './muse.js';
 import { CuratorAgent } from './curator.js';
 import { ResearcherAgent } from './researcher.js';
 import { ScribeAgent } from './scribe.js';
-import { ContinuityEditorAgent } from './continuityEditor.js';
-import { LorekeepAgent } from './lorekeeper.js';
-import { GroundingCheckAgent } from './groundingCheck.js';
+import { ArbiterAgent } from './arbiter.js';
+import { HeraldAgent } from './herald.js';
 import { CartographerAgent } from './cartographer.js';
-import { DedupCheckAgent } from './dedupCheck.js';
+import { GatekeeperAgent } from './gatekeeper.js';
 import { MentionExtractorAgent } from './mentionExtractor.js';
 import { WardenAgent } from './warden.js';
 import { SentinelAgent } from './sentinel.js';
-import { StyleWardenAgent } from './styleWarden.js';
+import { StylizerAgent } from './stylizer.js';
 import { LinterAgent } from './linter.js';
 import { FixerAgent } from './fixer.js';
 import { AuditorAgent } from './auditor.js';
@@ -53,10 +52,10 @@ export interface RunEstimateRequest {
   maxDepth?: number;
   maxChildren?: number;
   contextDepth?: 'shallow' | 'mid' | 'deep';
-  /** One global dial covering Continuity Editor, Grounding Check, and Dedup Check. */
+  /** One global dial covering Arbiter and Gatekeeper (Herald has no dedicated checker). */
   coherenceCheckLevel?: number;
   safetyNet?: boolean;
-  runStyleWarden?: boolean;
+  runStylizer?: boolean;
 }
 
 export interface RunEstimateResponse {
@@ -78,7 +77,7 @@ export const RunEstimateRequestSchema = z.object({
   contextDepth: z.enum(['shallow', 'mid', 'deep']).default('mid'),
   coherenceCheckLevel: z.number().int().min(0).max(3).optional(),
   safetyNet: z.boolean().optional(),
-  runStyleWarden: z.boolean().optional(),
+  runStylizer: z.boolean().optional(),
 });
 
 function allAgentInstances(): AnyAgent[] {
@@ -87,15 +86,14 @@ function allAgentInstances(): AnyAgent[] {
     new CuratorAgent(),
     new ResearcherAgent(),
     new ScribeAgent(),
-    new ContinuityEditorAgent(),
-    new LorekeepAgent(),
-    new GroundingCheckAgent(),
+    new ArbiterAgent(),
+    new HeraldAgent(),
     new CartographerAgent(),
-    new DedupCheckAgent(),
+    new GatekeeperAgent(),
     new MentionExtractorAgent(),
     new WardenAgent(),
     new SentinelAgent(),
-    new StyleWardenAgent(),
+    new StylizerAgent(),
     new LinterAgent(),
     new FixerAgent(),
     new AuditorAgent(),
@@ -181,11 +179,6 @@ function maxCheckerCalls(level: number, safetyNet?: boolean): number {
 function estimateInception(input: RunEstimateRequest): Map<string, { agentType: string; min: number; max: number }> {
   const out = new Map<string, { agentType: string; min: number; max: number }>();
   addAgent(out, 'lorekeeper');
-  const level = input.coherenceCheckLevel ?? 0;
-  if (level > 0) {
-    addAgent(out, 'grounding_check', 1, maxCheckerCalls(level, input.safetyNet));
-    addAgent(out, 'lorekeeper', 0, level);
-  }
   return out;
 }
 
@@ -200,7 +193,7 @@ function estimateExpansion(input: RunEstimateRequest): Map<string, { agentType: 
     addAgent(out, 'continuity_editor', 1, maxCheckerCalls(level, input.safetyNet));
     addAgent(out, 'scribe', 0, level);
   }
-  if (input.runStyleWarden) addAgent(out, 'style_warden');
+  if (input.runStylizer) addAgent(out, 'style_warden');
   return out;
 }
 
@@ -268,9 +261,9 @@ export function estimateRun(input: RunEstimateRequest): RunEstimateResponse {
 
 export function getPipelineTemplates(): PipelineTemplate[] {
   return [
-    { pipeline: 'inception', steps: [{ agentType: 'lorekeeper', min: 1, max: 2 }, { agentType: 'grounding_check', min: 0, max: 3, optional: true }], notes: ['Grounding Check runs up to coherenceCheckLevel check→revise cycles.'] },
-    { pipeline: 'expansion', steps: [{ agentType: 'researcher', min: 1, max: 1 }, { agentType: 'muse', min: 1, max: 1 }, { agentType: 'curator', min: 0, max: 1, optional: true }, { agentType: 'scribe', min: 1, max: 2 }, { agentType: 'continuity_editor', min: 0, max: 3, optional: true }, { agentType: 'style_warden', min: 0, max: 1, optional: true }], notes: ['Muse now produces the idea list directly (no separate direction-then-ideas stage); Continuity Editor runs up to coherenceCheckLevel check→revise cycles.'] },
-    { pipeline: 'branching', steps: [{ agentType: 'cartographer', min: 1, max: 1 }, { agentType: 'dedup_check', min: 0, max: 3, optional: true }], notes: ['Dedup Check runs up to coherenceCheckLevel check→revise cycles.'] },
+    { pipeline: 'inception', steps: [{ agentType: 'lorekeeper', min: 1, max: 1 }], notes: [] },
+    { pipeline: 'expansion', steps: [{ agentType: 'researcher', min: 1, max: 1 }, { agentType: 'muse', min: 1, max: 1 }, { agentType: 'curator', min: 0, max: 1, optional: true }, { agentType: 'scribe', min: 1, max: 2 }, { agentType: 'continuity_editor', min: 0, max: 3, optional: true }, { agentType: 'style_warden', min: 0, max: 1, optional: true }], notes: ['Muse now produces the idea list directly (no separate direction-then-ideas stage); Arbiter runs up to coherenceCheckLevel check→revise cycles.'] },
+    { pipeline: 'branching', steps: [{ agentType: 'cartographer', min: 1, max: 1 }, { agentType: 'dedup_check', min: 0, max: 3, optional: true }], notes: ['Gatekeeper runs up to coherenceCheckLevel check→revise cycles.'] },
     { pipeline: 'reorganize', steps: [...estimateStandalone('reorganize').values()], notes: [] },
     { pipeline: 'cohere', steps: [...estimateStandalone('cohere').values()], notes: ['Sparse worlds can skip the Warden call at runtime.'] },
     { pipeline: 'audit', steps: [...estimateStandalone('audit').values()], notes: [] },

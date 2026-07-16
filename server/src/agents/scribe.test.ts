@@ -74,6 +74,7 @@ describe('ScribeAgent free-text output', () => {
     completeMock.mockResolvedValueOnce(textResult('A clean description paragraph.'));
 
     const result = await new ScribeAgent().run('world-1', {
+      worldInfoContext: { worldId: 'world-1', title: 'Arros', introduction: '' },
       worldContext,
       mode: 'expand_description',
       articleTitle: contextPackage.targetTitle,
@@ -94,6 +95,7 @@ describe('ScribeAgent free-text output', () => {
     completeMock.mockResolvedValueOnce(textResult('   '));
 
     await expect(new ScribeAgent().run('world-1', {
+      worldInfoContext: { worldId: 'world-1', title: 'Arros', introduction: '' },
       worldContext,
       mode: 'expand_description',
       articleTitle: contextPackage.targetTitle,
@@ -105,6 +107,7 @@ describe('ScribeAgent free-text output', () => {
     completeMock.mockResolvedValueOnce(textResult('## Description\n\nA headed draft.'));
 
     await expect(new ScribeAgent().run('world-1', {
+      worldInfoContext: { worldId: 'world-1', title: 'Arros', introduction: '' },
       worldContext,
       mode: 'reorganize',
       articleTitle: contextPackage.targetTitle,
@@ -118,6 +121,7 @@ describe('ScribeAgent free-text output', () => {
       .mockResolvedValueOnce(textResult('A description after checking context.'));
 
     const result = await new ScribeAgent().run('world-1', {
+      worldInfoContext: { worldId: 'world-1', title: 'Arros', introduction: '' },
       worldContext,
       mode: 'expand_description',
       articleTitle: contextPackage.targetTitle,

@@ -14,7 +14,7 @@ export interface AgentStage {
   status: AgentStageStatus;
   call?: RunAgentCall;
   detail?: string;
-  /** Set on checker stages (grounding_check/continuity_editor/dedup_check): the generator agent it can send back to for revision. */
+  /** Set on checker stages (continuity_editor/dedup_check): the generator agent it can send back to for revision. */
   retryGeneratorAgentType?: string;
   /** Max check→revise cycles configured for this run (run.config.coherenceCheckLevel). */
   retryMax?: number;
@@ -22,21 +22,22 @@ export interface AgentStage {
   retryActual?: number;
 }
 
+// Keys are the DB-persisted agentType strings (unchanged since the Herald/
+// Arbiter/Gatekeeper/Stylizer rename — see dev-docs/reference/mas-overview.md's
+// aliases table); only the display labels reflect the new agent names.
 export const AGENT_LABELS: Record<string, string> = {
-  lorekeeper: 'Lorekeeper',
-  grounding_check: 'Grounding Check',
+  lorekeeper: 'Herald',
   muse: 'Muse',
   curator: 'Curator',
   researcher: 'Researcher',
   scribe: 'Scribe',
-  continuity_editor: 'Continuity Editor',
+  continuity_editor: 'Arbiter',
   cartographer: 'Cartographer',
-  dedup_check: 'Dedup Check',
+  dedup_check: 'Gatekeeper',
 };
 
 export const AGENT_TASKS: Record<string, string> = {
   lorekeeper: 'Intro',
-  grounding_check: 'Grounding',
   muse: 'Direction',
   curator: 'Select',
   researcher: 'Research',
@@ -48,7 +49,6 @@ export const AGENT_TASKS: Record<string, string> = {
 
 /** Checker agent → the generator agent it reviews and can send back for revision (see server's runCheckReviseLoop). */
 export const CHECKER_GENERATOR_PAIRS: Record<string, string> = {
-  grounding_check: 'lorekeeper',
   continuity_editor: 'scribe',
   dedup_check: 'cartographer',
 };
@@ -113,7 +113,6 @@ function agentStageDefinitions(run: RunWithEvents): Array<Omit<AgentStage, 'stat
     const coherenceCheckOn = (run.config.coherenceCheckLevel ?? 0) > 0;
     if (step === 'inception') {
       add(step, 'Introduction', 'lorekeeper');
-      if (coherenceCheckOn) add(step, 'Grounding', 'grounding_check');
     }
     if (step === 'expansion') {
       add(step, 'Direction', 'muse');
@@ -157,7 +156,7 @@ export function buildAgentStages(run: RunWithEvents, articleId: string | null): 
     latestReviewByKind.set(review.kind, review);
   }
 
-  // A checker (grounding_check/continuity_editor/dedup_check) can send its
+  // A checker (continuity_editor/dedup_check) can send its
   // generator back for revision up to run.config.coherenceCheckLevel times;
   // the generator agentType is step-specific (e.g. lorekeeper only appears in
   // Inception), so counting its calls here is unambiguous. The first call is

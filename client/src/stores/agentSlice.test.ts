@@ -150,7 +150,7 @@ describe('agentDiscard', () => {
     S().openAgentPanel('art1', 'Some Article', 'spark', 'cohere');
     store.setState((s) => {
       s.agentSelectedIdeas = [staleIdea];
-      s.agentStyleCheck = { issues: [], overallToneMatch: 'good', summary: 'stale summary' };
+      s.agentStyleCheck = { description: 'stale rewritten description' };
     });
 
     await S().agentDiscard('w1');

@@ -1,11 +1,11 @@
-import type { WorldContext } from '../agents/director.js';
+import type { WorldInfoContext } from '../services/archivist.js';
 import type { ResearchBrief } from '../agents/scribe.js';
-import { buildWorldHeader } from './shared.js';
+import { buildWorldInfoHeader } from './shared.js';
 
-export function buildChildProposerSystemPrompt(worldContext: WorldContext): string {
+export function buildChildProposerSystemPrompt(worldInfoContext: WorldInfoContext): string {
   return `You are the ChildProposer for WorldArchitect, a fiction world-building tool.
 
-${buildWorldHeader(worldContext)}
+${buildWorldInfoHeader(worldInfoContext)}
 
 Your task: given an existing article's Description and its current sub-articles (Subjects), propose 5 new child article concepts that would naturally belong under this article.
 

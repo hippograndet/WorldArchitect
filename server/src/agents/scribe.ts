@@ -7,6 +7,7 @@ import {
   type ExpanderMode,
 } from '../prompts/expander.js';
 import type { WorldContext } from './director.js';
+import type { WorldInfoContext } from '../services/archivist.js';
 import type { IdeaItem } from './muse.js';
 import { LOOKUP_NAMES_TOOL } from '../tools/context.js';
 import type { ChatMessage } from '../providers/types.js';
@@ -46,6 +47,7 @@ export type ScribeOutput =
  * reorganized (Scribe's own prior output, not neighborhood data).
  */
 export interface ScribeInput {
+  worldInfoContext: WorldInfoContext;
   worldContext: WorldContext;
   mode: ExpanderMode;
   articleTitle: string;
@@ -56,6 +58,14 @@ export interface ScribeInput {
   userSpec?: string;
   researchBrief?: ResearchBrief;
   wordCountPreset?: 'short' | 'medium' | 'long';
+  /**
+   * Only meaningful when mode === 'expand_description' (the other modes
+   * either never have prior content — create_root/create_child — or already
+   * have their own dedicated preservation rules — reorganize). 'full' (the
+   * default) ignores any existing currentDescription and writes fresh;
+   * 'improve' treats it as a seed/constraint, mirroring Herald's mode.
+   */
+  scribeMode?: 'full' | 'improve';
 }
 
 /** A flowing prose brief — not a rigid struct — covering established facts, watch-out-for tensions, and unexplored angles for one article. */
@@ -95,6 +105,7 @@ export class ScribeAgent extends BaseAgent<ScribeInput, ScribeOutput> {
 
   protected buildMessages(_worldId: string, input: ScribeInput): ChatMessage[] {
     this._mode = input.mode;
+    const scribeMode = input.scribeMode ?? 'full';
     const userContent = buildExpanderUserMessage(
       input.articleTitle,
       input.templateType,
@@ -104,9 +115,10 @@ export class ScribeAgent extends BaseAgent<ScribeInput, ScribeOutput> {
       input.userSpec,
       input.selectedIdeas,
       input.researchBrief,
+      scribeMode,
     );
     return [
-      { role: 'system', content: buildExpanderSystemPrompt(input.worldContext, input.mode, input.wordCountPreset) },
+      { role: 'system', content: buildExpanderSystemPrompt(input.worldInfoContext, input.worldContext, input.mode, input.wordCountPreset, scribeMode) },
       { role: 'user',   content: userContent },
     ];
   }

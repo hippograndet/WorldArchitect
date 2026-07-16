@@ -16,6 +16,7 @@ export async function museProposeNode(state: OrchestrationState): Promise<Partia
   const pkg = state.contextPackage!;
   const agent = new MuseAgent();
   const result = await agent.run(state.worldId, {
+    worldInfoContext: state.worldInfoContext!,
     worldContext: state.worldContext!,
     mode: state.proposalMode!,
     articleTitle: pkg.targetTitle,
@@ -41,6 +42,7 @@ export async function curatorAutoSelectNode(state: OrchestrationState): Promise<
     articleTitle: article?.title ?? '',
     articleTemplateType: article?.template_type ?? 'general',
     currentSummary: state.contextPackage?.targetIntroduction,
+    worldInfoContext: state.worldInfoContext!,
     worldContext: state.worldContext!,
     userSpec: state.userSpec,
   }, callCtx(state));
