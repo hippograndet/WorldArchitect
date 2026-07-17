@@ -65,6 +65,15 @@ export async function startConsolidateRun(params: {
       if (params.pipelineType === 'cohere') {
         if (!params.articleId) throw new Error('Coherence check requires an article target.');
         await addRunEvent(params.worldId, params.ownerId, params.runId, 'Coherence', title, true, 'Coherence check started.');
+        // Capture the version being reviewed before the (LLM-backed, possibly
+        // slow) check runs, not after, so a concurrent edit mid-check can't
+        // get incorrectly stamped as "reviewed" once the check completes.
+        const reviewedArticle = params.contextBasis === 'current'
+          ? await getDbClient().get<{ current_version_id: string | null }>(
+              `SELECT current_version_id FROM articles WHERE id = ? AND world_id = ? AND owner_id = ?`,
+              [params.articleId, params.worldId, params.ownerId],
+            )
+          : null;
         const result = await runCohereGraph({
           worldId: params.worldId,
           ownerId: params.ownerId,
@@ -85,6 +94,12 @@ export async function startConsolidateRun(params: {
             explanation: warning.description,
           })),
         });
+        if (reviewedArticle?.current_version_id) {
+          await getDbClient().run(
+            `UPDATE articles SET last_consolidated_version_id = ? WHERE id = ? AND owner_id = ?`,
+            [reviewedArticle.current_version_id, params.articleId, params.ownerId],
+          );
+        }
         await addRunEvent(params.worldId, params.ownerId, params.runId, 'Flags', title, true, `${result.warnings.length} flag${result.warnings.length === 1 ? '' : 's'} sent to Inbox.`);
       }
 

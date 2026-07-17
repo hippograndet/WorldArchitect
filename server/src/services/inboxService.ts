@@ -1,6 +1,6 @@
 import { getDbClient } from '../db/client.js';
 
-export type InboxLane = 'drafts' | 'publish' | 'flags' | 'suggestions' | 'concepts' | 'run_checkpoints' | 'history';
+export type InboxLane = 'publish' | 'flags' | 'suggestions' | 'run_history';
 
 type DbRow = Record<string, unknown>;
 
@@ -46,41 +46,14 @@ export async function listInboxItems(worldId: string, ownerId: string): Promise<
   const exec = getDbClient();
   const items: InboxItem[] = [];
 
-  const drafts = await exec.all<DbRow>(
-    `SELECT pd.*, a.title AS article_title
-       FROM pending_drafts pd
-       JOIN articles a ON a.id = pd.article_id AND a.owner_id = pd.owner_id
-      WHERE pd.world_id = ? AND pd.owner_id = ? AND pd.status = 'pending'
-      ORDER BY pd.created_at DESC
-      LIMIT 100`,
-    [worldId, ownerId],
-  );
-  for (const row of drafts) {
-    items.push({
-      id: row.id as string,
-      lane: 'drafts',
-      kind: row.pipeline_type as string,
-      title: (row.display_title as string | null) ?? `Draft for ${row.article_title as string}`,
-      status: row.status as string,
-      severity: null,
-      articleIds: [row.article_id as string],
-      createdAt: row.created_at as number,
-      source: (row.run_type as string | null) ?? (row.pipeline_type as string),
-      payload: {
-        articleTitle: row.article_title,
-        articleId: row.article_id,
-        draftId: row.id,
-        sourceRunId: row.source_run_id ?? null,
-        contextBasis: row.context_basis,
-      },
-    });
-  }
-
   const publishRows = await exec.all<DbRow>(
     `SELECT a.id, a.title, a.status, a.template_type, a.depth, a.updated_at,
             a.current_version_id, a.published_version_id,
             COALESCE(blocking.cnt, 0) AS blocking_issues,
-            COALESCE(warn.cnt, 0) AS warning_issues
+            COALESCE(warn.cnt, 0) AS warning_issues,
+            (SELECT pd.id FROM pending_drafts pd
+              WHERE pd.article_id = a.id AND pd.owner_id = a.owner_id AND pd.status = 'pending'
+              ORDER BY pd.created_at DESC LIMIT 1) AS pending_draft_id
        FROM articles a
        LEFT JOIN (
          SELECT article_id, COUNT(*) AS cnt
@@ -95,7 +68,14 @@ export async function listInboxItems(worldId: string, ownerId: string): Promise<
           GROUP BY article_id
        ) warn ON warn.article_id = a.id
       WHERE a.world_id = ? AND a.owner_id = ?
-        AND (a.status = 'draft' OR (a.status = 'published' AND a.current_version_id IS DISTINCT FROM a.published_version_id))
+        AND (
+          a.status = 'draft'
+          OR (a.status = 'published' AND a.current_version_id IS DISTINCT FROM a.published_version_id)
+          OR EXISTS (
+            SELECT 1 FROM pending_drafts pd2
+             WHERE pd2.article_id = a.id AND pd2.owner_id = a.owner_id AND pd2.status = 'pending'
+          )
+        )
       ORDER BY a.updated_at DESC
       LIMIT 100`,
     [ownerId, ownerId, worldId, ownerId],
@@ -120,6 +100,7 @@ export async function listInboxItems(worldId: string, ownerId: string): Promise<
         warningIssues: warnings,
         currentVersionId: row.current_version_id ?? null,
         publishedVersionId: row.published_version_id ?? null,
+        pendingDraftId: row.pending_draft_id ?? null,
       },
     });
   }
@@ -224,7 +205,7 @@ export async function listInboxItems(worldId: string, ownerId: string): Promise<
   for (const row of mentions) {
     items.push({
       id: row.id as string,
-      lane: 'concepts',
+      lane: 'suggestions',
       kind: 'entity_mention',
       title: row.title as string,
       status: row.status as string,
@@ -256,7 +237,7 @@ export async function listInboxItems(worldId: string, ownerId: string): Promise<
     const payload = parseJsonObject(row.payload_json);
     items.push({
       id: row.id as string,
-      lane: 'run_checkpoints',
+      lane: 'run_history',
       kind: row.kind as string,
       title: typeof payload.title === 'string' ? payload.title : `${row.step as string} review`,
       status: row.status as string,
@@ -269,6 +250,7 @@ export async function listInboxItems(worldId: string, ownerId: string): Promise<
         runId: row.run_id,
         runStatus: row.run_status,
         graphType: row.graph_type,
+        stage: 'active',
       },
     });
   }
@@ -284,7 +266,7 @@ export async function listInboxItems(worldId: string, ownerId: string): Promise<
   for (const row of history) {
     items.push({
       id: row.id as string,
-      lane: 'history',
+      lane: 'run_history',
       kind: 'run',
       title: `${row.graph_type as string} run`,
       status: row.status as string,
@@ -294,6 +276,7 @@ export async function listInboxItems(worldId: string, ownerId: string): Promise<
       source: row.graph_type as string,
       payload: {
         errorMessage: row.error_message ?? null,
+        stage: 'terminal',
       },
     });
   }
@@ -305,7 +288,8 @@ export async function listInboxItems(worldId: string, ownerId: string): Promise<
 export async function countInboxItems(worldId: string, ownerId: string): Promise<InboxCount> {
   const items = await listInboxItems(worldId, ownerId);
   const byLane = items.reduce<Partial<Record<InboxLane, number>>>((acc, item) => {
-    if (item.lane !== 'history') acc[item.lane] = (acc[item.lane] ?? 0) + 1;
+    if (item.lane === 'run_history' && item.payload.stage !== 'active') return acc;
+    acc[item.lane] = (acc[item.lane] ?? 0) + 1;
     return acc;
   }, {});
   return {

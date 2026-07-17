@@ -464,9 +464,7 @@ export const api = {
 
   publish: {
     staged:  (wid: string) =>
-      get<Array<{ id: string; title: string; status: string; templateType: string; depth: number; blockingIssues: number; warningIssues: number; health: string; updatedAt: number }>>(`/worlds/${wid}/publish/staged`),
-    check:   (wid: string, articleIds: string[]) =>
-      post<{ summary: { blocking: number; warnings: number; clean: number }; issues: import('../types/world.js').ArticleIssue[] }>(`/worlds/${wid}/publish/check`, { articleIds }),
+      get<Array<{ id: string; title: string; status: string; templateType: string; depth: number; blockingIssues: number; warningIssues: number; health: string; updatedAt: number; pendingDraftId: string | null; currentVersionId: string | null; publishedVersionId: string | null; needsConsolidate: boolean }>>(`/worlds/${wid}/publish/staged`),
     commit:  (wid: string, articleIds: string[], force?: boolean) =>
       post<{ published: string[]; publishedAt: number }>(`/worlds/${wid}/publish/commit`, { articleIds, force }),
     history: (wid: string) =>

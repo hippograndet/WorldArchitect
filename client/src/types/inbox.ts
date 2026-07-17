@@ -1,4 +1,4 @@
-export type InboxLane = 'drafts' | 'publish' | 'flags' | 'suggestions' | 'concepts' | 'run_checkpoints' | 'history';
+export type InboxLane = 'publish' | 'flags' | 'suggestions' | 'run_history';
 
 export interface InboxItem {
   id: string;

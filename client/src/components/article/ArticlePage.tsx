@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ExternalLink, Pencil, Settings } from 'lucide-react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useStore } from '../../stores/index.ts';
+import { draftPhase } from '../../lib/articleVersions.ts';
 import MarkdownSectionEditor, { type MarkdownSectionEditorHandle } from './MarkdownSectionEditor.tsx';
 import AddSubsectionDialog from './AddSubsectionDialog.tsx';
 import ArticleInfoSidebar from './ArticleInfoSidebar.tsx';
@@ -48,11 +49,6 @@ export default function ArticlePage() {
   const viewedVersion = selectedVersionId ? versions.find((v) => v.id === selectedVersionId) ?? null : null;
   const displayIntroduction = viewedVersion ? viewedVersion.introduction : introduction;
   const displayDescription = viewedVersion ? viewedVersion.description : description;
-
-  function draftPhase(v: { introduction: string; description: string; id: string }): string {
-    if (!v.introduction && !v.description) return 'stub';
-    return v.id === article.publishedVersionId ? 'published' : 'draft';
-  }
 
   const handleOpenExpand = () => {
     if (!wid || !aid) return;
@@ -114,7 +110,7 @@ export default function ArticlePage() {
           >
             {versions.map((v) => (
               <option key={v.id} value={v.id}>
-                v{v.versionNumber} · {draftPhase(v)} · {new Date(v.createdAt).toLocaleDateString()}
+                v{v.versionNumber} · {draftPhase(v, article.publishedVersionId)} · {new Date(v.createdAt).toLocaleDateString()}
               </option>
             ))}
           </select>

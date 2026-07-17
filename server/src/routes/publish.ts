@@ -2,7 +2,6 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { nanoid } from 'nanoid';
 import { getDbClient } from '../db/client.js';
-import { runSyncRules } from '../services/syncRules.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
 import { requireTenantContext } from '../tenant.js';
 
@@ -17,12 +16,17 @@ type DbRow = Record<string, unknown>;
 
 router.get('/staged', asyncHandler(async (req, res) => {
   const { worldId, ownerId } = requireTenantContext(req);
+  const exec = getDbClient();
 
-  const articles = await getDbClient().all<DbRow>(`
+  const articles = await exec.all<DbRow>(`
     SELECT a.id, a.title, a.status, a.template_type, a.depth, a.updated_at,
+           a.current_version_id, a.published_version_id, a.last_consolidated_version_id,
            a.published_version_id IS NOT NULL AS previously_published,
            COALESCE(blocking.cnt, 0) AS blocking_issues,
-           COALESCE(warn.cnt, 0) AS warning_issues
+           COALESCE(warn.cnt, 0) AS warning_issues,
+           (SELECT pd.id FROM pending_drafts pd
+             WHERE pd.article_id = a.id AND pd.owner_id = a.owner_id AND pd.status = 'pending'
+             ORDER BY pd.created_at DESC LIMIT 1) AS pending_draft_id
     FROM articles a
     LEFT JOIN (
       SELECT article_id, COUNT(*) AS cnt
@@ -35,7 +39,14 @@ router.get('/staged', asyncHandler(async (req, res) => {
       GROUP BY article_id
     ) warn ON warn.article_id = a.id
     WHERE a.world_id = ? AND a.owner_id = ?
-      AND (a.status = 'draft' OR (a.status = 'published' AND a.current_version_id IS DISTINCT FROM a.published_version_id))
+      AND (
+        a.status = 'draft'
+        OR (a.status = 'published' AND a.current_version_id IS DISTINCT FROM a.published_version_id)
+        OR EXISTS (
+          SELECT 1 FROM pending_drafts pd2
+           WHERE pd2.article_id = a.id AND pd2.owner_id = a.owner_id AND pd2.status = 'pending'
+        )
+      )
     ORDER BY a.depth ASC, a.title ASC
   `, [ownerId, ownerId, worldId, ownerId]);
 
@@ -49,66 +60,14 @@ router.get('/staged', asyncHandler(async (req, res) => {
     previouslyPublished: Boolean(a.previously_published),
     blockingIssues: a.blocking_issues,
     warningIssues: a.warning_issues,
+    pendingDraftId: a.pending_draft_id ?? null,
+    currentVersionId: a.current_version_id ?? null,
+    publishedVersionId: a.published_version_id ?? null,
+    needsConsolidate: a.current_version_id != null && a.last_consolidated_version_id !== a.current_version_id,
     health: (a.blocking_issues as number) > 0 ? 'blocking'
            : (a.warning_issues as number) > 0 ? 'warnings'
            : 'clean',
   })));
-}));
-
-// ---------------------------------------------------------------------------
-// POST /api/worlds/:wid/publish/check
-// Run pre-publish checks on a set of article IDs
-// ---------------------------------------------------------------------------
-
-const CheckSchema = z.object({
-  articleIds: z.array(z.string()).min(1).max(100),
-});
-
-router.post('/check', asyncHandler(async (req, res) => {
-  const parse = CheckSchema.safeParse(req.body);
-  if (!parse.success) {
-    res.status(400).json({ error: parse.error.flatten().fieldErrors });
-    return;
-  }
-
-  const { worldId, ownerId } = requireTenantContext(req);
-  const { articleIds } = parse.data;
-
-  // Re-run sync rules for freshness
-  for (const aid of articleIds) {
-    await runSyncRules(worldId, aid);
-  }
-
-  const placeholders = articleIds.map(() => '?').join(', ');
-  const issues = await getDbClient().all<DbRow>(`
-    SELECT ai.*, a.title AS article_title
-    FROM article_issues ai
-    JOIN articles a ON a.id = ai.article_id
-    WHERE ai.owner_id = ? AND a.world_id = ? AND a.owner_id = ? AND ai.article_id IN (${placeholders}) AND ai.status = 'open'
-    ORDER BY ai.severity DESC, ai.created_at DESC
-  `, [ownerId, worldId, ownerId, ...articleIds]);
-
-  const summary = {
-    blocking: issues.filter(i => i.severity === 'blocking').length,
-    warnings: issues.filter(i => i.severity === 'warning').length,
-    clean: articleIds.filter(aid => !issues.some(i => i.article_id === aid)).length,
-  };
-
-  res.json({
-    summary,
-    issues: issues.map(i => ({
-      id: i.id,
-      articleId: i.article_id,
-      articleTitle: i.article_title,
-      source: i.source,
-      severity: i.severity,
-      code: i.code,
-      excerpt: i.excerpt ?? null,
-      explanation: i.explanation,
-      suggestion: i.suggestion ?? null,
-      status: i.status,
-    })),
-  });
 }));
 
 // ---------------------------------------------------------------------------

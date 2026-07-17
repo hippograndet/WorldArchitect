@@ -11,7 +11,6 @@ const WORLD_SUB_LINKS = [
   { label: 'Grow',      path: 'grow' },
   { label: 'Consolidate', path: 'consolidate' },
   { label: 'Inbox',     path: 'inbox' },
-  { label: 'Publish',   path: 'publish' },
   { label: 'World Settings', path: 'settings' },
 ];
 

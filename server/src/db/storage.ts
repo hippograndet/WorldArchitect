@@ -23,6 +23,7 @@ export const POSTGRES_MIGRATIONS = [
   '014_publish_pointer_and_link_provenance.sql',
   '015_world_root_article.sql',
   '016_run_queue_items.sql',
+  '017_article_consolidation_pointer.sql',
 ] as const;
 
 export type StorageHealth = {

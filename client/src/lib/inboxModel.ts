@@ -1,14 +1,11 @@
-import { GitPullRequestArrow, Inbox, Send } from 'lucide-react';
+import { GitPullRequestArrow, History, Inbox, Send } from 'lucide-react';
 import type { InboxItem, InboxLane } from '../types/inbox.ts';
 
 export const INBOX_LANES: Array<{ id: InboxLane; label: string }> = [
-  { id: 'drafts', label: 'Drafts' },
   { id: 'publish', label: 'Publish' },
   { id: 'flags', label: 'Flags' },
   { id: 'suggestions', label: 'Suggestions' },
-  { id: 'concepts', label: 'Concepts' },
-  { id: 'run_checkpoints', label: 'Run checkpoints' },
-  { id: 'history', label: 'History' },
+  { id: 'run_history', label: 'Run History' },
 ];
 
 export const INBOX_LANE_LABEL: Record<InboxLane, string> = Object.fromEntries(
@@ -54,5 +51,6 @@ export function relativeTime(ts: number): string {
 export function laneIcon(lane: InboxLane) {
   if (lane === 'publish') return Send;
   if (lane === 'suggestions') return GitPullRequestArrow;
+  if (lane === 'run_history') return History;
   return Inbox;
 }

@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Check, ExternalLink, RefreshCw, Send, X } from 'lucide-react';
+import { Check, ExternalLink, GitPullRequestArrow, RefreshCw, X } from 'lucide-react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { api } from '../lib/api.ts';
 import WorkspaceLayout from '../components/shared/WorkspaceLayout.tsx';
 import LabelBadge from '../components/shared/LabelBadge.tsx';
-import PublishDiffPreview from '../components/shared/PublishDiffPreview.tsx';
+import PublishPanel from '../components/publish/PublishPanel.tsx';
 import type { InboxItem, InboxLane } from '../types/inbox.ts';
 import { useStore } from '../stores/index.ts';
 import {
@@ -13,7 +13,6 @@ import {
   INBOX_SEVERITY_COLOR,
   INBOX_STATUS_COLOR,
   laneIcon,
-  payloadNumber,
   payloadString,
   relativeTime,
 } from '../lib/inboxModel.ts';
@@ -22,8 +21,12 @@ export default function InboxPage() {
   const { wid } = useParams<{ wid: string }>();
   const [searchParams] = useSearchParams();
   const articleFilter = searchParams.get('article');
+  const laneParam = searchParams.get('lane') as InboxLane | null;
+  const initialLane: InboxLane = articleFilter
+    ? 'flags'
+    : laneParam && INBOX_LANES.some((l) => l.id === laneParam) ? laneParam : 'flags';
   const [items, setItems] = useState<InboxItem[]>([]);
-  const [selectedLane, setSelectedLane] = useState<InboxLane>(articleFilter ? 'flags' : 'drafts');
+  const [selectedLane, setSelectedLane] = useState<InboxLane>(initialLane);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -60,6 +63,12 @@ export default function InboxPage() {
     () => filteredItems.filter((item) => item.lane === selectedLane),
     [filteredItems, selectedLane],
   );
+  const flagArticleItems = useMemo(() => laneItems.filter((item) => item.kind === 'article_issue'), [laneItems]);
+  const flagWorldItems = useMemo(() => laneItems.filter((item) => item.kind === 'world_issue'), [laneItems]);
+  const suggestionLinkItems = useMemo(() => laneItems.filter((item) => item.kind === 'edge_proposal'), [laneItems]);
+  const suggestionConceptItems = useMemo(() => laneItems.filter((item) => item.kind === 'entity_mention'), [laneItems]);
+  const runActiveItems = useMemo(() => laneItems.filter((item) => payloadString(item, 'stage') === 'active'), [laneItems]);
+  const runTerminalItems = useMemo(() => laneItems.filter((item) => payloadString(item, 'stage') === 'terminal'), [laneItems]);
   const selectedItem = items.find((item) => item.id === selectedId) ?? laneItems[0] ?? null;
 
   useEffect(() => {
@@ -84,37 +93,7 @@ export default function InboxPage() {
 
   const renderActions = (item: InboxItem) => {
     const articleId = item.articleIds[0];
-    const draftId = payloadString(item, 'draftId');
     const isBusy = busyId === item.id;
-
-    if (item.lane === 'drafts' && articleId && draftId) {
-      return (
-        <>
-          <button
-            disabled={isBusy}
-            onClick={() => runAction(item, () => api.articles.draft.acceptById(wid, articleId, draftId), 'Draft accepted.')}
-            className="inline-flex items-center gap-1.5 rounded-md bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700 disabled:opacity-50"
-          >
-            <Check size={13} /> Accept
-          </button>
-          <button
-            disabled={isBusy}
-            onClick={() => runAction(item, () => api.articles.draft.discardById(wid, articleId, draftId), 'Draft discarded.')}
-            className="inline-flex items-center gap-1.5 rounded-md border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50"
-          >
-            <X size={13} /> Discard
-          </button>
-        </>
-      );
-    }
-
-    if (item.lane === 'publish') {
-      return (
-        <Link to={`/worlds/${wid}/publish`} className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700">
-          <Send size={13} /> Open Publish
-        </Link>
-      );
-    }
 
     if (item.kind === 'article_issue' && articleId) {
       return (
@@ -182,7 +161,7 @@ export default function InboxPage() {
       );
     }
 
-    if (item.lane === 'run_checkpoints') {
+    if (item.lane === 'run_history' && payloadString(item, 'stage') === 'active') {
       const runId = payloadString(item, 'runId');
       const graphType = payloadString(item, 'graphType');
       const target = graphType === 'consolidate' ? 'consolidate' : 'grow';
@@ -199,6 +178,32 @@ export default function InboxPage() {
       </Link>
     ) : null;
   };
+
+  const renderLaneItemButton = (item: InboxItem) => (
+    <button
+      key={item.id}
+      onClick={() => setSelectedId(item.id)}
+      className={`block w-full border-b border-gray-100 px-4 py-3 text-left transition-colors ${
+        selectedItem?.id === item.id ? 'bg-blue-50' : 'hover:bg-gray-50'
+      }`}
+    >
+      <div className="flex items-start gap-2">
+        {item.kind === 'edge_proposal' ? (
+          <GitPullRequestArrow size={14} className="mt-0.5 shrink-0 text-blue-400" />
+        ) : (
+          item.severity && <span className={`mt-1 h-2 w-2 rounded-full ${item.severity === 'blocking' || item.severity === 'conflict' ? 'bg-red-500' : 'bg-amber-400'}`} />
+        )}
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium text-gray-900" title={item.title}>{item.title}</p>
+          <p className="mt-1 text-xs text-gray-400">{item.source} · {relativeTime(item.createdAt)}</p>
+        </div>
+      </div>
+    </button>
+  );
+
+  const renderLaneGroupHeading = (label: string) => (
+    <p className="sticky top-0 z-10 border-b border-gray-100 bg-gray-50 px-4 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-gray-500">{label}</p>
+  );
 
   return (
     <WorkspaceLayout
@@ -252,94 +257,126 @@ export default function InboxPage() {
             </div>
           </div>
 
-          <div className="grid grid-cols-[minmax(260px,360px)_1fr] overflow-hidden rounded-xl border border-gray-200 bg-white">
-            <div className="max-h-[680px] overflow-y-auto border-r border-gray-100">
-              {loading ? (
-                <p className="p-4 text-sm text-gray-400">Loading...</p>
-              ) : laneItems.length === 0 ? (
-                <p className="p-4 text-sm text-gray-400">Nothing in this lane.</p>
-              ) : (
-                laneItems.map((item) => (
-                  <button
-                    key={item.id}
-                    onClick={() => setSelectedId(item.id)}
-                    className={`block w-full border-b border-gray-100 px-4 py-3 text-left transition-colors ${
-                      selectedItem?.id === item.id ? 'bg-blue-50' : 'hover:bg-gray-50'
-                    }`}
-                  >
-                    <div className="flex items-start gap-2">
-                      {item.severity && <span className={`mt-1 h-2 w-2 rounded-full ${item.severity === 'blocking' || item.severity === 'conflict' ? 'bg-red-500' : 'bg-amber-400'}`} />}
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium text-gray-900" title={item.title}>{item.title}</p>
-                        <p className="mt-1 text-xs text-gray-400">{item.source} · {relativeTime(item.createdAt)}</p>
+          {selectedLane === 'publish' ? (
+            <div className="h-[680px] overflow-hidden rounded-xl border border-gray-200 bg-white">
+              <PublishPanel
+                wid={wid}
+                onPublished={() => {
+                  loadInbox().catch(console.error);
+                  loadTree(wid).catch(console.error);
+                }}
+              />
+            </div>
+          ) : (
+            <div className="grid grid-cols-[minmax(260px,360px)_1fr] overflow-hidden rounded-xl border border-gray-200 bg-white">
+              <div className="max-h-[680px] overflow-y-auto border-r border-gray-100">
+                {loading ? (
+                  <p className="p-4 text-sm text-gray-400">Loading...</p>
+                ) : laneItems.length === 0 ? (
+                  <p className="p-4 text-sm text-gray-400">Nothing in this lane.</p>
+                ) : selectedLane === 'flags' ? (
+                  <>
+                    {flagArticleItems.length > 0 && (
+                      <div>
+                        {renderLaneGroupHeading('Article-level')}
+                        {flagArticleItems.map(renderLaneItemButton)}
                       </div>
+                    )}
+                    {flagWorldItems.length > 0 && (
+                      <div>
+                        {renderLaneGroupHeading('World-level')}
+                        {flagWorldItems.map(renderLaneItemButton)}
+                      </div>
+                    )}
+                  </>
+                ) : selectedLane === 'suggestions' ? (
+                  <>
+                    {suggestionLinkItems.length > 0 && (
+                      <div>
+                        {renderLaneGroupHeading('Suggested links')}
+                        {suggestionLinkItems.map(renderLaneItemButton)}
+                      </div>
+                    )}
+                    {suggestionConceptItems.length > 0 && (
+                      <div>
+                        {renderLaneGroupHeading('New articles')}
+                        {suggestionConceptItems.map(renderLaneItemButton)}
+                      </div>
+                    )}
+                  </>
+                ) : selectedLane === 'run_history' ? (
+                  <>
+                    {runActiveItems.length > 0 && (
+                      <div>
+                        {renderLaneGroupHeading('Needs attention')}
+                        {runActiveItems.map(renderLaneItemButton)}
+                      </div>
+                    )}
+                    {runTerminalItems.length > 0 && (
+                      <div>
+                        {renderLaneGroupHeading('Completed')}
+                        {runTerminalItems.map(renderLaneItemButton)}
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  laneItems.map(renderLaneItemButton)
+                )}
+              </div>
+
+              <div className="min-h-[520px] p-6">
+                {!selectedItem ? (
+                  <p className="text-sm text-gray-400">Select an item to review.</p>
+                ) : (
+                  <div className="space-y-5">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <LabelBadge label={INBOX_LANE_LABEL[selectedItem.lane]} colorClass="bg-gray-100 text-gray-700" />
+                      <LabelBadge label={selectedItem.status.replace('_', ' ')} colorClass={INBOX_STATUS_COLOR[selectedItem.status] ?? 'bg-gray-100 text-gray-600'} />
+                      {selectedItem.severity && <LabelBadge label={selectedItem.severity} colorClass={INBOX_SEVERITY_COLOR[selectedItem.severity] ?? 'bg-gray-100 text-gray-600'} />}
+                      {(selectedItem.lane === 'flags' || selectedItem.lane === 'suggestions') && <LabelBadge label={selectedItem.source} colorClass="bg-purple-100 text-purple-700" />}
                     </div>
-                  </button>
-                ))
-              )}
+                    <div>
+                      <h3 className="text-xl font-semibold text-gray-900">{selectedItem.title}</h3>
+                      <p className="mt-1 text-xs text-gray-400">{selectedItem.kind} · {relativeTime(selectedItem.createdAt)}</p>
+                    </div>
+
+                    {selectedItem.articleIds.length > 0 && (
+                      <div className="flex flex-wrap gap-2">
+                        {selectedItem.articleIds.map((articleId) => (
+                          <Link key={articleId} to={`/worlds/${wid}/articles/${articleId}`} className="rounded-md border border-gray-200 bg-gray-50 px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-100">
+                            {articleId === payloadString(selectedItem, 'articleId') && payloadString(selectedItem, 'articleTitle')
+                              ? payloadString(selectedItem, 'articleTitle')
+                              : articleId}
+                          </Link>
+                        ))}
+                      </div>
+                    )}
+
+                    {selectedItem.kind === 'article_issue' && payloadString(selectedItem, 'excerpt') && (
+                      <div className="rounded-md border border-gray-100 bg-gray-50 px-3 py-2 font-mono text-xs text-gray-600">
+                        {payloadString(selectedItem, 'excerpt')}
+                      </div>
+                    )}
+                    {selectedItem.kind === 'edge_proposal' && payloadString(selectedItem, 'rationale') && (
+                      <p className="text-sm leading-relaxed text-gray-700">{payloadString(selectedItem, 'rationale')}</p>
+                    )}
+                    {selectedItem.kind === 'entity_mention' && payloadString(selectedItem, 'summary') && (
+                      <p className="text-sm leading-relaxed text-gray-700">{payloadString(selectedItem, 'summary')}</p>
+                    )}
+                    {selectedItem.lane === 'run_history' && payloadString(selectedItem, 'errorMessage') && (
+                      <div className="rounded-md border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-700">
+                        {payloadString(selectedItem, 'errorMessage')}
+                      </div>
+                    )}
+
+                    <div className="flex flex-wrap gap-2 border-t border-gray-100 pt-4">
+                      {renderActions(selectedItem)}
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
-
-            <div className="min-h-[520px] p-6">
-              {!selectedItem ? (
-                <p className="text-sm text-gray-400">Select an item to review.</p>
-              ) : (
-                <div className="space-y-5">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <LabelBadge label={INBOX_LANE_LABEL[selectedItem.lane]} colorClass="bg-gray-100 text-gray-700" />
-                    <LabelBadge label={selectedItem.status.replace('_', ' ')} colorClass={INBOX_STATUS_COLOR[selectedItem.status] ?? 'bg-gray-100 text-gray-600'} />
-                    {selectedItem.severity && <LabelBadge label={selectedItem.severity} colorClass={INBOX_SEVERITY_COLOR[selectedItem.severity] ?? 'bg-gray-100 text-gray-600'} />}
-                  </div>
-                  <div>
-                    <h3 className="text-xl font-semibold text-gray-900">{selectedItem.title}</h3>
-                    <p className="mt-1 text-xs text-gray-400">{selectedItem.kind} · {relativeTime(selectedItem.createdAt)}</p>
-                  </div>
-
-                  {selectedItem.articleIds.length > 0 && (
-                    <div className="flex flex-wrap gap-2">
-                      {selectedItem.articleIds.map((articleId) => (
-                        <Link key={articleId} to={`/worlds/${wid}/articles/${articleId}`} className="rounded-md border border-gray-200 bg-gray-50 px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-100">
-                          {articleId === payloadString(selectedItem, 'articleId') && payloadString(selectedItem, 'articleTitle')
-                            ? payloadString(selectedItem, 'articleTitle')
-                            : articleId}
-                        </Link>
-                      ))}
-                    </div>
-                  )}
-
-                  {selectedItem.kind === 'article_issue' && payloadString(selectedItem, 'excerpt') && (
-                    <div className="rounded-md border border-gray-100 bg-gray-50 px-3 py-2 font-mono text-xs text-gray-600">
-                      {payloadString(selectedItem, 'excerpt')}
-                    </div>
-                  )}
-                  {selectedItem.kind === 'edge_proposal' && payloadString(selectedItem, 'rationale') && (
-                    <p className="text-sm leading-relaxed text-gray-700">{payloadString(selectedItem, 'rationale')}</p>
-                  )}
-                  {selectedItem.kind === 'entity_mention' && payloadString(selectedItem, 'summary') && (
-                    <p className="text-sm leading-relaxed text-gray-700">{payloadString(selectedItem, 'summary')}</p>
-                  )}
-                  {selectedItem.lane === 'publish' && (
-                    <>
-                      <p className="text-sm text-gray-600">
-                        {payloadNumber(selectedItem, 'blockingIssues')} blocking issue(s), {payloadNumber(selectedItem, 'warningIssues')} warning(s).
-                      </p>
-                      {selectedItem.articleIds[0] && (
-                        <PublishDiffPreview
-                          wid={wid}
-                          articleId={selectedItem.articleIds[0]}
-                          currentVersionId={payloadString(selectedItem, 'currentVersionId')}
-                          publishedVersionId={payloadString(selectedItem, 'publishedVersionId')}
-                        />
-                      )}
-                    </>
-                  )}
-
-                  <div className="flex flex-wrap gap-2 border-t border-gray-100 pt-4">
-                    {renderActions(selectedItem)}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
+          )}
         </div>
       }
       right={null}
