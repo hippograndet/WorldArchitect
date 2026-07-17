@@ -21,6 +21,14 @@ export interface RunRow {
   updatedAt: number;
 }
 
+// TODO(forge-rename): drop once the 'expand' -> 'forge' graph_type backfill migration
+// has run in every environment (see dev-docs/reference/glossary.md's Forge row).
+// Exported so other raw graph_type readers (e.g. inboxService.ts) stay consistent
+// with this table's single normalization point instead of re-deriving their own.
+export function normalizeGraphType(graphType: string): string {
+  return graphType === 'expand' ? 'forge' : graphType;
+}
+
 function parseRun(row: Record<string, unknown>): RunRow {
   const rawConfig = typeof row.run_config === 'string' ? row.run_config : '{}';
   let config: Record<string, unknown> = {};
@@ -38,7 +46,7 @@ function parseRun(row: Record<string, unknown>): RunRow {
     worldId: row.world_id as string,
     ownerId: row.owner_id as string,
     status: row.status as string,
-    graphType: row.graph_type as string,
+    graphType: normalizeGraphType(row.graph_type as string),
     checkpointId: row.checkpoint_id as string,
     articleIds: JSON.parse((row.article_ids as string) || '[]'),
     budgetUsed: row.budget_used as number,
@@ -90,7 +98,7 @@ export async function createRun(params: {
         runId,
         params.worldId,
         params.ownerId,
-        params.graphType ?? 'expand',
+        params.graphType ?? 'forge',
         runId,
         JSON.stringify(params.articleIds),
         params.budgetLimit ?? 200_000,
@@ -314,7 +322,7 @@ export async function cancelRun(worldId: string, ownerId: string, runId: string)
 
 /**
  * Fail-fast guard for manual agent routes (routes/agents.ts): reject before
- * spending an LLM call on an article an active Spark run already holds the
+ * spending an LLM call on an article an active Forge run already holds the
  * lock on. `articlesService.ts`'s `assertNotLocked` is the second,
  * defense-in-depth layer at the actual write chokepoint — this one exists
  * purely to avoid wasting a provider call on a request that would fail anyway.

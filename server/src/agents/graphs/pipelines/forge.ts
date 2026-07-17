@@ -2,8 +2,8 @@ import { StateGraph } from '@langchain/langgraph';
 import { nanoid } from 'nanoid';
 import { OrchestrationAnnotation } from '../state.js';
 import { fetchWorldContextNode, buildContextPackageNode } from '../nodes/shared.js';
-import { researcherNode } from '../nodes/expand/research.js';
-import { scribeNode, deriveIntroFromChildDescriptionNode, stylizerNode } from '../nodes/expand/draft.js';
+import { researcherNode } from '../nodes/forge/research.js';
+import { scribeNode, deriveIntroFromChildDescriptionNode, stylizerNode } from '../nodes/forge/draft.js';
 import { articleContract, contractState, expanderIntent } from '../masContract.js';
 import type { ContextDepth, ArchivistMode, ContextPackage, WorldInfoContext } from '../../../services/archivist.js';
 import type { DraftContextBasis } from '../../../services/draftsService.js';
@@ -30,7 +30,7 @@ const graph = new StateGraph(OrchestrationAnnotation)
   .addEdge('deriveIntroFromChildDescription', '__end__')
   .compile();
 
-export interface ExpandGraphOutput {
+export interface ForgeGraphOutput {
   description: string;
   introduction?: string;
   parentUpdate?: { appendText: string };
@@ -41,7 +41,7 @@ export interface ExpandGraphOutput {
   tokensOut: number;
 }
 
-export async function runExpandGraph(params: {
+export async function runForgeGraph(params: {
   worldId: string;
   ownerId?: string;
   articleId: string;
@@ -67,7 +67,7 @@ export async function runExpandGraph(params: {
    */
   contextPackage?: ContextPackage;
   researchBrief?: ResearchBrief;
-}): Promise<ExpandGraphOutput> {
+}): Promise<ForgeGraphOutput> {
   const contextMode: ArchivistMode = params.pipelineType === 'reorganize' ? 'reorganize' : 'default';
   const cachedContextPackage = contextMode === 'default' ? params.contextPackage : undefined;
 
@@ -76,7 +76,7 @@ export async function runExpandGraph(params: {
     ownerId: params.ownerId,
     articleId: params.articleId,
     pipelineRunId: params.pipelineRunId ?? nanoid(),
-    pipelineType: 'expand',
+    pipelineType: 'forge',
     ...contractState(articleContract({
       articleId: params.articleId,
       intent: expanderIntent(params.pipelineType),

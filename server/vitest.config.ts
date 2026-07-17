@@ -13,7 +13,7 @@ export default defineConfig({
       'src/agents/director.test.ts',
       'src/agents/scribe.test.ts',
       'src/agents/graphs/forgeGraph.test.ts',
-      'src/agents/graphs/pipelines/expand.test.ts',
+      'src/agents/graphs/pipelines/forge.test.ts',
       'src/agents/graphs/masContract.test.ts',
       'src/agents/graphs/nodes.test.ts',
       'src/agents/toolAccess.test.ts',

@@ -8,7 +8,7 @@ import { buildContextPackage } from '../../../services/archivist.js';
 import { runResearchGraph } from '../pipelines/research.js';
 import { runInceptionGraph } from '../pipelines/inception.js';
 import { runProposeGraph } from '../pipelines/propose.js';
-import { runExpandGraph } from '../pipelines/expand.js';
+import { runForgeGraph } from '../pipelines/forge.js';
 import { runProposeChildrenGraph } from '../pipelines/proposeChildren.js';
 import {
   isFatal,
@@ -347,7 +347,7 @@ export async function expansionNode(state: ForgeState): Promise<Partial<ForgeSta
     // writes fresh, 'improve' treats it as a seed/constraint) — no more need
     // for the old ad hoc userSpec text to drive the 'replace' case.
     const scribeMode = state.forgeExpansionExistingMode === 'improve' ? 'improve' : 'full';
-    const expandResult = await runExpandGraph({
+    const forgeResult = await runForgeGraph({
       worldId: state.worldId,
       ownerId: state.ownerId,
       articleId: item.articleId,
@@ -365,7 +365,7 @@ export async function expansionNode(state: ForgeState): Promise<Partial<ForgeSta
       contextPackage,
       researchBrief: state.currentItemResearchBrief,
     });
-    await bumpRunBudget(state.worldId, state.ownerId, state.runId, expandResult.tokensIn + expandResult.tokensOut);
+    await bumpRunBudget(state.worldId, state.ownerId, state.runId, forgeResult.tokensIn + forgeResult.tokensOut);
 
     if (requiresUserReview(state)) {
       const decision = await getLatestReviewDecision({
@@ -385,7 +385,7 @@ export async function expansionNode(state: ForgeState): Promise<Partial<ForgeSta
           kind: 'draft_review',
           payload: {
             title: item.title,
-            description: expandResult.description,
+            description: forgeResult.description,
             ideas: selectedIdeas ?? [],
           },
         });
@@ -396,7 +396,7 @@ export async function expansionNode(state: ForgeState): Promise<Partial<ForgeSta
         await logEvent(state, 'Expansion', item.title, false, 'Draft rejected by user.');
         return { signal: 'continue', lastStepError: { step: 'Expansion', fatal: false, message: 'Draft rejected by user.' } };
       }
-      const acceptedDescription = stringDecision(decision, 'description', expandResult.description);
+      const acceptedDescription = stringDecision(decision, 'description', forgeResult.description);
       await persistExpandDraft({
         worldId: state.worldId,
         articleId: item.articleId,
@@ -405,7 +405,7 @@ export async function expansionNode(state: ForgeState): Promise<Partial<ForgeSta
         introduction: state.inceptionIntroChanged ? state.inceptionIntro : undefined,
         runId: state.runId,
         contextBasis: state.contextBasis,
-        contextDraftIds: expandResult.contextDraftIds ?? contextPackage.contextDraftIds ?? [],
+        contextDraftIds: forgeResult.contextDraftIds ?? contextPackage.contextDraftIds ?? [],
       });
       await acceptDraft({
         worldId: state.worldId,
@@ -422,11 +422,11 @@ export async function expansionNode(state: ForgeState): Promise<Partial<ForgeSta
       worldId: state.worldId,
       articleId: item.articleId,
       ownerId: state.ownerId,
-      description: expandResult.description,
+      description: forgeResult.description,
       introduction: state.inceptionIntroChanged ? state.inceptionIntro : undefined,
       runId: state.runId,
       contextBasis: state.contextBasis,
-      contextDraftIds: expandResult.contextDraftIds ?? contextPackage.contextDraftIds ?? [],
+      contextDraftIds: forgeResult.contextDraftIds ?? contextPackage.contextDraftIds ?? [],
     });
 
     if (state.commitPolicy === 'auto_commit') {

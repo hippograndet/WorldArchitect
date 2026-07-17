@@ -87,7 +87,7 @@ const staleIdea = { id: 'idea1', theme: 'stale idea', detail: 'stale detail' };
 
 describe('openAgentPanel / closeAgentPanel', () => {
   it('closeAgentPanel restores the agent and forge runtime fields to their defaults', () => {
-    S().openAgentPanel('art1', 'Some Article', 'spark');
+    S().openAgentPanel('art1', 'Some Article', 'forge');
 
     // Simulate leftover state from a prior run that a plain re-open/close should wipe.
     store.setState((s) => {
@@ -113,7 +113,7 @@ describe('openAgentPanel / closeAgentPanel', () => {
       s.agentError = 'stale error';
     });
 
-    S().openAgentPanel('art2', 'Another Article', 'spark');
+    S().openAgentPanel('art2', 'Another Article', 'forge');
 
     expect(S().agentDraftResult).toEqual(defaultAgentRuntime.agentDraftResult);
     expect(S().agentError).toEqual(defaultAgentRuntime.agentError);
@@ -147,7 +147,7 @@ describe('agentRetry', () => {
 
 describe('agentDiscard', () => {
   it('clears agentSelectedIdeas without touching the server for a non-draft pipeline', async () => {
-    S().openAgentPanel('art1', 'Some Article', 'spark', 'cohere');
+    S().openAgentPanel('art1', 'Some Article', 'forge', 'cohere');
     store.setState((s) => {
       s.agentSelectedIdeas = [staleIdea];
       s.agentStyleCheck = { description: 'stale rewritten description' };
@@ -164,12 +164,12 @@ describe('agentDiscard', () => {
 });
 
 // ---------------------------------------------------------------------------
-// agentCommit — expand_description/forge_expand write directly, no draft
+// agentCommit — expand_description writes directly, no draft
 // ---------------------------------------------------------------------------
 
 describe('agentCommit', () => {
   it('commits expand_description via articles.update directly, not the draft accept flow', async () => {
-    S().openAgentPanel('art1', 'Some Article', 'spark', 'expand_description');
+    S().openAgentPanel('art1', 'Some Article', 'forge', 'expand_description');
     store.setState((s) => {
       s.agentDraftResult = { description: 'New description text.' };
     });
@@ -193,7 +193,7 @@ describe('agentCommit', () => {
 
 describe('lingering draft cleanup on panel reset', () => {
   it('discards an undecided create_child draft when the panel is closed', () => {
-    S().openAgentPanel('art1', 'Some Article', 'spark', 'create_child');
+    S().openAgentPanel('art1', 'Some Article', 'forge', 'create_child');
     store.setState((s) => {
       s.currentWorldId = 'w1';
       s.agentLoadedDraftId = 'draft1';
@@ -205,7 +205,7 @@ describe('lingering draft cleanup on panel reset', () => {
   });
 
   it('does not attempt to discard for expand_description, which never persists a draft', () => {
-    S().openAgentPanel('art1', 'Some Article', 'spark', 'expand_description');
+    S().openAgentPanel('art1', 'Some Article', 'forge', 'expand_description');
     store.setState((s) => {
       s.currentWorldId = 'w1';
       s.agentLoadedDraftId = 'draft1'; // should be impossible in practice, but guard against it anyway
@@ -223,7 +223,7 @@ describe('startForge', () => {
     mockApi.runs.create.mockResolvedValue({ id: 'run1' });
 
     try {
-      S().openAgentPanel('art1', 'Some Article', 'spark', 'forge_expand');
+      S().openAgentPanel('art1', 'Some Article', 'forge', 'expand_description');
       S().setAgentParams({
         runValidationLevel: 'assisted',
         forgeContinuationMode: 'finish_document',
@@ -233,7 +233,7 @@ describe('startForge', () => {
 
       expect(mockApi.runs.create).toHaveBeenCalledWith('w1', expect.objectContaining({
         articleIds: ['art1'],
-        pipelineType: 'forge_expand',
+        pipelineType: 'expand_description',
         validationLevel: 'assisted',
         forgeContinuationMode: 'finish_document',
       }));

@@ -214,7 +214,6 @@ export async function persistExpandDraft(params: {
       ...(params.introduction !== undefined ? { introduction: params.introduction } : {}),
     },
     sourceRunId: params.runId,
-    runType: 'forge_expand',
     contextBasis: params.contextBasis,
     contextDraftIds: params.contextDraftIds,
     displayTitle: 'Recursive Expand draft',

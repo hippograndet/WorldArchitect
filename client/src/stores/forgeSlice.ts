@@ -38,7 +38,7 @@ export interface ForgeSlice {
 // forgeGraph.ts) — this slice's job shrank from running the loop to
 // creating the run and polling its status, the same "no streaming, poll
 // instead" pattern already used elsewhere in this codebase. Same fields,
-// same SparkConfigView/ForgeProgressView contract; only the internals
+// same ForgeConfigView/ForgeProgressView contract; only the internals
 // changed from a client-side while(true) loop to create+poll.
 // ---------------------------------------------------------------------------
 

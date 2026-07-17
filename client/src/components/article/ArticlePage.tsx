@@ -50,11 +50,11 @@ export default function ArticlePage() {
   const displayIntroduction = viewedVersion ? viewedVersion.introduction : introduction;
   const displayDescription = viewedVersion ? viewedVersion.description : description;
 
-  const handleOpenExpand = () => {
+  const handleOpenForge = () => {
     if (!wid || !aid) return;
     const params = new URLSearchParams({ start: aid });
     if (selectedVersionId) params.set('version', selectedVersionId);
-    navigate(`/worlds/${wid}/grow?${params.toString()}`);
+    navigate(`/worlds/${wid}/forge?${params.toString()}`);
   };
 
   const handleOpenSolidify = () => {
@@ -162,10 +162,10 @@ export default function ArticlePage() {
               <Settings size={14} /> Solidify
             </button>
             <button
-              onClick={handleOpenExpand}
+              onClick={handleOpenForge}
               className="px-3 py-1.5 text-xs border rounded-lg font-medium transition-colors border-purple-300 text-purple-600 hover:bg-purple-50 flex items-center gap-1"
             >
-              <ExternalLink size={14} /> Expand
+              <ExternalLink size={14} /> Forge
             </button>
           </div>
         </div>

@@ -53,7 +53,7 @@ export const ForgeAnnotation = Annotation.Root({
   /** One global dial covering Arbiter and Gatekeeper (Herald has no dedicated checker) — see state.ts's coherenceCheckLevel/safetyNet and nodes.ts's runCheckReviseLoop. */
   coherenceCheckLevel: Annotation<number>({ reducer: replace, default: () => 0 }),
   safetyNet: Annotation<boolean>({ reducer: replace, default: () => false }),
-  /** Gate for Stylizer's rewrite pass after Scribe — see pipelines/expand.ts's scribe -> stylizer edge. */
+  /** Gate for Stylizer's rewrite pass after Scribe — see pipelines/forge.ts's scribe -> stylizer edge. */
   runStylizer: Annotation<boolean>({ reducer: replace, default: () => false }),
   /** Free-text guidance from the run's settings panel — passed as input context to every agent invoked this run. */
   userSpec: Annotation<string | undefined>({ reducer: replace, default: () => undefined }),

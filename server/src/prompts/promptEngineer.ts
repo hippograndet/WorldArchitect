@@ -108,7 +108,7 @@ The specification should cover: the article's role in the world, key established
 Rules:
 - Do not invent facts beyond what the user provides — only structure and sharpen their input.
 - Write in 2–3 focused paragraphs. No bullet points or headers.
-- The output will be pasted directly into a Spark prompt field and read by an AI writer.
+- The output will be pasted directly into a Forge prompt field and read by an AI writer.
 
 Call submit_article_brief when ready.`;
 }

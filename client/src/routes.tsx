@@ -17,7 +17,7 @@ const GraphPage         = lazy(() => import('./pages/GraphPage.tsx'));
 const SnapshotsPage     = lazy(() => import('./pages/SnapshotsPage.tsx'));
 const UsagePage         = lazy(() => import('./pages/UsagePage.tsx'));
 const ToolboxPage       = lazy(() => import('./pages/ToolboxPage.tsx'));
-const ExpandPage        = lazy(() => import('./pages/ExpandPage.tsx'));
+const ForgePage         = lazy(() => import('./pages/ForgePage.tsx'));
 const ConsolidatePage   = lazy(() => import('./pages/ConsolidatePage.tsx'));
 const InboxPage         = lazy(() => import('./pages/InboxPage.tsx'));
 
@@ -29,11 +29,11 @@ function withSuspense(element: React.ReactNode) {
   return <Suspense fallback={<PageFallback />}>{element}</Suspense>;
 }
 
-// `../grow` alone would drop the query string; old /expand links and
-// in-app navigations both rely on ?start=/&version= surviving the redirect.
-function ExpandToGrowRedirect() {
+// `../forge` alone would drop the query string; old /grow and /expand links
+// and in-app navigations both rely on ?start=/&version= surviving the redirect.
+function LegacyForgeRedirect() {
   const { search } = useLocation();
-  return <Navigate to={`../grow${search}`} replace />;
+  return <Navigate to={`../forge${search}`} replace />;
 }
 
 export const router = createBrowserRouter([
@@ -54,8 +54,9 @@ export const router = createBrowserRouter([
           { path: 'graph',         element: withSuspense(<GraphPage />) },
           { path: 'snapshots',     element: withSuspense(<SnapshotsPage />) },
           { path: 'usage',         element: withSuspense(<UsagePage />) },
-          { path: 'grow',          element: withSuspense(<ExpandPage />) },
-          { path: 'expand',        element: <ExpandToGrowRedirect /> },
+          { path: 'forge',         element: withSuspense(<ForgePage />) },
+          { path: 'grow',          element: <LegacyForgeRedirect /> },
+          { path: 'expand',        element: <LegacyForgeRedirect /> },
           { path: 'inbox',         element: withSuspense(<InboxPage />) },
           { path: 'consolidate',   element: withSuspense(<ConsolidatePage />) },
           { path: 'toolbox',       element: withSuspense(<ToolboxPage />) },

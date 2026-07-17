@@ -373,7 +373,7 @@ export const OUTPUT_TOOLS: Record<string, Tool> = {
       properties: {
         userSpec: {
           type: 'string',
-          description: '2–3 paragraph structured article specification, ready to paste into Spark as the article brief',
+          description: '2–3 paragraph structured article specification, ready to paste into Forge as the article brief',
         },
       },
       required: ['userSpec'],

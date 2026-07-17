@@ -31,7 +31,7 @@ export class ArticleServiceError extends Error {
 /**
  * routes/agents.ts's assertArticleUnlocked is the fail-fast layer before an
  * LLM call is spent, but this is the actual write chokepoint — it also
- * catches a stray manual edit racing an active Spark run. `activeRunId` lets
+ * catches a stray manual edit racing an active Forge run. `activeRunId` lets
  * a run's own write path (once write-mode graph nodes exist) pass through
  * its own lock; manual routes never supply one, so any lock blocks them.
  */

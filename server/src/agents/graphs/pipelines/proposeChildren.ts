@@ -3,7 +3,7 @@ import { nanoid } from 'nanoid';
 import { OrchestrationAnnotation } from '../state.js';
 import { articleContract, contractState } from '../masContract.js';
 import { fetchWorldContextNode, buildContextPackageNode } from '../nodes/shared.js';
-import { cartographerNode } from '../nodes/expand/branching.js';
+import { cartographerNode } from '../nodes/forge/branching.js';
 import type { ContextDepth, WorldInfoContext } from '../../../services/archivist.js';
 import type { DraftContextBasis } from '../../../services/draftsService.js';
 import type { ChildProposalItem } from '../../cartographer.js';

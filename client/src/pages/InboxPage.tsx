@@ -164,7 +164,7 @@ export default function InboxPage() {
     if (item.lane === 'run_history' && payloadString(item, 'stage') === 'active') {
       const runId = payloadString(item, 'runId');
       const graphType = payloadString(item, 'graphType');
-      const target = graphType === 'consolidate' ? 'consolidate' : 'grow';
+      const target = graphType === 'consolidate' ? 'consolidate' : 'forge';
       return runId ? (
         <Link to={`/worlds/${wid}/${target}`} className="inline-flex items-center gap-1.5 rounded-md border border-blue-200 px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-50">
           <ExternalLink size={13} /> Open Run
@@ -253,7 +253,7 @@ export default function InboxPage() {
             <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-blue-600">{INBOX_LANE_LABEL[selectedLane]}</p>
               <h2 className="mt-1 text-2xl font-bold text-gray-900">Review Queue</h2>
-              <p className="mt-1 text-sm text-gray-500">High-signal decisions and results from Grow, Consolidate, and Publish.</p>
+              <p className="mt-1 text-sm text-gray-500">High-signal decisions and results from Forge, Consolidate, and Publish.</p>
             </div>
           </div>
 

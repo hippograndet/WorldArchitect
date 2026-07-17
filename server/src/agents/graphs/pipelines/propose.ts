@@ -2,7 +2,7 @@ import { StateGraph } from '@langchain/langgraph';
 import { nanoid } from 'nanoid';
 import { OrchestrationAnnotation } from '../state.js';
 import { fetchWorldContextNode, buildContextPackageNode } from '../nodes/shared.js';
-import { museProposeNode, curatorAutoSelectNode } from '../nodes/expand/propose.js';
+import { museProposeNode, curatorAutoSelectNode } from '../nodes/forge/propose.js';
 import { articleContract, contractState, proposalIntent } from '../masContract.js';
 import type { ContextDepth, ContextPackage, WorldInfoContext } from '../../../services/archivist.js';
 import type { DraftContextBasis } from '../../../services/draftsService.js';

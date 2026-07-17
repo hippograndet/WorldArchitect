@@ -14,7 +14,7 @@ The **current version** is the working version — what you see and edit day to 
 
 The **published version** is a separate, independent pointer set only when you explicitly publish an article. Editing a published article creates a new current version without touching what's published, so the published content stays stable until you choose to publish again. The article page shows a clear indicator when there are unpublished edits.
 
-A **draft bundle** is a reviewable unit of proposed content for one article — either AI-generated (from Grow or Consolidate) or your own manual edit staged for review. Nothing becomes part of the article until a draft is accepted.
+A **draft bundle** is a reviewable unit of proposed content for one article — either AI-generated (from Forge or Consolidate) or your own manual edit staged for review. Nothing becomes part of the article until a draft is accepted.
 
 The **World Bible** is a live summary view built from every article's current (or published) introduction — not something you maintain separately. It always reflects whatever your articles currently say.
 
@@ -34,7 +34,7 @@ stub article
 
 Articles move through `stub`, `draft`, `reviewed`, and `published` statuses. Once an article is published, editing it further does not change its published status or content — it just creates a new current version, and the article page will show that current and published now differ until you re-publish.
 
-Grow's "Context basis" setting controls whether an AI run reads an article's current (in-progress) content or only its officially published content — useful when you want AI generation to build only on reviewed, published material rather than works in progress.
+Forge's "Context basis" setting controls whether an AI run reads an article's current (in-progress) content or only its officially published content — useful when you want AI generation to build only on reviewed, published material rather than works in progress.
 
 ## Draft And Concept Review
 

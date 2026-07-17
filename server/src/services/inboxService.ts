@@ -1,4 +1,5 @@
 import { getDbClient } from '../db/client.js';
+import { normalizeGraphType } from './runsService.js';
 
 export type InboxLane = 'publish' | 'flags' | 'suggestions' | 'run_history';
 
@@ -244,12 +245,12 @@ export async function listInboxItems(worldId: string, ownerId: string): Promise<
       severity: null,
       articleIds: row.article_id ? [row.article_id as string] : [],
       createdAt: row.created_at as number,
-      source: row.graph_type as string,
+      source: normalizeGraphType(row.graph_type as string),
       payload: {
         ...payload,
         runId: row.run_id,
         runStatus: row.run_status,
-        graphType: row.graph_type,
+        graphType: normalizeGraphType(row.graph_type as string),
         stage: 'active',
       },
     });
@@ -268,12 +269,12 @@ export async function listInboxItems(worldId: string, ownerId: string): Promise<
       id: row.id as string,
       lane: 'run_history',
       kind: 'run',
-      title: `${row.graph_type as string} run`,
+      title: `${normalizeGraphType(row.graph_type as string)} run`,
       status: row.status as string,
       severity: row.status === 'failed' || row.status === 'stopped' ? 'warning' : null,
       articleIds: parseJsonArray(row.article_ids),
       createdAt: (row.updated_at as number) ?? (row.created_at as number),
-      source: row.graph_type as string,
+      source: normalizeGraphType(row.graph_type as string),
       payload: {
         errorMessage: row.error_message ?? null,
         stage: 'terminal',

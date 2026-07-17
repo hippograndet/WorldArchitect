@@ -9,7 +9,7 @@ import type { ForgeState } from './forgeState.js';
 const completeMock = vi.hoisted(() => vi.fn<() => Promise<CompletionResult>>());
 const buildContextPackageCalls = vi.hoisted(() => vi.fn());
 const fetchWorldContextCalls = vi.hoisted(() => vi.fn());
-const runExpandGraphCalls = vi.hoisted(() => vi.fn());
+const runForgeGraphCalls = vi.hoisted(() => vi.fn());
 
 vi.mock('../../providers/index.js', () => ({
   getProvider: async () => ({ name: 'anthropic', complete: completeMock, estimateTokens: async () => 0 }),
@@ -44,16 +44,16 @@ vi.mock('../director.js', async (importOriginal) => {
   };
 });
 
-// Spies on runExpandGraph's params (specifically scribeMode, computed from
+// Spies on runForgeGraph's params (specifically scribeMode, computed from
 // forgeExpansionExistingMode — see forgeGraph/nodes.ts's expansionNode) while
 // still exercising the real graph underneath.
-vi.mock('./pipelines/expand.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('./pipelines/expand.js')>();
+vi.mock('./pipelines/forge.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./pipelines/forge.js')>();
   return {
     ...actual,
-    runExpandGraph: async (...args: Parameters<typeof actual.runExpandGraph>) => {
-      runExpandGraphCalls(...args);
-      return actual.runExpandGraph(...args);
+    runForgeGraph: async (...args: Parameters<typeof actual.runForgeGraph>) => {
+      runForgeGraphCalls(...args);
+      return actual.runForgeGraph(...args);
     },
   };
 });
@@ -78,7 +78,7 @@ beforeEach(() => {
   completeMock.mockReset();
   buildContextPackageCalls.mockClear();
   fetchWorldContextCalls.mockClear();
-  runExpandGraphCalls.mockClear();
+  runForgeGraphCalls.mockClear();
 });
 
 function toolUseResult(name: string, input: Record<string, unknown>): CompletionResult {
@@ -262,10 +262,10 @@ describe('forgeGraph context caching', () => {
       expect(completeMock).toHaveBeenCalledTimes(5);
 
       // forgeExpansionExistingMode: 'improve' (baseForgeState's default)
-      // translates into scribeMode: 'improve' on runExpandGraph's params —
+      // translates into scribeMode: 'improve' on runForgeGraph's params —
       // the Task 1.4 plumbing fix, mirroring inceptionNode's summarizeMode.
-      expect(runExpandGraphCalls).toHaveBeenCalledTimes(1);
-      expect(runExpandGraphCalls.mock.calls[0]?.[0]).toMatchObject({ scribeMode: 'improve' });
+      expect(runForgeGraphCalls).toHaveBeenCalledTimes(1);
+      expect(runForgeGraphCalls.mock.calls[0]?.[0]).toMatchObject({ scribeMode: 'improve' });
     });
   });
 
@@ -396,8 +396,8 @@ describe('forgeGraph context caching', () => {
       // 'replace' translates to scribeMode: 'full' — the same value 'create'/
       // 'skip_existing' would produce, and distinctly different from the
       // 'improve' case's scribeMode: 'improve' asserted in the test above.
-      expect(runExpandGraphCalls).toHaveBeenCalledTimes(1);
-      expect(runExpandGraphCalls.mock.calls[0]?.[0]).toMatchObject({ scribeMode: 'full' });
+      expect(runForgeGraphCalls).toHaveBeenCalledTimes(1);
+      expect(runForgeGraphCalls.mock.calls[0]?.[0]).toMatchObject({ scribeMode: 'full' });
     });
   });
 });

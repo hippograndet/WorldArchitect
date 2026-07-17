@@ -302,7 +302,7 @@ export async function buildContextPackage(
 
   // Published basis is a hard switch, not another fallback tier: an article
   // with no published version is treated as empty (a stub), not silently
-  // read from its current draft — that's what makes "Grow on published"
+  // read from its current draft — that's what makes "Forge on published"
   // mean "the Bible only shows published content" for every article pulled
   // into context, not just the one being edited.
   const draftIntroductionFor = async (targetArticleId: string, fallback: string): Promise<string> => {

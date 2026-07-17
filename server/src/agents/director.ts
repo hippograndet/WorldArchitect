@@ -15,7 +15,7 @@ import type { ProposalMode } from '../prompts/proposal.js';
 import type { ExpanderMode } from '../prompts/expander.js';
 import type { WorldStyleConfig } from '../services/worldStylePresets.js';
 import { runProposeGraph } from './graphs/pipelines/propose.js';
-import { runExpandGraph } from './graphs/pipelines/expand.js';
+import { runForgeGraph } from './graphs/pipelines/forge.js';
 import { runProposeChildrenGraph } from './graphs/pipelines/proposeChildren.js';
 import { runReorganizeGraph } from './graphs/pipelines/reorganize.js';
 import { runCohereGraph } from './graphs/pipelines/cohere.js';
@@ -205,7 +205,7 @@ export class PipelineCoordinator {
     contextBasis: DraftContextBasis = 'current',
   ): Promise<ExpandOutput> {
     const ownerId = await ownerIdForWorld(getDbClient(), worldId);
-    return runExpandGraph({
+    return runForgeGraph({
       worldId, ownerId, articleId, pipelineType, userSpec, contextDepth, contextBasis,
       selectedIdeas, runStylizer, coherenceCheckLevel, safetyNet, wordCountPreset,
     });

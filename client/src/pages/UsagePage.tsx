@@ -241,7 +241,7 @@ export default function UsagePage() {
       </section>
 
       {/* By-pipeline-run grouping — one row per user-initiated pipeline invocation
-          (e.g. one 'expand' call's Researcher+Scribe+Arbiter), not per raw agent call */}
+          (e.g. one Forge call's Researcher+Scribe+Arbiter), not per raw agent call */}
       <section className="mb-8">
         <h2 className="text-sm font-semibold text-gray-700 mb-3">By pipeline run</h2>
         {runs.length === 0 ? (

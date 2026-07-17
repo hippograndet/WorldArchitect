@@ -10,7 +10,7 @@ export type MasIntent =
   | 'create_world'
   | 'propose'
   | 'ideate'
-  | 'expand'
+  | 'forge'
   | 'summarize'
   | 'branch'
   | 'reorganize'
@@ -74,7 +74,7 @@ export function worldContract(intent: Extract<MasIntent, 'create_world' | 'audit
   };
 }
 
-export function expandRunContract(params: {
+export function forgeRunContract(params: {
   rootArticleId: string;
   maxDepth: number;
   autonomyMode?: AutonomyMode;
@@ -83,16 +83,11 @@ export function expandRunContract(params: {
 }): MasContract {
   return {
     location: { type: 'subtree', rootArticleId: params.rootArticleId, maxDepth: params.maxDepth },
-    intent: 'expand',
+    intent: 'forge',
     autonomyMode: params.autonomyMode ?? 'auto_with_post_review',
     reviewPolicy: params.reviewPolicy ?? 'auto',
     commitPolicy: params.commitPolicy ?? 'auto_commit',
   };
-}
-
-/** @deprecated Use expandRunContract. Kept for compatibility while UI/store names are cleaned up. */
-export function forgeContract(rootArticleId: string, maxDepth: number): MasContract {
-  return expandRunContract({ rootArticleId, maxDepth });
 }
 
 export function proposalIntent(_mode: ProposalMode): MasIntent {
@@ -100,5 +95,5 @@ export function proposalIntent(_mode: ProposalMode): MasIntent {
 }
 
 export function expanderIntent(mode: ExpanderMode): MasIntent {
-  return mode === 'reorganize' ? 'reorganize' : 'expand';
+  return mode === 'reorganize' ? 'reorganize' : 'forge';
 }

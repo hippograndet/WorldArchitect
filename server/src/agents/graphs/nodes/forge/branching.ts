@@ -15,8 +15,9 @@ type Partial_ = Partial<OrchestrationState>;
  * Cartographer's proposals plus, when coherenceCheckLevel > 0, a Gatekeeper
  * loop that filters out proposals flagged as semantic duplicates of existing
  * siblings and, if cycles remain, re-runs Cartographer for fresh
- * replacements (excluding what's already known) — shared by both Spark's
- * manual "propose children" flow and Forge's branchingNode. Gatekeeper's
+ * replacements (excluding what's already known) — shared by both the manual
+ * "propose children" flow and the recursive Forge run's branchingNode, since
+ * both invoke the same graph. Gatekeeper's
  * shape (filter a list + regenerate) doesn't fit runCheckReviseLoop's
  * single-draft check/revise contract, so it has its own loop here.
  *

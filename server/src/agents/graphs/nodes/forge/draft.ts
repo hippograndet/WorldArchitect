@@ -118,7 +118,7 @@ export async function scribeNode(state: OrchestrationState): Promise<Partial_> {
  * extra LLM call versus the previous "Scribe writes childDescription, then
  * Herald re-summarizes it" shape.
  *
- * Runs *after* stylizerNode in the graph (pipelines/expand.ts's edges) —
+ * Runs *after* stylizerNode in the graph (pipelines/forge.ts's edges) —
  * Stylizer rewrites state.description in place, so reading it here first
  * would otherwise copy the stale pre-rewrite draft into the introduction.
  */

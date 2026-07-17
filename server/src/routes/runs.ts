@@ -89,9 +89,9 @@ const CreateRunSchema = z.object({
   budgetLimit: z.number().int().positive().optional(),
   pipelineType: z.enum([
     'expand_description', 'create_child', 'propose_children',
-    'reorganize', 'summarize', 'improve_intro', 'cohere', 'forge_expand', 'audit', 'concept_scan', 'fix_issue',
+    'reorganize', 'summarize', 'improve_intro', 'cohere', 'audit', 'concept_scan', 'fix_issue',
   ]),
-  graphType: z.enum(['expand', 'consolidate']).optional(),
+  graphType: z.enum(['forge', 'consolidate']).optional(),
   contextDepth: z.enum(['shallow', 'mid', 'deep']).optional().default('mid'),
   contextBasis: z.enum(['current', 'latest_draft', 'published']).optional().default('current'),
   branchingMode: z.enum(['conceptual', 'specific']).optional().default('conceptual'),
@@ -119,7 +119,7 @@ const CreateRunSchema = z.object({
 /** Same derivation forgeSlice.ts's startForge already used client-side. */
 function deriveStartStep(pipelineType: string): 'inception' | 'expansion' | 'branching' {
   if (pipelineType === 'propose_children') return 'branching';
-  if (pipelineType === 'forge_expand' || pipelineType === 'expand_description') return 'expansion';
+  if (pipelineType === 'expand_description') return 'expansion';
   return 'inception';
 }
 
@@ -166,8 +166,8 @@ function deriveRunPolicy(input: z.infer<typeof CreateRunSchema>): {
 
 const CONSOLIDATE_PIPELINES = new Set<string>(['reorganize', 'cohere', 'audit', 'concept_scan']);
 
-function deriveGraphType(input: z.infer<typeof CreateRunSchema>): 'expand' | 'consolidate' {
-  return input.graphType ?? (CONSOLIDATE_PIPELINES.has(input.pipelineType) ? 'consolidate' : 'expand');
+function deriveGraphType(input: z.infer<typeof CreateRunSchema>): 'forge' | 'consolidate' {
+  return input.graphType ?? (CONSOLIDATE_PIPELINES.has(input.pipelineType) ? 'consolidate' : 'forge');
 }
 
 // ---------------------------------------------------------------------------
@@ -193,8 +193,8 @@ router.post('/', asyncHandler(async (req, res) => {
   const rootArticleId = articleIds[0];
   const graphType = deriveGraphType(parse.data);
 
-  if (graphType === 'expand' && !rootArticleId) {
-    throw new AppError(400, 'VALIDATION_ERROR', 'Grow runs require a starting article');
+  if (graphType === 'forge' && !rootArticleId) {
+    throw new AppError(400, 'VALIDATION_ERROR', 'Forge runs require a starting article');
   }
   if (graphType === 'consolidate' && (parse.data.pipelineType === 'reorganize' || parse.data.pipelineType === 'cohere') && !rootArticleId) {
     throw new AppError(400, 'VALIDATION_ERROR', 'This Consolidate pipeline requires an article target');

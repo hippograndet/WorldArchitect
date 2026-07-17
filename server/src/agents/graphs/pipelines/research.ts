@@ -3,7 +3,7 @@ import { nanoid } from 'nanoid';
 import { OrchestrationAnnotation } from '../state.js';
 import { articleContract, contractState } from '../masContract.js';
 import { fetchWorldContextNode, buildContextPackageNode } from '../nodes/shared.js';
-import { researcherNode } from '../nodes/expand/research.js';
+import { researcherNode } from '../nodes/forge/research.js';
 import type { ContextDepth, ContextPackage, WorldInfoContext } from '../../../services/archivist.js';
 import type { WorldContext } from '../../director.js';
 import type { ResearchBrief } from '../../scribe.js';

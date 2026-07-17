@@ -20,8 +20,8 @@ The intended release path is:
 
 - **Own your world locally, by default.** In local mode your encyclopedia is stored in a local Postgres database — no account, cloud sync, or hosted backend required. An opt-in hosted multi-tenant mode is also available for self-deployment (accounts via Clerk and Postgres storage) — see [DEPLOY.md](DEPLOY.md).
 - **Write with structure.** Build a browsable wiki with article types, article hierarchy, cross-links, and snapshots.
-- **Use AI without surrendering control.** Expand runs use modular review gates for introductions, proposals, ideas, drafts, and child-article plans; Scribe drafts long prose directly while compact MAS decisions stay structured.
-- **Grow worlds deliberately.** Expand can incept, elaborate, branch, and recurse through selected parts of the world; Consolidate can audit, clean up, and scan accepted prose for reviewable concept candidates.
+- **Use AI without surrendering control.** Forge runs use modular review gates for introductions, proposals, ideas, drafts, and child-article plans; Scribe drafts long prose directly while compact MAS decisions stay structured.
+- **Forge worlds deliberately.** Forge can incept, elaborate, branch, and recurse through selected parts of the world; Consolidate can audit, clean up, and scan accepted prose for reviewable concept candidates.
 - **Keep long projects durable.** Version history, crash recovery, World Bible summaries, issue checks, call logs, and ZIP export are built in.
 
 ## Features

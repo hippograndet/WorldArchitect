@@ -24,7 +24,7 @@ function makeRun(overrides: Partial<RunWithEvents>): RunWithEvents {
     worldId: 'world-1',
     ownerId: 'owner-1',
     status: 'completed',
-    graphType: 'expand',
+    graphType: 'forge',
     checkpointId: 'checkpoint-1',
     articleIds: ['article-1'],
     budgetUsed: 0,

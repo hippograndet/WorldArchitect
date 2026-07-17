@@ -17,7 +17,7 @@ export default function PipelineOverviewModal({ onClose }: { onClose: () => void
       >
         <div className="flex items-start justify-between gap-3">
           <div>
-            <h3 className="text-sm font-semibold text-gray-900">Grow Pipeline Overview</h3>
+            <h3 className="text-sm font-semibold text-gray-900">Forge Pipeline Overview</h3>
             <p className="text-xs text-gray-500 mt-0.5 max-w-xl">
               The full Research → Inception → Expansion → Branching pipeline and every agent in it. This is a
               reference diagram, not a live run — curved arrows show where a checker can send work back for
@@ -36,7 +36,7 @@ export default function PipelineOverviewModal({ onClose }: { onClose: () => void
           <AgentStageBoard
             stages={stages}
             headerLabel="Standard Pipeline"
-            articleTitle="Every Grow run follows this shape"
+            articleTitle="Every Forge run follows this shape"
             canResetToCurrent={false}
             onResetToCurrent={() => undefined}
             selectedStageKey={selectedStageKey}

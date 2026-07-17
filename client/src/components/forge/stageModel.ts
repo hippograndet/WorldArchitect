@@ -66,7 +66,7 @@ export function runDurationMs(run: Run | RunWithEvents): number {
 
 export function startStepFromPipelineType(pipelineType: RunConfig['pipelineType']): PipelineStartStep {
   if (pipelineType === 'propose_children') return 'branching';
-  if (pipelineType === 'forge_expand' || pipelineType === 'expand_description') return 'expansion';
+  if (pipelineType === 'expand_description') return 'expansion';
   return 'inception';
 }
 
@@ -134,7 +134,7 @@ function agentStageDefinitions(
   add('expansion', 'Drafting', 'scribe', expansionOut);
   if (coherenceCheckOn) add('expansion', 'Continuity', 'continuity_editor', expansionOut);
   // Stylizer runs after Scribe/Arbiter, gated behind its own runStylizer
-  // toggle (independent of coherenceCheckLevel) — see pipelines/expand.ts's
+  // toggle (independent of coherenceCheckLevel) — see pipelines/forge.ts's
   // scribe -> stylizer edge.
   if (run.config.runStylizer) add('expansion', 'Style', 'style_warden', expansionOut);
 

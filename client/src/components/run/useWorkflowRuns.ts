@@ -5,7 +5,7 @@ import { isWorkflowRunActive } from '../../lib/runModel.ts';
 
 interface UseWorkflowRunsOptions {
   worldId?: string;
-  graphType: 'expand' | 'consolidate';
+  graphType: 'forge' | 'consolidate';
   pollIntervalMs?: number;
   extraPoll?: boolean;
   resetSelectionDetails?: () => void;

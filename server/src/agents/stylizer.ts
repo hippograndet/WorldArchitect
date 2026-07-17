@@ -34,7 +34,7 @@ export interface StylizerInput {
 /**
  * Rewrites the given content directly to match the world's style (Writing
  * Tone, Vibe & Atmosphere, Writing Style), preserving every fact/claim —
- * not an advisory checker. See stylizerNode (nodes/expand/draft.ts),
+ * not an advisory checker. See stylizerNode (nodes/forge/draft.ts),
  * which writes this output back into state.description.
  */
 export class StylizerAgent extends BaseAgent<StylizerInput, StylizerOutput> {

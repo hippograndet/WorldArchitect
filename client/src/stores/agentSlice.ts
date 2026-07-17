@@ -34,12 +34,11 @@ export type PipelineType =
   | 'summarize'
   | 'improve_intro'
   | 'cohere'
-  | 'forge_expand'
   | 'audit'
   | 'concept_scan'
   | 'fix_issue';
 
-export type AgentPanelMode = 'spark' | 'solidification';
+export type AgentPanelMode = 'forge' | 'consolidate';
 export type RunValidationLevel = 'manual' | 'assisted' | 'autopilot';
 
 export interface NextStep {
@@ -132,13 +131,12 @@ export const defaultAgentRuntime: Pick<
 };
 
 // Pipelines that save a pending_draft on the server and commit via POST /accept.
-// expand_description/forge_expand write a new description directly (no persisted
+// expand_description writes a new description directly (no persisted
 // draft, same as manual edits) — see agentCommit's direct-update branch below.
 const DRAFT_PIPELINE_MAP: Record<PipelineType, boolean> = {
   expand_description: false,
   create_child: true,
   reorganize: true,
-  forge_expand: false,
   propose_children: false,
   summarize: false,
   improve_intro: false,
@@ -169,17 +167,17 @@ function suggestNextSteps(
   panelMode: AgentPanelMode,
   draftResult: DraftContent | null,
 ): NextStep[] {
-  if (panelMode !== 'spark') return [];
+  if (panelMode !== 'forge') return [];
 
   if (pipelineType === 'summarize' || pipelineType === 'improve_intro') {
     if (draftResult?.introduction) {
-      return [{ label: 'Expand Description', pipeline: 'forge_expand', description: 'Write the full description using creative proposals.' }];
+      return [{ label: 'Expand Description', pipeline: 'expand_description', description: 'Write the full description using creative proposals.' }];
     }
   }
-  if (pipelineType === 'forge_expand' || pipelineType === 'expand_description' || pipelineType === 'create_child' || pipelineType === 'reorganize') {
+  if (pipelineType === 'expand_description' || pipelineType === 'create_child' || pipelineType === 'reorganize') {
     return [{ label: 'Branch Children', pipeline: 'propose_children', description: '10 child article ideas to pick from.' }];
   }
-  // propose_children is the last Spark step — no further suggestions
+  // propose_children is the last Forge step — no further suggestions
   return [];
 }
 
@@ -234,7 +232,7 @@ export const agentSlice: StateCreator<StoreState, [['zustand/immer', never]], []
   return {
     agentPhase: 'idle',
     agentPanelOpen: false,
-    agentPanelMode: 'spark',
+    agentPanelMode: 'forge',
     agentTargetArticleId: null,
     agentTargetArticleTitle: null,
     agentPipelineType: 'summarize',
@@ -243,7 +241,7 @@ export const agentSlice: StateCreator<StoreState, [['zustand/immer', never]], []
 
     openAgentPanel: (articleId, articleTitle, mode, pipeline) => {
       discardLingeringDraft(get);
-      const defaultPipeline = mode === 'spark' ? 'summarize' : 'reorganize';
+      const defaultPipeline = mode === 'forge' ? 'summarize' : 'reorganize';
       set((s) => {
         Object.assign(s, defaultAgentRuntime, defaultForgeRuntime);
         s.agentPhase = 'configuring';
@@ -314,7 +312,7 @@ export const agentSlice: StateCreator<StoreState, [['zustand/immer', never]], []
       set((s) => {
         s.agentPhase = 'generating';
         s.agentPanelOpen = true;
-        s.agentPanelMode = 'spark';
+        s.agentPanelMode = 'forge';
         s.agentPipelineType = 'audit';
         s.agentTargetArticleId = null;
         s.agentTargetArticleTitle = null;
@@ -434,29 +432,6 @@ export const agentSlice: StateCreator<StoreState, [['zustand/immer', never]], []
             });
             break;
           }
-          case 'forge_expand': {
-            const result = await api.agents.propose(worldId, {
-              articleId:    agentTargetArticleId,
-              pipelineType: 'expand_description',
-              userSpec:     agentParams.userSpec || undefined,
-              autoSelect:   agentParams.autoSelect,
-              contextDepth: agentParams.contextDepth,
-              contextBasis: agentParams.contextBasis,
-            });
-            set((s) => { s.agentIdeas = result.ideas; });
-
-            if (agentParams.autoSelect && result.autoSelectedIndices !== undefined) {
-              const indices = result.autoSelectedIndices;
-              set((s) => {
-                s.agentSelectedIdeas = indices.map((i) => result.ideas[i]).filter((idea): idea is IdeaItem => Boolean(idea));
-                s.agentPhase = 'expanding';
-              });
-              get().runAgentExpand(worldId).catch(console.error);
-            } else {
-              set((s) => { s.agentSelectedIdeas = [...result.ideas]; s.agentPhase = 'ideas_ready'; });
-            }
-            break;
-          }
           case 'audit': {
             const result = await api.agents.audit(worldId);
             set((s) => {
@@ -482,7 +457,7 @@ export const agentSlice: StateCreator<StoreState, [['zustand/immer', never]], []
       try {
         const result = await api.agents.expand(worldId, {
           articleId:       agentTargetArticleId,
-          pipelineType:    agentPipelineType === 'forge_expand' ? 'expand_description' : agentPipelineType,
+          pipelineType:    agentPipelineType,
           selectedIdeas:   agentSelectedIdeas,
           userSpec:        agentParams.userSpec || undefined,
           contextDepth:    agentParams.contextDepth,
@@ -515,7 +490,7 @@ export const agentSlice: StateCreator<StoreState, [['zustand/immer', never]], []
             await api.articles.update(worldId, agentTargetArticleId, { introduction: agentDraftResult?.introduction ?? '' });
             await get().loadBibleMeta(worldId);
             await get().selectArticle(worldId, agentTargetArticleId);
-          } else if (agentPipelineType === 'expand_description' || agentPipelineType === 'forge_expand') {
+          } else if (agentPipelineType === 'expand_description') {
             // Just writes a new description on the same article — direct
             // write, same as a manual edit, no persisted draft to accept.
             const result = await api.articles.update(worldId, agentTargetArticleId, {
@@ -542,8 +517,8 @@ export const agentSlice: StateCreator<StoreState, [['zustand/immer', never]], []
 
           const nextSteps = suggestNextSteps(agentPipelineType, agentPanelMode, agentDraftResult);
 
-          // Auto-chain: skip ContinuationView and start next Spark step immediately
-          if (agentPanelMode === 'spark' && agentParams.autoChain && nextSteps.length > 0) {
+          // Auto-chain: skip ContinuationView and start next Forge step immediately
+          if (agentPanelMode === 'forge' && agentParams.autoChain && nextSteps.length > 0) {
             const next = nextSteps[0];
             set((s) => {
               Object.assign(s, defaultAgentRuntime);
@@ -556,13 +531,13 @@ export const agentSlice: StateCreator<StoreState, [['zustand/immer', never]], []
           set((s) => {
             Object.assign(s, defaultAgentRuntime);
 
-            if (agentPanelMode === 'spark' && nextSteps.length > 0) {
-              // Return to SparkConfigView with the next task pre-selected
+            if (agentPanelMode === 'forge' && nextSteps.length > 0) {
+              // Return to ForgeConfigView with the next task pre-selected
               s.agentPipelineType = nextSteps[0].pipeline;
               s.agentNextSteps = [];
               s.agentPhase = 'configuring';
-            } else if (agentPanelMode === 'spark') {
-              // All Spark steps done — close panel
+            } else if (agentPanelMode === 'forge') {
+              // All Forge steps done — close panel
               s.agentPhase = 'idle';
               s.agentPanelOpen = false;
               s.agentNextSteps = [];
@@ -655,7 +630,7 @@ export const agentSlice: StateCreator<StoreState, [['zustand/immer', never]], []
 
     dispatchSolidify: async (worldId, articleId, articleTitle, pipeline) => {
       await get().selectArticle(worldId, articleId);
-      get().openAgentPanel(articleId, articleTitle, 'solidification', pipeline);
+      get().openAgentPanel(articleId, articleTitle, 'consolidate', pipeline);
       get().runAgentGenerate(worldId).catch(console.error);
     },
   };

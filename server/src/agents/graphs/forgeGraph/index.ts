@@ -6,7 +6,7 @@ import { runWithUserContext } from '../../../requestContext.js';
 import { fetchWorldContext } from '../../director.js';
 import { getWorldInfoContext } from '../../../services/archivist.js';
 import { ForgeAnnotation } from '../forgeState.js';
-import { contractState, expandRunContract } from '../masContract.js';
+import { contractState, forgeRunContract } from '../masContract.js';
 import { errorMessage } from './helpers.js';
 import { dequeueNode, researchNode, inceptionNode, expansionNode, branchingNode, finishItemNode } from './nodes.js';
 import { routeAfterDequeue, routeAfterResearch, routeAfterInception, routeAfterExpansion, routeAfterBranching, END_KEY } from './routing.js';
@@ -27,6 +27,10 @@ import type { DraftContextBasis } from '../../../services/draftsService.js';
 
 let graphPromise: ReturnType<typeof buildGraph> | null = null;
 
+// dequeue -> research -> inception -> expansion -> branching -> finishItem -> dequeue
+// is one Node Arc per loop: enter a queued node, run Inception/Expansion/Branching,
+// leave it (finishItem), normally finished. A run is one Node Arc (single-step/
+// finish-document) or many, one per queued node, never repeating a node within it.
 async function buildGraph() {
   const checkpointer = await getCheckpointer();
   return new StateGraph(ForgeAnnotation)
@@ -162,7 +166,7 @@ export async function startForgeRun(params: {
           ownerId: params.ownerId,
           worldContext,
           worldInfoContext,
-          ...contractState(expandRunContract({
+          ...contractState(forgeRunContract({
             rootArticleId: params.articleId,
             maxDepth: params.forgeMaxDepth,
             autonomyMode: params.autonomyMode,

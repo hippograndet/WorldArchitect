@@ -3,7 +3,7 @@ import { nanoid } from 'nanoid';
 import { OrchestrationAnnotation } from '../state.js';
 import { articleContract, contractState } from '../masContract.js';
 import { fetchWorldContextNode, buildContextPackageNode } from '../nodes/shared.js';
-import { heraldWriteIntroNode } from '../nodes/expand/inception.js';
+import { heraldWriteIntroNode } from '../nodes/forge/inception.js';
 import type { HeraldMode } from '../../herald.js';
 import type { ContextDepth, ContextPackage, WorldInfoContext } from '../../../services/archivist.js';
 import type { WorldContext } from '../../director.js';

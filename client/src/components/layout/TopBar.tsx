@@ -8,7 +8,7 @@ import { api } from '../../lib/api.ts';
 const WORLD_SUB_LINKS = [
   { label: 'Overview',  path: '' },
   { label: 'Graph',     path: 'graph' },
-  { label: 'Grow',      path: 'grow' },
+  { label: 'Forge',     path: 'forge' },
   { label: 'Consolidate', path: 'consolidate' },
   { label: 'Inbox',     path: 'inbox' },
   { label: 'World Settings', path: 'settings' },

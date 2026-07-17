@@ -716,7 +716,7 @@ export default function ToolboxPage() {
       {activeTab === 'promptLab' && (
         <section>
           <p className="text-sm text-gray-500 mb-6">
-            Turn rough notes into a structured prompt fragment — ready to use as Spark constraints, world settings, or writing direction.
+            Turn rough notes into a structured prompt fragment — ready to use as Forge constraints, world settings, or writing direction.
           </p>
 
           {/* Focus area */}

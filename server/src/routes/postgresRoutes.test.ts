@@ -343,7 +343,7 @@ describe('core routes on Postgres', () => {
       ),
     );
     expect(runRow?.owner_id).toBe('user-a');
-    expect(runRow?.graph_type).toBe('expand');
+    expect(runRow?.graph_type).toBe('forge');
     expect(JSON.parse(runRow?.run_config ?? '{}')).toEqual(expect.objectContaining({
       articleIds: [first.article.id],
       pipelineType: 'expand_description',

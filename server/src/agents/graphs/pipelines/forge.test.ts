@@ -13,7 +13,7 @@ vi.mock('../../../services/callLogger.js', () => ({
 }));
 
 // Import after the mocks above are registered.
-const { runExpandGraph } = await import('./expand.js');
+const { runForgeGraph } = await import('./forge.js');
 
 function toolUseResult(name: string, input: Record<string, unknown>): CompletionResult {
   return {
@@ -52,7 +52,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('runExpandGraph create_child + Stylizer ordering (Task 2.5 fix)', () => {
+describe('runForgeGraph create_child + Stylizer ordering (Task 2.5 fix)', () => {
   it('the final introduction matches Stylizer\'s rewritten description, not Scribe\'s pre-rewrite draft', async () => {
     completeMock
       .mockResolvedValueOnce(toolUseResult('submit_child_description', {
@@ -64,7 +64,7 @@ describe('runExpandGraph create_child + Stylizer ordering (Task 2.5 fix)', () =>
         changesSummary: 'Adjusted phrasing to match Writing Style.',
       }));
 
-    const result = await runExpandGraph({
+    const result = await runForgeGraph({
       worldId: 'w1',
       ownerId: 'owner-1',
       articleId: 'child-article',

@@ -7,7 +7,7 @@ type Partial_ = Partial<OrchestrationState>;
 
 // ---------------------------------------------------------------------------
 // reorganize — Sentinel + Herald (pipelines/reorganize.ts also reuses
-// nodes/expand/draft.ts's scribeNode for the reorganize-mode draft itself)
+// nodes/forge/draft.ts's scribeNode for the reorganize-mode draft itself)
 // ---------------------------------------------------------------------------
 
 export async function sentinelNode(state: OrchestrationState): Promise<Partial_> {

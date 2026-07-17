@@ -15,12 +15,12 @@ import WorkflowCenter from '../components/run/WorkflowCenter.tsx';
 import RunDetailHeader from '../components/run/RunDetailHeader.tsx';
 import RunStatsGrid from '../components/run/RunStatsGrid.tsx';
 import { useWorkflowRuns } from '../components/run/useWorkflowRuns.ts';
-import ReviewActionPanel from '../components/expand/ReviewActionPanel.tsx';
-import AgentStageBoard from '../components/expand/AgentStageBoard.tsx';
-import RunQueueList from '../components/expand/RunQueueList.tsx';
-import PipelineOverviewModal from '../components/expand/PipelineOverviewModal.tsx';
-import LlmTraceViewer from '../components/expand/LlmTraceViewer.tsx';
-import { formatTime, formatDuration } from '../components/expand/format.ts';
+import ReviewActionPanel from '../components/forge/ReviewActionPanel.tsx';
+import AgentStageBoard from '../components/forge/AgentStageBoard.tsx';
+import RunQueueList from '../components/forge/RunQueueList.tsx';
+import PipelineOverviewModal from '../components/forge/PipelineOverviewModal.tsx';
+import LlmTraceViewer from '../components/forge/LlmTraceViewer.tsx';
+import { formatTime, formatDuration } from '../components/forge/format.ts';
 import { RUN_STATUS_LABELS, defaultRunTitle } from '../lib/runModel.ts';
 import {
   isRunActive,
@@ -29,8 +29,8 @@ import {
   buildAgentStages,
   runWideStepProgress,
   runAgentPassProgress,
-} from '../components/expand/stageModel.ts';
-import type { PipelineStartStep } from '../components/expand/stageModel.ts';
+} from '../components/forge/stageModel.ts';
+import type { PipelineStartStep } from '../components/forge/stageModel.ts';
 
 type ContinuationMode = 'one_step' | 'finish_document' | 'recursive';
 type ValidationLevel = 'manual' | 'assisted' | 'autopilot';
@@ -55,7 +55,7 @@ const START_STEPS: Array<{
     id: 'expansion',
     label: 'Expansion',
     icon: ArrowUp,
-    description: 'Grow one document into fuller descriptive canon.',
+    description: 'Expand one document into fuller descriptive canon.',
   },
   {
     id: 'branching',
@@ -152,7 +152,7 @@ function runDisplayName(run: Run | RunWithEvents): string {
   return defaultRunTitle(run);
 }
 
-export default function ExpandPage() {
+export default function ForgePage() {
   const { wid } = useParams<{ wid: string }>();
   const [searchParams] = useSearchParams();
   const {
@@ -226,7 +226,7 @@ export default function ExpandPage() {
     selectRun,
   } = useWorkflowRuns({
     worldId: wid,
-    graphType: 'expand',
+    graphType: 'forge',
     extraPoll: forgeRunning,
     resetSelectionDetails: resetSelectedRunDetails,
   });
@@ -256,7 +256,7 @@ export default function ExpandPage() {
   const pipelineType: PipelineType =
     startStep === 'inception' ? 'summarize' :
     startStep === 'branching' ? 'propose_children' :
-    'forge_expand';
+    'expand_description';
   // Candidate content sources for the selected node: pending draft(s) first (they're
   // the newest authored content, even though not yet accepted), then the published
   // version, then older versions. Guarded by articleId so a stale fetch from the
@@ -389,7 +389,7 @@ export default function ExpandPage() {
     if (!wid || !selectedNode) return;
 
     await selectArticle(wid, selectedNode.id);
-    openAgentPanel(selectedNode.id, selectedNode.title, 'spark', pipelineType);
+    openAgentPanel(selectedNode.id, selectedNode.title, 'forge', pipelineType);
     setAgentParams({
       forgeEnabled: true,
       autoSelect: validationLevel !== 'manual',
@@ -629,12 +629,12 @@ export default function ExpandPage() {
               ? `${RUN_STATUS_LABELS[activeRun.status]} · ${activeRun.itemsCompleted - activeRun.itemsFailed} / ${activeRun.itemsTotal} articles · started ${formatTime(activeRun.createdAt)} · runtime ${formatDuration(runDurationMs(activeRun))}`
               : selectedRunForDetails
                 ? `${RUN_STATUS_LABELS[selectedRunForDetails.status]} · started ${formatTime(selectedRunForDetails.createdAt)} · runtime ${formatDuration(runDurationMs(selectedRunForDetails))}`
-                : 'Select a Grow run, or start a new one from the settings panel.'
+                : 'Select a Forge run, or start a new one from the settings panel.'
           }
           settingsOpen={settingsOpen}
           loading={selectedRunLoading}
           emptyTitle="No run selected"
-          emptyText="The latest active Grow run is selected automatically when one exists. Older runs can be opened from the run list."
+          emptyText="The latest active Forge run is selected automatically when one exists. Older runs can be opened from the run list."
           onShowSettings={() => setSettingsOpen(true)}
           headerAction={
             <button
@@ -790,8 +790,8 @@ export default function ExpandPage() {
         <>
           <WorkflowSettingsHeader
             icon={<Settings size={15} className="text-gray-500" />}
-            title="New Grow Run"
-            description="Configure the next Grow run."
+            title="New Forge Run"
+            description="Configure the next Forge run."
             onHide={() => setSettingsOpen(false)}
           />
 
@@ -962,7 +962,7 @@ export default function ExpandPage() {
 
                 <div>
                   <p className="text-xs font-semibold text-gray-700">Branching</p>
-                  <p className="text-xs text-gray-400 mt-0.5 mb-1">Existing children are never deleted by Grow.</p>
+                  <p className="text-xs text-gray-400 mt-0.5 mb-1">Existing children are never deleted by Forge.</p>
                   <select
                     value={branchingExistingMode}
                     onChange={(event) => setBranchingExistingMode(event.target.value as BranchingExistingMode)}

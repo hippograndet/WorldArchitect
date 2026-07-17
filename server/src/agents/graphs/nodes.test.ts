@@ -20,8 +20,8 @@ vi.mock('../../services/callLogger.js', () => ({
 // inside each function call, so a static import here is safe.
 import { wardenNode } from './nodes/consolidate/cohere.js';
 import { fetchWorldContextNode, buildContextPackageNode } from './nodes/shared.js';
-import { researcherNode } from './nodes/expand/research.js';
-import { scribeNode, stylizerNode } from './nodes/expand/draft.js';
+import { researcherNode } from './nodes/forge/research.js';
+import { scribeNode, stylizerNode } from './nodes/forge/draft.js';
 
 const OWNER_ID = 'owner-warden-node-test';
 
@@ -104,7 +104,7 @@ function scribeState(overrides: Partial<OrchestrationState> = {}): Orchestration
     worldId: 'scribe-node-world',
     articleId: 'scribe-node-article',
     pipelineRunId: 'scribe-node-run',
-    pipelineType: 'expand',
+    pipelineType: 'forge',
     contextPackage: {
       targetId: 'scribe-node-article',
       targetTitle: 'Scribe Article',
