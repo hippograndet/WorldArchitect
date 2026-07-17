@@ -683,7 +683,6 @@ describe('core routes on Postgres', () => {
       .expect(200);
     const ids = inbox.body.items.map((item: { id: string }) => item.id);
     expect(ids).toEqual(expect.arrayContaining([
-      'draft-inbox-a',
       `publish:${first.article.id}`,
       'issue-inbox-a',
       'world-issue-inbox-a',
@@ -693,6 +692,14 @@ describe('core routes on Postgres', () => {
     ]));
     expect(ids).not.toContain('resolved-review-inbox-a');
     expect(ids).not.toContain('issue-inbox-b');
+
+    // Pending drafts no longer surface as their own Inbox item (the "Drafts"
+    // lane was folded into Publish) -- they're carried as a payload field on
+    // the article's publish-lane item instead, so Publish can offer inline
+    // accept/discard.
+    expect(ids).not.toContain('draft-inbox-a');
+    const publishItem = inbox.body.items.find((item: { id: string }) => item.id === `publish:${first.article.id}`);
+    expect(publishItem.payload.pendingDraftId).toBe('draft-inbox-a');
 
     const count = await request!
       .get(`/api/worlds/${world.id}/inbox/count`)
