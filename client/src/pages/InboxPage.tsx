@@ -299,7 +299,7 @@ export default function InboxPage() {
                     )}
                     {suggestionConceptItems.length > 0 && (
                       <div>
-                        {renderLaneGroupHeading('New articles')}
+                        {renderLaneGroupHeading('Concept candidates')}
                         {suggestionConceptItems.map(renderLaneItemButton)}
                       </div>
                     )}
